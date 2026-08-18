@@ -341,12 +341,19 @@ Expected: 2 tests pass. If `makemigrations` reports no changes, the app is not i
 
 This is the step that matters. In a scratch directory:
 
+Commit first — the clone only sees committed work. Do **not** stash; it risks losing uncommitted
+work and is unnecessary here.
+
 ```bash
-git stash -u 2>/dev/null; cd /tmp && rm -rf seedcheck && git clone /Users/awais.qureshi/Documents/devstack/ai-on-boarding seedcheck
-cd seedcheck/seed && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python manage.py test
+cd /Users/awais.qureshi/Documents/devstack/ai-on-boarding
+git status --short          # expect clean, or commit before continuing
+cd /tmp && rm -rf seedcheck
+git clone /Users/awais.qureshi/Documents/devstack/ai-on-boarding seedcheck
+cd seedcheck/seed && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python manage.py test
 ```
 
-Expected: 2 tests pass. If anything is missing from git, add it and repeat.
+Expected: 2 tests pass. A failure here means a file was never committed — add it and repeat.
 
 - [ ] **Step 8: Commit**
 
@@ -709,11 +716,23 @@ The syllabus table gets a status column. Modules 0–3 `available`; 4–7 `in bu
 
 A dated table — module, date, verdict, what was hard — the learner copies into their working repo and fills in as they go.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Note the solo-learner caveat in the contract**
+
+`templates/review-contract.md` tells a reviewer with no written spec to derive criteria and have
+**the author** confirm them. A learner working alone has no author, and an unconfirmed derived list
+launders inexperience into a verdict. Add to its *When there is no written spec* section:
+
+```markdown
+**Working alone?** The confirmation step is not optional. If there is nobody to confirm your derived
+criteria, use this contract only where a written spec already exists, and treat everything else as
+backlog rather than reviewing against your own guess.
+```
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add README.md progress-template.md
-git commit -m "Rewrite README for learners; add progress template"
+git add README.md progress-template.md templates/review-contract.md
+git commit -m "Rewrite README for learners; add progress template; note the solo-learner caveat"
 ```
 
 ---
