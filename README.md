@@ -44,12 +44,12 @@ pass. That is the price of termination, and it is deliberate.
 
 ## The course
 
-Eight modules, ~18–20 hours hands-on, self-paced over three to four weeks. Every exercise runs against
+Eight modules, ~19–21 hours hands-on, self-paced over three to four weeks. Every exercise runs against
 one Django sign-in application the learner builds across the course, starting from a shipped seed.
 
 | # | Module | Exercise |
 |---|---|---|
-| 0 | First session | Seed green, one small change, reviewed and committed |
+| 0 | First session: asking and running | Seed green, then one change made twice — vague prompt vs scoped prompt |
 | 1 | Judging output you didn't write | Classify a set of agent diffs — with evidence, not hunches |
 | 2 | Working agreement | Write an `AGENTS.md`, demonstrate a behaviour change |
 | 3 | Context management | Sign-up + log-in implemented twice — naive, then disciplined |

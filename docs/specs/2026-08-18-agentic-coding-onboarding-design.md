@@ -112,8 +112,11 @@ The runner is split so it is not Claude-only:
 
 ## Scope
 
-Eight modules: setup, judgement, the four named topics, a review module, and a capstone. Skills/extension authoring,
-subagents, hooks, MCP and permissions tuning are **out of scope**.
+Eight modules: setup, judgement, the four named topics, a review module, and a capstone.
+
+**Authoring** skills, subagents, hooks and MCP servers is out of scope, as is permissions tuning.
+Knowing that these mechanisms exist and which one a given need calls for is *in* scope — one table in
+Module 2 — because freshers who have never been told the difference reach for the wrong one.
 
 Django is the *vehicle*, not a subject. The course does not teach Django to people who already
 know it. It teaches agentic coding practice using a Django codebase, because abstract exercises
@@ -205,13 +208,35 @@ Every module file has the same eight sections, in this order.
 
 Order is by which failure arrives soonest. The application grows feature by feature.
 
-### Module 0 — First session
+### Module 0 — First session: asking and running
 Shared: what all agentic tools have in common — the loop, reviewing a diff before accepting it,
-permission and approval models, when to stop the agent. Then a per-tool setup file: install,
-authentication, opening the project, running a first task.
-*Exercise:* get the seed running and its tests passing, then land one small real change — fix the
-untested code path or add a health-check view. Review the diff, commit it.
-*Verification:* tests pass; a commit exists; the learner can state what the agent changed and why they accepted it.
+permission and approval models, when to stop the agent.
+
+**The command surface that actually matters.** A short list covers most sessions rather than the
+full manual. In Claude Code that is roughly `/clear`, `/compact`, `/context`, `/init`, `/memory`,
+`/model` and `/review`; `/clear` when the agent starts mixing up files from earlier, `/compact` when
+you are near the limit but want to keep going. Cursor's equivalent surface is `@file`, `@codebase`
+and `@Docs`. Then a per-tool setup file: install, authentication, opening the project.
+
+**Asking for work.** The half of this module earlier drafts omitted entirely, and the first thing a
+newcomer actually needs:
+
+- Scope tightly — name the file, the scenario, and how you want it tested.
+- Point at an existing pattern rather than describing a convention. An agent picks conventions up
+  from a real example far faster than from prose.
+- Give it a check it can run. That is the difference between a session you watch and one you can
+  walk away from.
+- Describe a bug by symptom, location, and what "fixed" looks like — then ask for the failing test
+  before the fix.
+- Explore → Plan → Implement → Commit, with planning as a distinct phase rather than a preamble to
+  typing.
+
+*Exercise:* get the seed running and its tests passing. Then land one small real change — fix the
+untested code path or add a health-check view — **twice**: once from a vague one-line request, once
+from a scoped request naming the file, the expected behaviour and the test. Review both diffs, keep
+the better one, commit it.
+*Verification:* tests pass; a commit exists; the learner can state what the agent changed, why they
+accepted it, and one concrete difference between what the two prompts produced.
 
 ### Module 1 — Judging output you didn't write
 Reading a diff for what it does rather than what the summary claims. Running the tests before
@@ -234,6 +259,28 @@ Project instructions files: what belongs in them, what does not, why "be helpful
 "run `python manage.py test` before claiming done" is not. `AGENTS.md` as the standard, per-tool
 files as the exceptions, and how to avoid maintaining five near-identical files. Scope discipline.
 Asking for verification rather than assurances.
+
+**The token tax.** Everything always-on is re-paid on every single request. This is why both major
+tools cap their always-on surface by convention — Cursor's guidance keeps always-apply rules to a
+couple of hundred words, Claude Code's keeps a skill under a few hundred. It is the fact that ties
+this module to the two after it: the working agreement is itself a context cost, measured against a
+real limit. Introduced here, paid off in Modules 3 and 4.
+
+**What else exists, and when not to reach for it.** Freshers cargo-cult extension mechanisms they do
+not need. One table prevents it; *authoring* any of these stays out of scope.
+
+| Mechanism | Reach for it when |
+|---|---|
+| Instructions file (`AGENTS.md` / `CLAUDE.md`) | Something should be true of every session in this project |
+| Skill | Something you want the agent to know how to do, loaded implicitly when relevant |
+| Slash command | Something you want to trigger explicitly, by name |
+| Subagent | Something you want delegated into a fresh, isolated context |
+| Hook | Something you want to happen regardless of what the agent decides |
+
+Cursor's `.mdc` rules span the same spectrum through their four activation modes — always,
+description-matched, glob-scoped, and manual `@`-mention — which is the clearest illustration in the
+course that these are shared concepts wearing different names.
+
 *Exercise:* write an `AGENTS.md` for the sign-in project covering at minimum the test command, the
 migration policy (generated, never hand-edited), where settings live, and project conventions.
 Wire it up for the learner's tool. Demonstrate a behaviour change with and without it.
@@ -354,12 +401,12 @@ building, since it pays for itself immediately.
 
 ## Duration and delivery
 
-Roughly **18–20 hours hands-on** on the standard track, self-paced over three to four weeks.
+Roughly **19–21 hours hands-on** on the standard track, self-paced over three to four weeks.
 The supervised track runs about 1.4× that, most of the difference landing in Modules 3, 5 and 7.
 
 | Module | Hands-on | What drives the estimate |
 |---|---:|---|
-| 0 — First session | ~1h | Install, authentication, Django environment, seed green, one small change |
+| 0 — First session: asking and running | ~2h | Setup, the command surface, and one change made twice — vague prompt vs scoped prompt |
 | 1 — Judging output you didn't write | ~1.5h | Working the judgement set, with evidence for each verdict |
 | 2 — Working agreement | ~1.5h | Writing a genuinely specific instructions file takes iteration |
 | 3 — Context management | ~3.5h | Sign-up and log-in implemented twice — naive, then disciplined |
@@ -433,6 +480,11 @@ verified. This is now three times the volatile surface of a single-vendor course
 ongoing maintenance cost of vendor neutrality.
 
 **The AGENTS.md / CLAUDE.md split is the highest-churn fact in the course.** Re-verify first, every revision.
+
+**The Module 0 command surface and the Module 2 mechanism table were sourced 2026-08-18** and are
+the next most volatile content after the model roster. Command names, rule formats and activation
+modes all move. Re-verify both against official documentation at each revision, and keep the lists
+short — a short list that is right beats a complete one that is stale.
 
 **Django version is pinned and stated.** The seed pins Django and Python in `requirements.txt`; the
 README names the versions the course was written against.
