@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+db.sqlite3
+.DS_Store
+.idea/
+*.egg-info/
+.superpowers/
+.pytest_cache/
