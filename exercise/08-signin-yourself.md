@@ -26,9 +26,9 @@ signup started from, and turning it into something buildable is the work.
 Both review gates apply, and nobody will remind you: PR 1 for the specification before you plan,
 PR 2 for the implementation.
 
-And once signin is finished — specified, built, tested, traced and in a pull request — expect a
-change request, exactly as one arrived after signup. Handle it the way you handled that one. You
-will get no walkthrough this time.
+And once signin is finished — specified, built, tested, traced and in a pull request — expect
+another issue in your repository, exactly as one arrived after signup. Handle it the way you
+handled that one. You will get no walkthrough this time.
 
 ## First: teach the skill what you learned
 
