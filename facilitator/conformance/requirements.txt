@@ -1,3 +1,0 @@
-# Install the current stable releases; pin what you resolve.
-pytest
-requests
