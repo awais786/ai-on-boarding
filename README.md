@@ -10,6 +10,49 @@ tested, and to verify that what came back actually matches what you asked for.
 This is called **spec-driven development**. The specification is the source of truth. Code
 exists to satisfy it, and tests are the executable evidence that it does.
 
+## What actually happens
+
+Six commands carry a feature from a one-line idea to reviewed, tested code. Each one reads the
+artefact before it and writes the next, so nothing is ever built from a conversation someone
+half-remembers.
+
+| You run | It produces | You then |
+|---|---|---|
+| `/speckit-constitution` | `constitution.md` — the rules every feature obeys | Read it once; it outlives this feature |
+| `/speckit-specify` | `spec.md` — requirements as `FR-001`, `FR-002`, … | Read every line and hunt for invented detail |
+| `/speckit-clarify` | questions about what you left ambiguous | Decide, out loud, and let it write your answers in |
+| — | *your review* | **PR 1 — your lead approves the spec before any code exists** |
+| `/speckit-plan` | `plan.md` — the technical approach | Check it against the constitution |
+| `/speckit-tasks` | `tasks.md` — `T001`, `T002`, … | Check every `FR-` is covered by some task |
+| `/speckit-implement` | working Django code | Then write tests **from the spec**, not from the code |
+| — | `traceability.md` | **PR 2 — your lead approves the implementation** |
+
+The chain is the thing to watch:
+
+```
+requirement FR-004  →  task T002  →  api/serializers.py:18  →  test_password_too_short_rejected
+```
+
+If any link is missing, something is wrong and the table is what shows you: a requirement with no
+test is unverified behaviour, a test with no requirement is work nobody asked for, and a
+requirement with no code was never built at all.
+
+**Tests come after the implementation, deliberately.** This is not test-driven development. You
+write tests from the specification once the code exists, which is harder than it sounds — the
+temptation is to read the code and describe what it already does, and a test written that way
+can never fail.
+
+## What you will learn
+
+Not Django. Django is the material, not the subject.
+
+- **To write a requirement that can be tested.** *"Passwords should be secure"* cannot be. *"Passwords shorter than 8 characters are rejected with a 400 and a field-level error"* can. Telling those apart, reliably, is the core skill.
+- **To spot what an agent invented.** Ask for three fields and you will get status codes, token strategies and validation rules you never mentioned. Some will be right. Deciding which is your job, and it is the job that does not go away.
+- **To fix the instruction, not the output.** When generated code is nearly right, patching it by hand is faster and leaves the instruction still wrong. The next regeneration brings the bug back.
+- **To change a finished feature properly.** A request arrives after signup is built and merged. You will edit the specification first and let the change propagate — spec, plan, tasks, tests, code — rather than reaching straight for the view.
+- **To tell three kinds of wrong apart.** A code bug means the code disagrees with the spec. A spec bug means the spec says the wrong thing. A gap means nobody ever decided. Each has a different fix, and confusing them is how teams argue for a week.
+- **To end a code review.** Reviews that never converge are reviews with no agreed standard. You will work under a contract where findings must cite a requirement, a failing test or a documented convention — and where `PASS` is an expected outcome, not a failure of diligence.
+
 ## The house rule
 
 **You do not hand-write code.** Not the models, not the views, not the tests.

@@ -171,9 +171,18 @@ it. Those are built later, through the workflow — and building them now remove
 
 ## If it goes wrong
 
-**`pytest` reports "no tests ran" or cannot find Django settings.** `DJANGO_SETTINGS_MODULE` is
-not configured for pytest. Ask Claude: *"pytest cannot find the Django settings — fix the pytest
-configuration so `pytest` runs from the project root."*
+**`pytest` reports "no tests ran".** Two causes, and the second is easy to miss.
+
+Either `DJANGO_SETTINGS_MODULE` is not configured for pytest — ask Claude: *"pytest cannot find
+the Django settings — fix the pytest configuration so `pytest` runs from the project root."*
+
+Or the test file is named `api/tests.py`. That is the name `django-admin startapp` generates, and
+pytest does not collect it: the default pattern is `test_*.py`. Rename it to `api/test_health.py`.
+
+**Do not read "no tests ran" as a pass.** pytest exits without complaint and prints no failures,
+so a quick glance says everything is fine while nothing whatsoever was verified. This is why the
+checklist asks for **1 passed** rather than "pytest passes" — and it is the same trap, in
+miniature, as a test suite that goes green because its assertions never execute.
 
 **`/api/docs/` returns 500 with `TemplateDoesNotExist: drf_spectacular/swagger_ui.html`.** The
 package is installed but missing from `INSTALLED_APPS`, so Django never looks in its template
