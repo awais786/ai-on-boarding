@@ -28,15 +28,31 @@ claude --version
 Deliberately not pasted here: the install command changes, and a stale command in a tutorial
 is worse than a link. The docs are the source of truth.
 
-### 2. Create your repository
+### 2. Create your repository — on GitHub, not just locally
+
+Your lead reviews your work through pull requests, so the repository has to be somewhere they can
+see it.
+
+With the GitHub CLI:
+
+```bash
+gh repo create sdd-django-demo --private --clone
+cd sdd-django-demo
+```
+
+Without it — create an empty private repository named `sdd-django-demo` on github.com, then:
 
 ```bash
 mkdir sdd-django-demo && cd sdd-django-demo
 git init
+git remote add origin git@github.com:<your-username>/sdd-django-demo.git
 ```
 
-Leave it empty. You are not going to create the Django project by hand — that is phase 1's job,
-and doing it by hand would contradict everything this exercise teaches.
+**Send your lead the URL and check they have access.** They cannot review what they cannot see,
+and you will be blocked at phase 3 otherwise.
+
+Leave the repository empty otherwise. You are not going to create the Django project by hand —
+that is phase 1's job, and doing it by hand would contradict everything this exercise teaches.
 
 ### 3. Install Spec Kit into the project
 
@@ -88,6 +104,8 @@ git commit -m "Initialise Spec Kit"
 
 - [ ] `claude --version` prints a version
 - [ ] You are inside a git repository named `sdd-django-demo`
+- [ ] `git remote -v` shows an `origin` pointing at your GitHub repository
+- [ ] Your lead has the URL and can see it
 - [ ] `/help` inside Claude Code lists the `speckit` commands
 - [ ] You have one commit
 
@@ -105,6 +123,9 @@ known — Claude Code sometimes does not pick up newly written command files mid
    the corresponding file in `.specify/templates/` and asking Claude to follow it. It is
    clumsier, but nothing here depends on the commands specifically — they are a convenience
    over prompts.
+
+**`git push` later says "'origin' does not appear to be a git repository".** You created the
+repository locally but never linked it to GitHub. Go back to step 2 and add the remote.
 
 **`uvx` is not found.** Install `uv` (see the Spec Kit README), or use `pipx` as an alternative
 runner.
