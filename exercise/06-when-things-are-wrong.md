@@ -158,6 +158,7 @@ Notice the order. The code changed fourth, not first.
 ```bash
 git add .
 git commit -m "Close specification gap: email case sensitivity"
+git push
 ```
 
 ## Done when
@@ -167,7 +168,7 @@ git commit -m "Close specification gap: email case sensitivity"
 - [ ] You have found a genuine gap by probing the running API through Swagger UI or curl
 - [ ] The gap is closed in the order spec → test → code
 - [ ] `traceability.md` has a row for the new requirement
-- [ ] The suite is green and your commit is in
+- [ ] The suite is green, your commit is in, and it is pushed
 
 ## If it goes wrong
 
