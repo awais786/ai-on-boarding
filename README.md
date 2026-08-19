@@ -88,8 +88,8 @@ anyone.
   first
 - Evidence you can hand to a reviewer — including proof that at least one of your tests can
   actually fail
-- Experience of a feature request landing mid-build, and of propagating it from the specification
-  outward rather than patching the code
+- Experience of a feature request landing on a finished feature, and of propagating it from the
+  specification outward rather than patching the code
 - Direct experience of the three reasons software is wrong — a code bug, a spec bug, and a
   gap where nobody ever decided
 

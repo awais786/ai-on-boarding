@@ -111,7 +111,11 @@ Confirm `http://127.0.0.1:8000/api/docs/` renders and lists signup and signin.
 ```bash
 git add .
 git commit -m "Submit signup and signin"
+git push
 ```
+
+Then open your pull requests on GitHub and check the diffs show everything you expect. If a change
+is missing, it was never pushed — and your lead would have reviewed the wrong thing.
 
 ## Done when
 
@@ -120,7 +124,7 @@ git commit -m "Submit signup and signin"
 - [ ] `traceability.md` covers every requirement of both features
 - [ ] You have broken a requirement's code and watched its test fail, and recorded which
 - [ ] The server starts from a clean checkout and `/api/docs/` lists both endpoints
-- [ ] Your commit is in
+- [ ] Your commit is in, pushed, and visible in the pull request on GitHub
 
 ## What happens next
 
