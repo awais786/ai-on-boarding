@@ -28,9 +28,20 @@ of what learners get.
 `facilitator`. Never the other way. A merge in the wrong direction publishes the answers, and it
 is the one mistake that cannot be quietly undone once devs have pulled.
 
-**Watch deletions when you merge.** A file removed on `main` is removed here too — that is how
-this file was briefly lost after the first sync. After merging, check that `CLAUDE.md` and
-everything under `facilitator/` still exist before pushing.
+**Never fast-forward this branch.** `main` deleted `facilitator/` and `CLAUDE.md` in the commit
+that created the split, so a fast-forward merge does not merge anything — it moves this branch to
+`main`'s tip and the withheld material disappears. That is exactly how it was lost once already.
+
+Sync like this, and check before pushing:
+
+```bash
+git checkout facilitator
+git merge --no-ff main
+ls facilitator/ CLAUDE.md      # both must still exist
+git push
+```
+
+If either is missing, do not push. Recover with `git checkout <last-good-commit> -- facilitator`.
 
 Several things are withheld from learners **on purpose**, because finding them is the skill being
 trained:
