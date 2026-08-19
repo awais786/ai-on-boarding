@@ -97,9 +97,14 @@ decision — but it preserves the discipline of writing for a reader.
 
 ## Change requests
 
-`facilitator/change-requests.md` holds two requests and when to fire them. **Learners must never
-see that file.** Their materials say only that requests may arrive and what to do; the whole
-value is that a real change request is unscheduled.
+`facilitator/change-requests.md` holds two requests, when to fire them, and the exact issue titles
+and bodies. **Learners must never see that file.** Their materials say only that requests may
+arrive and what to do; the whole value is that a real change request is unscheduled.
+
+**Deliver them as issues in the learner's own repository**, not as messages — it is how requests
+actually arrive, it timestamps when they got it, and their pull request can reference it. Resist
+adding acceptance criteria or a checklist to the issue: turning a paragraph into a specification
+is the exercise, and writing the requirements for them removes it.
 
 **Both requests land on finished features, never mid-build.** CR-1 goes out as they start phase
 7, after signup is complete and they have done the password-minimum change. CR-2 goes out after
@@ -111,6 +116,24 @@ scaffolding comes off.
 
 A learner who handles CR-1 well and CR-2 badly is producing the most useful signal in the whole
 exercise: they can follow the motion but have not internalised it.
+
+## Tracking a cohort
+
+Learners do not need a board. Spec Kit already produces their task list as `tasks.md` in their own
+repository, and the course treats it as authoritative — copying those into issues would create a
+second copy of the same list to keep in sync, which is the duplicated-source-of-truth problem the
+whole course argues against. Their repository holds the specification, the tasks, the code and the
+pull requests. That is a complete trail.
+
+**You** may want one, once you have more than two learners. A single GitHub Project on the course
+repository, one card per person, columns as phases:
+
+```
+Setup · Spec (PR 1 open) · Building · Verified (PR 2 open) · Change request sent · Done
+```
+
+You move the cards; learners never touch it. Its real value is telling you when to open CR-1
+without having to remember where everyone is.
 
 ## Skills, and the no-hand-written-code rule
 

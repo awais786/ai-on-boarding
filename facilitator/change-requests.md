@@ -1,10 +1,26 @@
 # Change requests
 
 Two requests arrive during the exercise. **Learners must not see this file.** Their materials say
-only that requests may arrive mid-build and what to do when one does — never what, and never when.
+only that requests may arrive and what to do when one does — never what, and never when.
 
 The point is that a real change request is unscheduled. A learner who knows a "surprise" is coming
 on page 12 is not practising anything.
+
+## How to deliver them
+
+**Open an issue in the learner's own repository**, not a message. Three reasons: it is how requests
+actually arrive, it timestamps when they got it so you can see how long propagation took, and it
+gives their pull request something concrete to reference.
+
+```bash
+gh issue create --repo <them>/sdd-django-demo --title "<title below>" --body "<body below>"
+```
+
+Do not add labels, acceptance criteria, or a checklist. A real product request is a paragraph, and
+turning it into a specification is the exercise. If you write the requirements for them you have
+removed the work.
+
+Leave the issue open until their pull request merges — the learner is told to close it then.
 
 ---
 
@@ -17,7 +33,9 @@ Not mid-build. A change request landing on a half-built feature muddles the less
 the artefacts do not exist yet and the blast radius cannot be measured. Landing it on a complete,
 verified feature is both cleaner to teach and how change requests actually arrive.
 
-**Send verbatim:**
+**Issue title:** `Users must accept terms of service at signup`
+
+**Issue body, verbatim:**
 
 > Product has come back on signup. Before we launch we need users to accept the terms of service
 > when they create an account — legal will not sign off otherwise. Can you get this into the
@@ -53,7 +71,9 @@ Same principle as CR-1: a complete baseline, then the change.
 This is the assessment. No guidance accompanies it, and phase 8 tells them only that a request
 may arrive and to handle it as they did before.
 
-**Send verbatim:**
+**Issue title:** `Allow sign in with email as well as username`
+
+**Issue body, verbatim:**
 
 > Support is getting tickets from users who cannot log in — they are typing their email address
 > because that is what they remember. Can we let people sign in with either their username or

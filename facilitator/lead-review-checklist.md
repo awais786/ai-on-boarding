@@ -92,6 +92,10 @@ The question shifts: *does this do what the approved specification said?*
       surrounding style is the tell.
 - [ ] Any change request that arrived is folded in, and the **specification** was updated, not
       just the code.
+- [ ] The pull request references the change-request issue, and the issue is still open — they are
+      told to close it on merge, not before.
+- [ ] The requirements the request produced are in the specification, not only in the issue. A
+      requirement living in a GitHub comment is one nobody finds later.
 
 **Your verdict, as the last line of your review:**
 
