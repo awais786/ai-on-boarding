@@ -1,6 +1,7 @@
 import re
 
 from django.contrib.auth.models import User
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 PASSWORD_MIN_LENGTH = 8
@@ -31,9 +32,15 @@ class SignupSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         email = validated_data['email']
-        return User.objects.create_user(
-            username=email, email=email, password=validated_data['password']
-        )
+        try:
+            with transaction.atomic():
+                return User.objects.create_user(
+                    username=email, email=email, password=validated_data['password']
+                )
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {'email': ['An account with this email already exists.']}
+            )
 
 
 class AccountSerializer(serializers.ModelSerializer):
