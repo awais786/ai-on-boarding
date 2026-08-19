@@ -71,14 +71,20 @@ For each requirement, ask the six review questions:
 
 Fix what fails, in the specification. Ask Claude to make the edits, then read them.
 
-### 5. Give every requirement an identifier
+### 5. Check every requirement has an identifier
 
-Number them. `R1`, `R2`, `R3`, straight through the specification.
+Spec Kit numbers requirements for you: functional requirements come out as `FR-001`, `FR-002`,
+and success criteria as `SC-001`, `SC-002`. Read the specification and confirm every requirement
+actually carries one — if `/speckit-specify` produced prose without identifiers anywhere, ask
+Claude to number the strays, continuing the existing sequence.
+
+Use whatever scheme your specification already uses. Do not invent a second one alongside it;
+two competing numbering systems are worse than either alone.
 
 This looks like bureaucracy for about ten minutes, and then it is the thing everything else hangs
 off. Your traceability table will have a row per identifier. Your pull requests will list the
-identifiers they satisfy. When someone asks *"which test covers R4?"* there is exactly one answer,
-and finding it takes seconds rather than re-reading a document.
+identifiers they satisfy. When someone asks *"which test covers FR-004?"* there is exactly one
+answer, and finding it takes seconds rather than re-reading a document.
 
 **One rule, and it matters more than the numbering itself: identifiers are permanent.**
 
@@ -87,7 +93,7 @@ requirement changes, it keeps its number. When a requirement is removed, its num
 never reused.
 
 Renumbering feels tidy and is quietly destructive: every traceability row, every pull request,
-every review comment that mentioned `R4` now points at something else, and nothing warns you.
+every review comment that mentioned `FR-004` now points at something else, and nothing warns you.
 A gap in the sequence is not untidiness. It is history.
 
 ### 6. Approve it, deliberately
@@ -155,7 +161,7 @@ formally in phase 7. Meeting it for real first is better.
 
 - [ ] `review-notes.md` contains your own list, written before you opened the guide
 - [ ] You have compared it against the facilitator checklist and noted what you missed
-- [ ] Every requirement has an identifier — `R1`, `R2`, … — and you know they are permanent
+- [ ] Every requirement has an identifier — `FR-001`, `FR-002`, … — and you know they are permanent
 - [ ] Every requirement in the specification names something that can fail
 - [ ] No requirement can be read two ways
 - [ ] Duplicate emails, duplicate usernames, invalid emails, short passwords, and the success
