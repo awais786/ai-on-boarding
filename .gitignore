@@ -8,3 +8,11 @@ db.sqlite3
 *.egg-info/
 .superpowers/
 .pytest_cache/
+.private/
+
+# sdd_django_demo build workspace (distilled into reference/signup-worked-example/)
+sdd_django_demo/.venv/
+sdd_django_demo/db.sqlite3
+sdd_django_demo/__pycache__/
+sdd_django_demo/**/__pycache__/
+sdd_django_demo/**/*.pyc
