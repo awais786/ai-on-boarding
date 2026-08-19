@@ -14,46 +14,41 @@ exists to satisfy it, and tests are the executable evidence that it does. The ac
 
 ## What actually happens
 
-Six commands carry a feature from a one-line idea to reviewed, tested code. Each one reads the
-artefact before it and writes the next, so nothing is ever built from a conversation someone
-half-remembers.
+This project runs spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec)
+(previously GitHub's Spec Kit — fully removed; see `sdd_django_demo/README.md` for why). A
+feature moves from idea to reviewed, tested code as a **change**, living in
+`openspec/changes/<name>/` until it's implemented, then archived.
 
 | You run | It produces | You then |
 |---|---|---|
-| `/speckit-constitution` | `constitution.md` — the rules every feature obeys | Read it once; it outlives this feature |
-| `/speckit-specify` | `spec.md` — requirements as `FR-001`, `FR-002`, … | Read every line and hunt for invented detail |
-| `/speckit-clarify` | questions about what you left ambiguous | Decide, out loud, and let it write your answers in |
-| `/speckit-plan` | `plan.md` — the technical approach | Check it against the constitution |
-| `/speckit-tasks` | a dependency-ordered task breakdown, `T001`, `T002`, … | Check every `FR-` is covered by some task |
-| a separate posting step (`gh issue create`/`gh issue comment`, or `/speckit-taskstoissues`) | that breakdown, posted to the feature's GitHub issue as a checklist | Track progress there, not in a file |
-| `/speckit-implement` | working Django code | Then write tests **from the spec**, not from the code |
-| — | `traceability.md` | Map every `FR-` to its code and test by hand — nothing generates this link for you |
-| `/code-review` | findings bound by Constitution Principle XII, ending in an explicit verdict | Fix what's blocking, re-run for a second (and final) pass, then **open a pull request; your lead reviews spec, plan and code together** |
+| `/opsx:propose "<idea>"` | a new `openspec/changes/<name>/` with `proposal.md` (why/what), a delta `specs/<capability>/spec.md` (requirements), `design.md` (how), `tasks.md` (checklist) — all generated together | Read every line and hunt for invented detail |
+| — | *your review of the proposal* | Fix ambiguity in the proposal/spec, not later in the code |
+| `/opsx:apply` | working Django code, one `tasks.md` item at a time, checked off `[x]` as it lands | Then write tests **from the spec**, not from the code |
+| — | `traceability.md` | Map every requirement to its code and test by hand — nothing generates this link for you |
+| `/code-review` | findings bound by the review contract in `openspec/config.yaml` / `CLAUDE.md`, ending in an explicit verdict | Fix what's blocking, re-run for a second (and final) pass, then open a pull request |
+| `/opsx:archive` | moves the change to `openspec/changes/archive/`, merges its delta spec into the canonical `openspec/specs/<capability>/spec.md` | Only after `Ready to merge: yes` and `pytest` passes for the whole project — this is a config-enforced rule, not a habit |
 
-`/speckit-tasks` generates the breakdown; it does not talk to GitHub itself. Posting it to the
-issue is a distinct step, and that issue — not a `tasks.md` file — is where task status lives
-from then on; a file duplicating the issue gives nobody, human or agent, anything the issue
-doesn't already have. Review happens as a single pull request per feature rather than a fixed
-two-gate split; open it whenever the work is ready to be judged, which is usually once the spec,
-plan and implementation are all in place.
+`tasks.md`'s checkbox state — not a separate GitHub-issue checklist — is where task status
+lives; the GitHub issue for a feature mirrors it for human visibility, but `tasks.md` in the
+change folder is the thing `/opsx:apply` actually reads and updates.
 
-`/code-review` is not optional theatre and it is not open-ended. `CLAUDE.md` (root and
-`sdd_django_demo/`) points it at the constitution's review contract: a finding blocks only if it
-cites an `FR-` ID, a named failing test, or a documented convention; it runs at most two passes
-— an initial pass and one follow-up after fixes, never a third; and it always ends with
-`Ready to merge: yes` or `Ready to merge: no`, stated plainly, never left as an open list. That
-last part is what stops review from becoming the thing that never converges — see the signup
-build in `sdd_django_demo/README.md` for a real example of both passes.
+`/code-review` is not optional theatre and it is not open-ended. `CLAUDE.md`/`AGENTS.md` (root
+and `sdd_django_demo/`) point it at the review contract in `openspec/config.yaml`: a finding
+blocks only if it cites a requirement, a named failing test, or a documented convention; it runs
+at most two passes — an initial pass and one follow-up after fixes, never a third; and it always
+ends with `Ready to merge: yes` or `Ready to merge: no`, stated plainly, never left as an open
+list. That last part is what stops review from becoming the thing that never converges — see the
+signup build in `sdd_django_demo/README.md` for a real example of both passes.
 
 The chain is the thing to watch:
 
 ```
-requirement FR-004  →  GitHub issue task T002  →  api/serializers.py:18  →  test_password_too_short_rejected
+requirement "Enforce a minimum password strength"  →  tasks.md item  →  api/serializers.py:18  →  test_signup_rejects_password_shorter_than_minimum
 ```
 
-If any link is missing, something is wrong and the table is what shows you: a requirement with no
-test is unverified behaviour, a test with no requirement is work nobody asked for, and a
-requirement with no code was never built at all.
+If any link is missing, something is wrong: a requirement with no test is unverified behaviour, a
+test with no requirement is work nobody asked for, and a requirement with no code was never
+built at all.
 
 **Tests come after the implementation, deliberately.** This is not test-driven development. You
 write tests from the specification once the code exists, which is harder than it sounds — the
@@ -75,9 +70,10 @@ Not Django. Django is the material, not the subject.
 
 **You do not hand-write code.** Not the models, not the views, not the tests.
 
-You write and edit *instructions* — the specification, the constitution, and a skill describing
-how this project does Django. The agent turns those into code. That division is the whole point:
-humans own intent, agents own implementation.
+You write and edit *instructions* — the proposal, the spec, `openspec/config.yaml`'s project
+conventions, and `CLAUDE.md`/`AGENTS.md` describing how this project does Django. The agent
+turns those into code. That division is the whole point: humans own intent, agents own
+implementation.
 
 You will be tempted to break this, usually when something is nearly right and a two-line edit
 would finish it. When you feel that, stop and ask a better question: **which instruction failed

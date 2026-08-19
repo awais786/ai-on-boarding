@@ -1,0 +1,44 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Python 3.14, Django 6.1, Django REST Framework 3.18.0, drf-spectacular 0.30.0,
+  pytest 9.1.1 with pytest-django. SQLite, no environment variables required to run or test.
+  Project lives in sdd_django_demo/ (a Django project + `api` app) at the repo root; this
+  ai-on-boarding repo also contains unrelated course/reference material (glossary.md,
+  reference/, starter/) that is not part of the Django project.
+
+  Domain: a small auth API (signup, signin, and an upcoming embargo/rules feature) built as a
+  worked example of spec-driven development. No username field exists anywhere - email is the
+  only account identifier. Django's built-in django.contrib.auth.User is reused; no custom user
+  model. User.username is populated internally from the normalised (lowercased) email and is
+  never part of any request/response contract.
+
+  Prior work: openspec/changes/archive/add-user-signup/ is the reference example for how a
+  change should look end to end - proposal, delta spec, design, tasks (all checked), and the
+  code and tests it produced.
+
+rules:
+  proposal:
+    - "State only externally observable behaviour (what a caller of the API can see) - no Django class names, serializer names, or ORM details. Save how it works for design.md."
+    - "Every requirement must be independently testable. A requirement nobody could write a failing test against is not a requirement."
+  specs:
+    - "Requirement identifiers (FR-XXX style, or the schema's equivalent) are permanent. A changed requirement keeps its number; a removed one leaves a gap; a new one takes the next free number. Never renumber."
+  design:
+    - "Every design decision must trace back to a requirement in the proposal or spec. A decision that does not satisfy a stated requirement is scope creep - cut it or add the requirement it is actually justifying."
+    - "Prefer the simplest design that satisfies the requirements over one that anticipates requirements nobody has written down. Justify any new model, app, or dependency explicitly - do not let it slide in silently."
+  tasks:
+    - "Do not generate test-writing tasks. Tests are written after implementation exists, from the spec - this project does not practise test-driven development. Generating test tasks that precede implementation is a schema violation for this project, not a stylistic choice."
+
+operations:
+  apply:
+    guidance:
+      - "Once implementation tasks are complete, write tests from the spec or proposal, not from reading the code, covering every requirement. Name tests after the behaviour they protect, not the function they call."
+      - "Security-sensitive behaviour (authentication, credential storage, credential exposure) needs a test that asserts it directly, not incidentally through a success-path test."
+      - "Prove at least one new test can actually fail - break the implementation on purpose, confirm the right test goes red, then restore it. A test only ever observed passing is not yet evidence of anything."
+      - "Build or extend traceability.md mapping every requirement to its code and test."
+      - "Run /code-review before opening a pull request. Findings only block if they cite a requirement id, a specific named failing test, or a documented convention (this file, CLAUDE.md, or AGENTS.md) - anything else is a nit. Review runs at most two passes, an initial pass and one follow-up after fixes. Every review ends with an explicit verdict, stated as Ready to merge: yes or Ready to merge: no, never an open-ended list with no conclusion."
+      - "Never hand-patch generated code to make it pass. If generated output is wrong, fix the proposal, spec, design, or a project skill, and regenerate."
+  archive:
+    guidance:
+      - "Only archive a change once /code-review has returned a Ready to merge: yes verdict for it."
+      - "Confirm pytest passes for the whole project, not just the new change's tests, before archiving."
