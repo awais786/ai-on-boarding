@@ -11,8 +11,8 @@ About 1.5 hours.
 
 ## Before you start
 
-Phase 1 complete: `pytest` passes, the health endpoint returns 200, and there is no
-authentication code in the project.
+Phase 1 complete: `pytest` reports **1 passed** — not "no tests ran" — the health endpoint
+returns 200, and there is no authentication code in the project.
 
 ## Steps
 
@@ -51,7 +51,15 @@ A change to the specification must be reflected in the affected plan, tasks, tes
 Code is generated from instructions, never hand-written. When generated code is wrong,
 fix the instruction that produced it rather than the code itself.
 Recurring technique belongs in a project skill, not in a prompt repeated each session.
+Tests are written after the implementation exists, derived from the specification.
+This project does not practise test-driven development.
 ```
+
+That last pair is not stylistic preference — it is load-bearing. Spec Kit generates test tasks
+*before* implementation whenever it concludes that tests were requested, and the first principle
+in this list ("every behavioural requirement must have automated verification") reads exactly like
+such a request. Stating the ordering explicitly is what stops your task list from arriving
+test-first.
 
 Read what it generates. Three of those lines carry most of the weight. *Never modify a test
 merely to make a failing implementation pass* is what stops a green suite from becoming a lie.
@@ -103,7 +111,25 @@ head, because only the written one can be tested.
 catch yourself thinking "I'll just handle that case when I implement it", stop — that thought is
 the failure this whole exercise exists to prevent.
 
-### 6. Commit
+### 6. Find where everything landed
+
+Spec Kit writes to fixed locations, and you will be opening these files constantly from here on:
+
+| Artefact | Path |
+|---|---|
+| Constitution | `.specify/memory/constitution.md` |
+| Specification | `specs/NNN-<short-name>/spec.md` |
+| Quality checklist | `specs/NNN-<short-name>/checklists/requirements.md` |
+| Plan (phase 4) | `specs/NNN-<short-name>/plan.md` |
+| Tasks (phase 4) | `specs/NNN-<short-name>/tasks.md` |
+
+`NNN` is a sequence number and `<short-name>` is generated from your description — `001-user-signup`
+is typical. Spec Kit records the directory it chose in `.specify/feature.json`, so if you cannot
+find it, read that file.
+
+Open the specification now and keep it open. Phase 3 is nothing but reading it.
+
+### 7. Commit
 
 ```bash
 git add .
@@ -118,6 +144,7 @@ git commit -m "Add constitution and signup specification"
 - [ ] The specification still contains **no** Django-specific implementation detail — no model
       names, no serializer names, no view classes
 - [ ] You are on the `feature/signup` branch, not `main`
+- [ ] You know the path to your `spec.md`, and have opened it
 - [ ] Your commit is in
 
 If the last box fails, the specification has drifted into being a plan. Ask Claude to remove the
