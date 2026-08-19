@@ -31,5 +31,7 @@
 
 ## Change requests folded in
 
-<!-- Any change request that arrived while this was open, and what it touched.
-     Delete if none. -->
+<!-- Link the issue, and say what it touched — which requirements were added or changed,
+     and which artefacts moved. Delete this section if none arrived.
+
+     Closes #<issue-number> -->

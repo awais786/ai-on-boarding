@@ -114,11 +114,17 @@ it **grows**.
 
 ### 8. Read the request
 
-By now your lead will have sent you a feature request. If not, ask for it before continuing.
+By now your lead will have **opened an issue in your repository**. If there isn't one, ask before
+continuing.
 
-It will be short — a sentence or two, the way real requests arrive. It will not tell you the
-field name, the type, the status code, or what the edge cases should do. **Those gaps are not an
+It will be short — a sentence or two, the way real requests arrive. It will not tell you the field
+name, the type, the status code, or what the edge cases should do. **Those gaps are not an
 oversight; they are the work.**
+
+Leave the issue open until the change is merged, and reference it from your pull request. The
+issue is where the request came from; your specification is where the decisions about it live.
+Those are two different documents and the issue does not replace the spec — a requirement that
+exists only in a GitHub comment is a requirement nobody will find in six months.
 
 ### 9. Decide whether it belongs here at all
 
@@ -163,7 +169,8 @@ Eight artefacts. **The two most often forgotten are the first and the second.** 
 failure is updating the code and the tests, leaving a specification that describes software which
 no longer exists and a pull request that describes the wrong feature.
 
-Update *Change requests folded in* in your PR description with what arrived and what it touched.
+Update *Change requests folded in* in your PR description: link the issue, and say what it
+touched. Close the issue when the pull request merges, not before.
 
 ### 13. Verify
 
@@ -205,6 +212,7 @@ git commit -m "Add <the requested feature> from change request"
 
 **Part two — the feature request:**
 
+- [ ] The issue is referenced from your pull request, and still open until it merges
 - [ ] You wrote down whether the request belonged in this specification, and why
 - [ ] You predicted the blast radius before changing anything
 - [ ] You clarified the request's ambiguities and recorded each decision
