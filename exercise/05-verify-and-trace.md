@@ -37,19 +37,25 @@ the table stops being a reference and becomes a second, competing document.
 
 | # | Requirement | Task | Code | Test |
 |---|---|---|---|---|
-| R1 | Signup requires an email | T002 | `api/serializers.py:14` | `test_signup_requires_email` |
-| R2 | Signup requires a password | T002 | `api/serializers.py:18` | `test_signup_requires_password` |
-| R3 | Invalid email is rejected | T002 | … | … |
-| R4 | Password shorter than the minimum is rejected | … | … | … |
-| R5 | Duplicate email is rejected | … | … | … |
-| R6 | A valid request creates exactly one user | … | … | … |
-| R7 | The password is stored hashed, never in plain text | … | … | … |
-| R8 | The password is never returned in a response | … | … | … |
-| R9 | A successful signup returns the specified status | … | … | … |
+| FR-001 | Signup requires an email | T002 | `api/serializers.py:14` | `test_signup_requires_email` |
+| FR-002 | Signup requires a password | T002 | `api/serializers.py:18` | `test_signup_requires_password` |
+| FR-003 | Invalid email is rejected | T002 | … | … |
+| FR-004 | Password shorter than the minimum is rejected | … | … | … |
+| FR-005 | Duplicate email is rejected | … | … | … |
+| FR-006 | A valid request creates exactly one user | … | … | … |
+| FR-007 | The password is stored hashed, never in plain text | … | … | … |
+| FR-008 | The password is never returned in a response | … | … | … |
+| FR-009 | A successful signup returns the specified status | … | … | … |
 
 Use **your** requirements and **your** identifiers, not these — this is the shape, not the
-content. Every `R` in this table must exist in the specification, and every requirement in the
-specification must appear here.
+content. Every identifier in this table must exist in the specification, and every requirement in
+the specification must appear here.
+
+**Expect to do the Task column by hand.** Spec Kit labels tasks by user story, not by requirement
+identifier, so nothing in `tasks.md` tells you that `T002` satisfies `FR-001`. You work it out by
+reading the task and the requirement side by side. That is tedious, and it is also the entire
+exercise: the gap you are about to find exists precisely because no tool was maintaining this
+link for you.
 
 Fill it in yourself, by looking. You may ask Claude where something lives (*"which line validates
 the email?"*), but you write the row, because the point is that you can trace it.
@@ -68,7 +74,7 @@ Three failure modes, and the table makes each one visible:
 
 ### 4. Check the tests actually test the requirement
 
-Take R7 — the password is stored hashed. Open its test. Does it assert the stored value differs
+Take FR-007 — the password is stored hashed. Open its test. Does it assert the stored value differs
 from the submitted password, or does it merely assert the request returned 201?
 
 This is the difference between a test and a passing test. Do this for at least three rows,

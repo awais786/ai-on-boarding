@@ -56,18 +56,22 @@ that is phase 1's job, and doing it by hand would contradict everything this exe
 
 ### 3. Install Spec Kit into the project
 
-Spec Kit is GitHub's open-source toolkit for spec-driven development. It adds a set of slash
-commands to Claude Code that walk a feature from idea to implementation.
+Spec Kit is GitHub's open-source toolkit for spec-driven development. It installs a set of
+skills into Claude Code that walk a feature from idea to implementation.
 
 ```bash
-uvx --from git+https://github.com/github/spec-kit.git specify init . --ai claude
+uvx --from git+https://github.com/github/spec-kit.git specify init . --integration claude
 ```
 
 If you do not have `uv`, install it first — see the [Spec Kit
 README](https://github.com/github/spec-kit).
 
-The `--ai claude` flag matters. It writes the command definitions into `.claude/commands/`
-so Claude Code can find them.
+The `--integration claude` flag matters. It writes the skill definitions into `.claude/skills/`
+so Claude Code can find them. Without it Spec Kit sets up for a different agent and none of the
+commands below will appear.
+
+Spec Kit will warn that the directory is not empty — that is the `.git` folder you just created,
+and it is expected. Confirm the merge when it asks.
 
 ### 4. Verify the commands exist — do not skip this
 
@@ -80,18 +84,19 @@ claude
 Then type `/help` and look for commands beginning with `speckit`. You should see roughly:
 
 ```
-/speckit.constitution
-/speckit.specify
-/speckit.clarify
-/speckit.plan
-/speckit.tasks
-/speckit.implement
+/speckit-constitution
+/speckit-specify
+/speckit-clarify
+/speckit-plan
+/speckit-tasks
+/speckit-implement
 ```
 
-There may be others (`analyze`, `checklist`, `taskstoissues`). You will not use those.
+There may be others (`analyze`, `checklist`, `converge`, `taskstoissues`). You will not use those.
 
-*Verified against Spec Kit on 18 August 2026. Command names move — if the list differs but the
-same six ideas are present, use the names your `/help` shows.*
+*Verified against Spec Kit on 19 August 2026. These names move — they were dotted
+(`/speckit.specify`) in earlier releases and may change again. If the list differs but the same
+six ideas are present, use the names your own `/help` shows.*
 
 ### 5. Commit and push
 
@@ -125,22 +130,31 @@ If your branch is called `master`, push that instead and use it wherever these i
 known — Claude Code sometimes does not pick up newly written command files mid-session.
 
 1. Quit Claude Code entirely (`/exit`) and start it again. This fixes it most of the time.
-2. Check the files exist: `ls .claude/commands/`. If that directory is empty or missing, the
-   `specify init` did not complete — re-run step 3 and read its output for errors.
-3. Confirm you passed `--ai claude`. Without it, Spec Kit writes commands for a different agent
-   and Claude Code will never see them.
+2. Check the files exist: `ls .claude/skills/`. You should see one directory per command, each
+   holding a `SKILL.md`. If it is empty or missing, `specify init` did not complete — re-run
+   step 3 and read its output for errors.
+3. Confirm you passed `--integration claude`. Without it, Spec Kit sets up for a different agent
+   and Claude Code will never see the skills.
 4. Still nothing? You can complete this entire exercise without the slash commands by opening
    the corresponding file in `.specify/templates/` and asking Claude to follow it. It is
    clumsier, but nothing here depends on the commands specifically — they are a convenience
    over prompts.
+
+**`gh repo create` says "Resource not accessible by personal access token".** Your GitHub
+token is a fine-grained one without repository-creation rights. Use the manual path in step 2 —
+create the repository in the browser, then add the remote by hand. The same limitation will stop
+`gh pr create` at phase 3, so open pull requests in the browser too.
 
 **`git push` later says "'origin' does not appear to be a git repository".** You created the
 repository locally but never linked it to GitHub. Go back to step 2 and add the remote.
 
 **`specify init .` complains about the directory or the argument.** Some versions want a project
 name rather than a dot. If the dot form is rejected, run it from the parent directory with the
-folder name — `specify init sdd-django-demo --ai claude` — and check the result landed inside your
-repository, not beside it.
+folder name — `specify init sdd-django-demo --integration claude` — and check the result landed
+inside your repository, not beside it.
+
+**`specify init` rejects `--ai`.** That flag was renamed to `--integration`. Run
+`specify init --help` to see the options your version actually takes.
 
 **`uvx` is not found.** Install `uv` (see the Spec Kit README), or use `pipx` as an alternative
 runner.
