@@ -32,7 +32,7 @@ and the learner's own `review-notes.md`.
 
 The single question: *could two competent developers read this and build different things?*
 
-- [ ] Every requirement carries an identifier (`R1`, `R2`, …). Without them the traceability
+- [ ] Every requirement carries an identifier (`FR-001`, `FR-002`, …). Without them the traceability
       table has nothing stable to point at, and the PR template's requirements table cannot be
       filled in honestly.
 - [ ] Every requirement names something that can **fail**. "Passwords should be secure" is not a

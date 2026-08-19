@@ -293,7 +293,7 @@ automated check will ever measure it.
 
 ## Extensions, once the basics land
 
-- GitHub Issues from tasks (`/speckit.taskstoissues`) — connects this to normal project workflow
-- `/speckit.analyze` and `/speckit.checklist` for larger specifications
+- GitHub Issues from tasks (`/speckit-taskstoissues`) — connects this to normal project workflow
+- `/speckit-analyze` and `/speckit-checklist` for larger specifications
 - A second developer reviewing someone else's specification before implementation — this is where
   ambiguity becomes undeniable, because two people genuinely read it differently

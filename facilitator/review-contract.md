@@ -27,7 +27,7 @@ backlog.
 
 A finding may block **only** if it cites one of:
 
-1. **A requirement identifier** — "`R4` says tokens expire in 30 minutes; this one does not."
+1. **A requirement identifier** — "`FR-004` says tokens expire in 30 minutes; this one does not."
 2. **A named failing test.**
 3. **A documented convention** from the constitution or `django-conventions`.
 
@@ -100,8 +100,8 @@ session cannot re-litigate what was settled.
 
 | # | Severity | Finding | Cites | Status |
 |---|---|---|---|---|
-| 1 | BLOCKER | Reset token has no expiry | R7 | open |
-| 2 | BLOCKER | No test for the unknown-email path | R5 | open |
+| 1 | BLOCKER | Reset token has no expiry | FR-007 | open |
+| 2 | BLOCKER | No test for the unknown-email path | FR-005 | open |
 | 3 | NIT | `_build_url` could take a named arg | — | accepted as-is |
 
 BLOCKED (2)

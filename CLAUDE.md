@@ -103,7 +103,7 @@ reverted once already.
   citing a requirement identifier, a named failing test or a documented convention may block; the
   finding list closes after round one; two rounds is the cap. Do not add review guidance anywhere
   that contradicts it, and do not soften the cap.
-- **Requirement identifiers are permanent.** Specs number requirements `R1`, `R2`, …; new ones
+- **Requirement identifiers are permanent.** Spec Kit numbers requirements `FR-001`, `FR-002`, …; new ones
   append, changed ones keep their number, removed ones leave a gap. The traceability table, the
   PR template and the review prompt all key off them.
 - **`django-conventions/SKILL.md` stays under a page.** Skills load into context whenever they
@@ -136,7 +136,7 @@ Command names, package versions, tool behaviour and file conventions move. Anyth
 - State the verification date in the file that carries the fact
 - Prefer a short list that is right over a complete one that is stale
 
-Highest-churn items: Spec Kit's `/speckit.*` command names, whether Claude Code reads `AGENTS.md`,
+Highest-churn items: Spec Kit's `/speckit-*` command names, whether Claude Code reads `AGENTS.md`,
 and the Django version pinned in the scaffold spec.
 
 ## Deliberately out of scope

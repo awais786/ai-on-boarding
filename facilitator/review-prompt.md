@@ -26,7 +26,7 @@ Read, in this order:
 Then answer these five questions, and only these. Cite file:line for every claim.
 
 1. REQUIREMENT COVERAGE
-   List every requirement in their specification by its identifier (R1, R2, ...). For
+   List every requirement in their specification by its identifier (FR-001, FR-002, ...). For
    each, state whether it is implemented, and where. A requirement with no
    implementation is the finding that matters most — say so plainly.
 
