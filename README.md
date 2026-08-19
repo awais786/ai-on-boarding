@@ -99,7 +99,7 @@ anyone.
 task, verification — in one place, along with the distinctions people most often blur. Skim it
 now, and come back whenever a word stops making sense.
 
-If you are going to **teach** this rather than take it, you want `facilitator/` — it carries the
-reasoning behind the sequence, where learners get stuck, and how their work is verified. If you
-are taking the course, do not read it: it spoils several things the exercise depends on you
-discovering.
+If you are going to **teach** this rather than take it, the facilitator material lives on the
+`facilitator` branch — the guide, the change requests, the review checklists and the conformance
+suite. If you are taking the course, stay on this branch: that one spoils several things the
+exercise depends on you discovering for yourself.

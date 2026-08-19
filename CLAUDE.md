@@ -13,12 +13,17 @@ own from `facilitator/scaffold-spec.md`.
 
 **This is the rule most easily broken by a well-meaning edit.**
 
-- `exercise/`, `starter/`, `reference/`, `README.md` and `glossary.md` are read by learners.
-- **`facilitator/` is read only by whoever runs the course.**
+Learner content lives on `main`. Facilitator content lives on the **`facilitator` branch**, which
+carries everything — the exercise plus `facilitator/` — so whoever runs the course sees both.
 
-**Sharing rule: give learners everything except `facilitator/`.** One rule, no judgement calls.
-Nothing outside that directory may reveal withheld material, and no learner-facing file may link
-into it.
+**Sharing rule: learners work from `main`. Never merge `facilitator` into it.**
+
+A branch is not access control; anyone who can clone can `git branch -a`. It keeps the answers out
+of the working tree learners read, which is the practical protection this course needs.
+
+**Keeping them in sync:** make learner-facing changes on `main`, then merge `main` into
+`facilitator`. Never the other way. A merge in the wrong direction publishes the answers, and it
+is the one mistake that cannot be quietly undone once devs have pulled.
 
 Several things are withheld from learners **on purpose**, because finding them is the skill being
 trained:
