@@ -1,50 +1,75 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# sdd_django_demo Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Every behavioural requirement has automated verification
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+No requirement in a specification is considered satisfied until a test asserts it. A requirement
+with no test is unverified behaviour, regardless of whether the code appears to work.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Security-sensitive behaviour has explicit tests
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+Authentication, authorisation, credential storage and credential exposure each require tests that
+assert the secure behaviour directly, not incidentally through a success path.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. Follow existing Django and DRF conventions
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Generated code matches the layout, validation style and testing conventions already established
+in this project rather than inventing a new house style per feature.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Prefer simple solutions over unnecessary abstractions
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+No abstraction is introduced for a single caller. The simplest design that satisfies the
+specification wins over one that anticipates requirements nobody has written down.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Tests are never modified to make a failing implementation pass
+
+When a test fails, the implementation is wrong until proven otherwise. Changing the assertion to
+match the code turns a green suite into a lie.
+
+### VI. Specifications may evolve when requirements change
+
+A specification is not immutable. When a requirement changes, the specification is updated first.
+
+### VII. A change to the specification propagates outward
+
+Any change to the specification must be reflected in the affected plan, GitHub issue tasks, tests
+and code before the change is considered complete. The specification is the source of truth;
+every other artefact is downstream of it.
+
+### VIII. Code is generated from instructions, never hand-written
+
+When generated code is wrong, fix the instruction that produced it — the specification, the plan,
+or a project skill — rather than the code itself. Patching generated code by hand fixes one
+symptom and leaves the instruction defective, so the next regeneration reintroduces the fault.
+
+### IX. Recurring technique belongs in a project skill
+
+A convention repeated across sessions belongs in a project skill, not in a prompt typed again
+each time.
+
+### X. Tests are written after the implementation exists, derived from the specification
+
+This project does not practise test-driven development. Tests are written from the specification
+once the implementation exists, not generated as tasks that precede it.
+
+### XI. Tasks are tracked on GitHub issues, not a local tasks.md
+
+`/speckit-tasks` output is posted directly to the feature's GitHub issue as a checklist, keyed to
+the requirement IDs it implements, instead of being written to `specs/<feature>/tasks.md`. A
+`tasks.md` file duplicates the issue with nothing a human or `/speckit-implement` gains from
+maintaining twice — the issue is the single place a task's status lives, and it is what
+`/speckit-implement` reads when generating code for this project.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes convenience. Amendments require an explicit version bump and a note
+recording what changed and why.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.1.0 | **Ratified**: 2026-08-19 | **Last Amended**: 2026-08-19
+
+**Amendment history**:
+- 1.1.0 (2026-08-19): Added Principle XI — tasks live on GitHub issues, not `tasks.md`. Both
+  features had accumulated the same task list in two places (the file and the issue) with no
+  benefit from the duplication; Principle VII's wording was updated to match ("GitHub issue
+  tasks" rather than "tasks").
