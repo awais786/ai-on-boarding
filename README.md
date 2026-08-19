@@ -21,16 +21,20 @@ half-remembers.
 | `/speckit-constitution` | `constitution.md` — the rules every feature obeys | Read it once; it outlives this feature |
 | `/speckit-specify` | `spec.md` — requirements as `FR-001`, `FR-002`, … | Read every line and hunt for invented detail |
 | `/speckit-clarify` | questions about what you left ambiguous | Decide, out loud, and let it write your answers in |
-| — | *your review* | **PR 1 — your lead approves the spec before any code exists** |
 | `/speckit-plan` | `plan.md` — the technical approach | Check it against the constitution |
-| `/speckit-tasks` | `tasks.md` — `T001`, `T002`, … | Check every `FR-` is covered by some task |
+| `/speckit-tasks` | a checklist posted to the feature's GitHub issue — `T001`, `T002`, … | Check every `FR-` is covered by some task |
 | `/speckit-implement` | working Django code | Then write tests **from the spec**, not from the code |
-| — | `traceability.md` | **PR 2 — your lead approves the implementation** |
+| — | `traceability.md` | **Open a pull request; your lead reviews spec, plan and code together** |
+
+Task tracking lives on the GitHub issue, not a `tasks.md` file — a file duplicating the issue
+gives nobody, human or agent, anything the issue doesn't already have. Review happens as a
+single pull request per feature rather than a fixed two-gate split; open it whenever the work is
+ready to be judged, which is usually once the spec, plan and implementation are all in place.
 
 The chain is the thing to watch:
 
 ```
-requirement FR-004  →  task T002  →  api/serializers.py:18  →  test_password_too_short_rejected
+requirement FR-004  →  GitHub issue task T002  →  api/serializers.py:18  →  test_password_too_short_rejected
 ```
 
 If any link is missing, something is wrong and the table is what shows you: a requirement with no
@@ -82,10 +86,9 @@ subject — it is the material you practise on.
 - Git, and a GitHub account
 - A terminal you are comfortable opening
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) installed — `exercise/00-setup.md` walks you through it
-- **A lead** — someone who reviews your pull requests. Your work is gated twice: once on the
-  specification before anything is built, and once on the implementation. If you are working
-  alone, a fresh Claude Code session can stand in, though it will not push back on a product
-  decision the way a person will.
+- **A lead** — someone who reviews your pull request before it merges. If you are working alone,
+  a fresh Claude Code session can stand in, though it will not push back on a product decision
+  the way a person will.
 
 ## How long this takes
 
