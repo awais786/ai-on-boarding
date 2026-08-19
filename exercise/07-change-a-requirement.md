@@ -102,6 +102,7 @@ though it passes. Names are part of the artefact.
 ```bash
 git add .
 git commit -m "Change password minimum from 8 to 12 characters"
+git push
 ```
 
 ---
@@ -198,6 +199,7 @@ spot, and it will be the same one next time unless you name it.
 ```bash
 git add .
 git commit -m "Add <the requested feature> from change request"
+git push
 ```
 
 ## Done when
@@ -221,7 +223,7 @@ git commit -m "Add <the requested feature> from change request"
 - [ ] A test for one of the new requirements fails when you break its code
 - [ ] `pytest` passes and the schema matches the specification
 - [ ] You compared the outcome against your prediction and named what you missed
-- [ ] Your commits are in
+- [ ] Your commits are in and pushed, so the pull request reflects them
 
 ## If it goes wrong
 

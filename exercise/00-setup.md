@@ -93,12 +93,21 @@ There may be others (`analyze`, `checklist`, `taskstoissues`). You will not use 
 *Verified against Spec Kit on 18 August 2026. Command names move — if the list differs but the
 same six ideas are present, use the names your `/help` shows.*
 
-### 5. Commit
+### 5. Commit and push
 
 ```bash
 git add .
 git commit -m "Initialise Spec Kit"
+git push -u origin main
 ```
+
+**Push, do not just commit.** Your lead reviews pull requests, and a pull request needs a base
+branch on GitHub to compare against. If `main` has never been pushed, the first branch you push
+becomes the default and there is nothing to open a pull request against — you will reach phase 3
+and find GitHub offers you no way to create one.
+
+If your branch is called `master`, push that instead and use it wherever these instructions say
+`main`.
 
 ## Done when
 
@@ -107,7 +116,8 @@ git commit -m "Initialise Spec Kit"
 - [ ] `git remote -v` shows an `origin` pointing at your GitHub repository
 - [ ] Your lead has the URL and can see it
 - [ ] `/help` inside Claude Code lists the `speckit` commands
-- [ ] You have one commit
+- [ ] You have one commit, and `git push` has run
+- [ ] `main` appears on GitHub when you open the repository in a browser
 
 ## If it goes wrong
 
@@ -126,6 +136,11 @@ known — Claude Code sometimes does not pick up newly written command files mid
 
 **`git push` later says "'origin' does not appear to be a git repository".** You created the
 repository locally but never linked it to GitHub. Go back to step 2 and add the remote.
+
+**`specify init .` complains about the directory or the argument.** Some versions want a project
+name rather than a dot. If the dot form is rejected, run it from the parent directory with the
+folder name — `specify init sdd-django-demo --ai claude` — and check the result landed inside your
+repository, not beside it.
 
 **`uvx` is not found.** Install `uv` (see the Spec Kit README), or use `pipx` as an alternative
 runner.

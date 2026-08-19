@@ -142,7 +142,13 @@ points at its own weak spot.
 ```bash
 git add .
 git commit -m "Add Django + DRF + pytest scaffold, project skill and PR template"
+git push
 ```
+
+Push this one. The scaffold is shared starting ground, not part of any feature, so it belongs on
+`main` before you branch in phase 2. Leave it unpushed and your first pull request will show the
+whole scaffold sitting on top of your specification, which buries the thing your lead is meant to
+be reading.
 
 ## Done when
 
@@ -157,6 +163,7 @@ git commit -m "Add Django + DRF + pytest scaffold, project skill and PR template
 - [ ] Asking how to add an endpoint gives you *this project's* answer, not generic Django advice
 - [ ] There is **no** signup, login, or authentication code anywhere yet
 - [ ] You did not hand-write any Django code to get here
+- [ ] Your commit is pushed — `main` on GitHub shows the scaffold
 - [ ] Your commit is in
 
 That last-but-one box matters. If Claude helpfully added a user model or a login view, delete

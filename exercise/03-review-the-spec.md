@@ -104,10 +104,11 @@ Your lead reviews the specification **before** any plan or code exists. This is 
 review in the whole process: changing your mind here costs a paragraph, and changing it after
 implementation costs a day.
 
+You are already on `feature/signup` from phase 2, so this is just a commit and a push:
+
 ```bash
-git checkout -b feature/signup
 git add .
-git commit -m "Add constitution and signup specification"
+git commit -m "Review and approve the signup specification"
 git push -u origin feature/signup
 ```
 

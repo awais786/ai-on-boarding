@@ -16,7 +16,20 @@ authentication code in the project.
 
 ## Steps
 
-### 1. Create the constitution
+### 1. Start a branch for this feature
+
+Everything from here until signup is merged belongs on one branch. Your lead reviews it as two
+pull requests: the specification first, the implementation second.
+
+```bash
+git checkout -b feature/signup
+```
+
+Do this **before** writing the specification. If you write it on `main` and branch afterwards,
+your first pull request will contain only whatever you changed after branching — and the
+specification your lead is supposed to review will already be on `main`, invisible in the diff.
+
+### 2. Create the constitution
 
 ```
 /speckit.constitution
@@ -47,7 +60,7 @@ document rather than a discarded first draft. And *fix the instruction that prod
 one you will actually be tested on — every time generated code is nearly right, it will be
 quicker to patch the code than to work out which instruction was inadequate.
 
-### 2. Specify the feature
+### 3. Specify the feature
 
 ```
 /speckit.specify
@@ -65,7 +78,7 @@ the database. Three fields is all the detail you give — everything about how t
 clarification to draw out. That restraint is the entire lesson of this step: you are stating what the product
 must do, and letting the *how* be decided later, in the open, where it can be reviewed.
 
-### 3. Read what came back
+### 4. Read what came back
 
 Read the generated specification line by line. Expect it to have invented detail you never
 supplied — that is normal and is exactly what the next step exists to catch.
@@ -73,7 +86,7 @@ supplied — that is normal and is exactly what the next step exists to catch.
 As you read, keep one question running: **could two developers read this and build different
 things?** Every place the answer is yes is something you will fix in phase 3.
 
-### 4. Run clarification
+### 5. Run clarification
 
 ```
 /speckit.clarify
@@ -90,7 +103,7 @@ head, because only the written one can be tested.
 catch yourself thinking "I'll just handle that case when I implement it", stop — that thought is
 the failure this whole exercise exists to prevent.
 
-### 5. Commit
+### 6. Commit
 
 ```bash
 git add .
@@ -104,6 +117,7 @@ git commit -m "Add constitution and signup specification"
 - [ ] You have run `/speckit.clarify` and answered its questions
 - [ ] The specification still contains **no** Django-specific implementation detail — no model
       names, no serializer names, no view classes
+- [ ] You are on the `feature/signup` branch, not `main`
 - [ ] Your commit is in
 
 If the last box fails, the specification has drifted into being a plan. Ask Claude to remove the

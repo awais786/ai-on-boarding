@@ -125,7 +125,7 @@ git checkout -- .
 
 ```bash
 git add .
-git commit -m "Implement signup"
+git commit -m "Add signup traceability and verification"
 git push
 ```
 
@@ -135,12 +135,17 @@ Paste in the technical plan from phase 4, edited down to what a reader actually 
 
 Leave *Change requests folded in* empty for now. You will come back to it.
 
-### 8. Commit
+### 8. Commit and push
 
 ```bash
 git add traceability.md
 git commit -m "Add requirement traceability"
+git push
 ```
+
+From here on, **every phase ends with a push.** Your pull request is what your lead reviews, and
+a commit that never leaves your machine is invisible to them. A stale pull request is worse than
+no pull request: they will review an implementation that predates everything you changed after it.
 
 ## Done when
 
