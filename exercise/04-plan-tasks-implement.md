@@ -29,7 +29,7 @@ something else.
 ### 1. Create the technical plan
 
 ```
-/speckit.plan
+/speckit-plan
 ```
 
 Now — and only now — supply the technical constraints:
@@ -50,7 +50,7 @@ and it is far cheaper to catch now than after it is code.
 ### 2. Generate tasks
 
 ```
-/speckit.tasks
+/speckit-tasks
 ```
 
 You should get something shaped like:
@@ -75,7 +75,7 @@ feature.
 ### 3. Implement
 
 ```
-/speckit.implement
+/speckit-implement
 ```
 
 Then watch. This will take a while and touch several files.
@@ -175,7 +175,7 @@ git commit -m "Implement signup from specification, with tests"
 
 - [ ] A technical plan exists and every decision in it traces to a requirement
 - [ ] A task list exists and every requirement is covered by at least one task
-- [ ] `/speckit.implement` has run to completion
+- [ ] `/speckit-implement` has run to completion
 - [ ] You have read the diff and asked about anything unfamiliar
 - [ ] You listed what to test **from the specification** before writing test code
 - [ ] Tests exist and are named after behaviours, not functions

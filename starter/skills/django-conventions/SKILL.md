@@ -60,9 +60,9 @@ the serializer is too thin — fix the serializer rather than annotating around 
 
 ## Requirement identifiers
 
-Requirements in the specification are numbered `R1`, `R2`, and so on, and the numbers are
-permanent. New requirements take the next free number. Changed requirements keep theirs. Removed
-ones leave a gap.
+Requirements in the specification carry identifiers — `FR-001`, `FR-002` and so on if Spec Kit
+wrote them — and those identifiers are permanent. New requirements take the next free number.
+Changed requirements keep theirs. Removed ones leave a gap.
 
 Never renumber. The traceability table, pull requests and review comments all reference these
 identifiers, and renumbering silently repoints every one of them.

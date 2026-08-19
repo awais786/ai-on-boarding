@@ -32,7 +32,7 @@ specification your lead is supposed to review will already be on `main`, invisib
 ### 2. Create the constitution
 
 ```
-/speckit.constitution
+/speckit-constitution
 ```
 
 The constitution holds the rules by which every feature on this project gets built. It is not
@@ -63,7 +63,7 @@ quicker to patch the code than to work out which instruction was inadequate.
 ### 3. Specify the feature
 
 ```
-/speckit.specify
+/speckit-specify
 ```
 
 Give it exactly this, and nothing more:
@@ -89,7 +89,7 @@ things?** Every place the answer is yes is something you will fix in phase 3.
 ### 5. Run clarification
 
 ```
-/speckit.clarify
+/speckit-clarify
 ```
 
 This surfaces ambiguities and asks you to resolve them. Answer as the person deciding what the
@@ -114,7 +114,7 @@ git commit -m "Add constitution and signup specification"
 
 - [ ] A constitution exists and includes the two rules about tests and about spec changes
 - [ ] A signup specification exists, generated from the one-line idea
-- [ ] You have run `/speckit.clarify` and answered its questions
+- [ ] You have run `/speckit-clarify` and answered its questions
 - [ ] The specification still contains **no** Django-specific implementation detail — no model
       names, no serializer names, no view classes
 - [ ] You are on the `feature/signup` branch, not `main`
@@ -130,7 +130,7 @@ implementation detail and keep the behaviour.
 behaviour — what a caller of the API can see. Move anything about Django into a note for the
 planning stage."*
 
-**`/speckit.clarify` asks nothing, or asks trivia.** Push it: *"What behaviour does this
+**`/speckit-clarify` asks nothing, or asks trivia.** Push it: *"What behaviour does this
 specification leave undefined? Consider the email field, the password field, duplicates, and what
 a successful response contains."* You are allowed to prompt the tool that prompts you.
 
