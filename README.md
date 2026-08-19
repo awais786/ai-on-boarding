@@ -27,7 +27,8 @@ half-remembers.
 | `/speckit-tasks` | a dependency-ordered task breakdown, `T001`, `T002`, … | Check every `FR-` is covered by some task |
 | a separate posting step (`gh issue create`/`gh issue comment`, or `/speckit-taskstoissues`) | that breakdown, posted to the feature's GitHub issue as a checklist | Track progress there, not in a file |
 | `/speckit-implement` | working Django code | Then write tests **from the spec**, not from the code |
-| — | `traceability.md` | **Open a pull request; your lead reviews spec, plan and code together** |
+| — | `traceability.md` | Map every `FR-` to its code and test by hand — nothing generates this link for you |
+| `/code-review` | findings bound by Constitution Principle XII, ending in an explicit verdict | Fix what's blocking, re-run for a second (and final) pass, then **open a pull request; your lead reviews spec, plan and code together** |
 
 `/speckit-tasks` generates the breakdown; it does not talk to GitHub itself. Posting it to the
 issue is a distinct step, and that issue — not a `tasks.md` file — is where task status lives
@@ -35,6 +36,14 @@ from then on; a file duplicating the issue gives nobody, human or agent, anythin
 doesn't already have. Review happens as a single pull request per feature rather than a fixed
 two-gate split; open it whenever the work is ready to be judged, which is usually once the spec,
 plan and implementation are all in place.
+
+`/code-review` is not optional theatre and it is not open-ended. `CLAUDE.md` (root and
+`sdd_django_demo/`) points it at the constitution's review contract: a finding blocks only if it
+cites an `FR-` ID, a named failing test, or a documented convention; it runs at most two passes
+— an initial pass and one follow-up after fixes, never a third; and it always ends with
+`Ready to merge: yes` or `Ready to merge: no`, stated plainly, never left as an open list. That
+last part is what stops review from becoming the thing that never converges — see the signup
+build in `sdd_django_demo/README.md` for a real example of both passes.
 
 The chain is the thing to watch:
 

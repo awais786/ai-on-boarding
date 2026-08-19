@@ -39,6 +39,7 @@ anything the issue didn't already have.
 | 6. Implement | `/speckit-implement` | working code, generated from the tasks | `api/` |
 | 7. Test | (manual, after implementation) | tests written **from the spec**, not from the code | `api/test_*.py` |
 | 8. Trace | (manual) | every `FR-` mapped to its task, code line and test | `specs/<NNN-feature>/traceability.md` |
+| 9. Review | `/code-review` | findings bound by Constitution Principle XII (see `CLAUDE.md`), ending in `Ready to merge: yes/no` | fixed and re-reviewed once (two passes max), then a pull request |
 
 The chain each feature is checked against:
 
@@ -61,9 +62,15 @@ asked for. A requirement with no code was never built. Steps 7–8 exist to catc
   (reuses Django's built-in `User`), validation in a serializer, password storage delegated to
   `create_user`.
 - **Tasks**: posted to issue #9 as a checklist, each tagged with its `FR-`.
-- **Status**: implemented (`api/serializers.py`, `api/views.py`, `api/urls.py`) and manually
-  verified against every scenario in `specs/001-user-signup/quickstart.md`. `test_signup.py` and
-  `traceability.md` are not yet written.
+- **Tests**: [`api/test_signup.py`](api/test_signup.py) — 14 tests covering FR-001 through
+  FR-012. [`specs/001-user-signup/traceability.md`](../specs/001-user-signup/traceability.md)
+  maps every requirement to its code and test.
+- **Reviewed**: `/code-review` round 1 blocked on two findings — a check-then-create race in the
+  duplicate-email rejection (concurrent signups for the same email could return an unhandled 500
+  instead of a 400) and zero tests existing. Both fixed (the race via `transaction.atomic()` +
+  catching `IntegrityError`; tests added, including a dedicated regression test for the race).
+  Round 2 confirmed both fixes and found nothing new. **Ready to merge: yes.**
+- **Status**: done — implemented, tested, traced, and reviewed to a clean verdict.
 
 ### Signin — [issue #10](https://github.com/awais786/ai-on-boarding/issues/10)
 
