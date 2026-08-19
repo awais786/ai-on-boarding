@@ -56,16 +56,29 @@ and it is far cheaper to catch now than after it is code.
 You should get something shaped like:
 
 ```
-T001 — Configure the authentication application
-T002 — Implement signup validation
-T003 — Implement user creation
-T004 — Implement the signup endpoint
-T005 — Add signup tests
-T006 — Run verification
+T001 [US1] Configure the authentication application
+T002 [US1] Implement signup validation
+T003 [US1] Implement user creation
+T004 [US1] Implement the signup endpoint
+T005 [US2] Return field-level errors on rejection
 ```
 
-Read them with one question: **which requirement does each task serve?** If a task serves none,
-challenge it. If a requirement has no task, that is a gap — say so and have the tasks regenerated.
+Two things about that output are worth knowing before you read it.
+
+**Tasks are labelled by user story, not by requirement.** The `[US1]` tag points back to a user
+story in your specification, and nothing in `tasks.md` says which `FR-` identifiers a task
+satisfies. Working that out is your job, in phase 5, by reading the task and the requirement side
+by side.
+
+**There will be no test tasks, and that is correct here.** Spec Kit generates them only when the
+specification asks for tests or you request a test-driven approach. Do neither. You write the
+tests yourself in step 5, from the specification — and if Spec Kit writes them first, from the
+plan, you lose the entire point of that step. If test tasks do appear, say *"remove the test
+tasks — I am writing the tests myself after implementation"* and regenerate.
+
+Then read them with one question: **which requirement does each task serve?** If a task serves
+none, challenge it. If a requirement has no task, that is a gap — say so and have the tasks
+regenerated.
 
 A task is work to be done and will be finished forever. A requirement is a statement about
 behaviour that stays true for the life of the feature. `T003 — implement user creation` will be
