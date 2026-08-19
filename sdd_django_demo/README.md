@@ -28,14 +28,23 @@ first; everything below follows from it.
 
 | Step | Command | Produces | Where it lives |
 |---|---|---|---|
-| 1. Raw requirement | — | a one-line product idea, deliberately under-specified | the GitHub issue that started the feature |
+| 1. Raw requirement | — | a one-line product idea, deliberately under-specified | a GitHub issue |
 | 2. Propose | `/opsx:propose "<idea>"` | `proposal.md` (why/what), a delta spec (requirements), `design.md` (how), `tasks.md` (checklist) — generated together | `openspec/changes/<name>/` |
-| 3. Review the proposal | (manual) | ambiguities resolved directly in the proposal/spec before any code exists | same files, edited in place |
-| 4. Apply | `/opsx:apply` | working code, one `tasks.md` item at a time | `api/`, with `tasks.md` checkboxes updated as each task lands |
-| 5. Test | (manual, after implementation) | tests written **from the spec**, not from the code | `api/test_*.py` |
-| 6. Trace | (manual) | every requirement mapped to its task, code line and test | `openspec/changes/<name>/traceability.md` |
-| 7. Review | `/code-review` | findings bound by the contract in `openspec/config.yaml` (see `CLAUDE.md`), ending in `Ready to merge: yes/no` | fixed and re-reviewed once (two passes max), then a pull request |
-| 8. Archive | `/opsx:archive` | the change moved to `openspec/changes/archive/`, its delta spec merged into the canonical spec | `openspec/specs/<capability>/spec.md` |
+| 3. Post to the issue | (manual, or `gh issue comment`) | the proposal and full delta spec, so the issue is self-contained | comments on the same GitHub issue from step 1 |
+| 4. Review the proposal | (manual) | ambiguities resolved directly in the proposal/spec before any code exists | same files, edited in place |
+| 5. Apply | `/opsx:apply` | working code, one `tasks.md` item at a time | `api/`, with `tasks.md` checkboxes updated as each task lands |
+| 6. Test | (manual, after implementation) | tests written **from the spec**, not from the code | `api/test_*.py` |
+| 7. Trace | (manual) | every requirement mapped to its task, code line and test | `openspec/changes/<name>/traceability.md` |
+| 8. Review | `/code-review` | findings bound by the contract in `openspec/config.yaml` (see `CLAUDE.md`), ending in `Ready to merge: yes/no` | fixed and re-reviewed once (two passes max), then a pull request |
+| 9. Archive | `/opsx:archive` | the change moved to `openspec/changes/archive/`, its delta spec merged into the canonical spec | `openspec/specs/<capability>/spec.md` |
+
+Step 3 is required, not optional, per `openspec/config.yaml`'s `rules.tasks` — once all four
+planning artifacts exist, a GitHub issue must exist for the change (create one via `gh issue
+create` if it doesn't) and the proposal and delta spec get posted to it via `gh issue comment`.
+It can't be enforced by the OpenSpec CLI itself (`operations` only hooks `apply` and `archive`,
+not `propose`), so it's a documented rule agents are expected to actually follow, not a checked
+gate — see issues [#9](https://github.com/awais786/ai-on-boarding/issues/9) and
+[#10](https://github.com/awais786/ai-on-boarding/issues/10) for what it looks like done.
 
 The chain each feature is checked against:
 

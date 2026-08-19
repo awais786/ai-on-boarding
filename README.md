@@ -22,6 +22,7 @@ feature moves from idea to reviewed, tested code as a **change**, living in
 | You run | It produces | You then |
 |---|---|---|
 | `/opsx:propose "<idea>"` | a new `openspec/changes/<name>/` with `proposal.md` (why/what), a delta `specs/<capability>/spec.md` (requirements), `design.md` (how), `tasks.md` (checklist) — all generated together | Read every line and hunt for invented detail |
+| — | a GitHub issue for the change (created if none exists), with the proposal and full delta spec posted as comments — `openspec/config.yaml`'s `rules.tasks` requires this once all four artifacts are complete | Read the issue on its own — it should need no repo access to understand what's being built |
 | — | *your review of the proposal* | Fix ambiguity in the proposal/spec, not later in the code |
 | `/opsx:apply` | working Django code, one `tasks.md` item at a time, checked off `[x]` as it lands | Then write tests **from the spec**, not from the code |
 | — | `traceability.md` | Map every requirement to its code and test by hand — nothing generates this link for you |
@@ -29,8 +30,11 @@ feature moves from idea to reviewed, tested code as a **change**, living in
 | `/opsx:archive` | moves the change to `openspec/changes/archive/`, merges its delta spec into the canonical `openspec/specs/<capability>/spec.md` | Only after `Ready to merge: yes` and `pytest` passes for the whole project — this is a config-enforced rule, not a habit |
 
 `tasks.md`'s checkbox state — not a separate GitHub-issue checklist — is where task status
-lives; the GitHub issue for a feature mirrors it for human visibility, but `tasks.md` in the
-change folder is the thing `/opsx:apply` actually reads and updates.
+lives; `tasks.md` in the change folder is the thing `/opsx:apply` actually reads and updates. The
+GitHub issue mirrors it for human visibility, and carries more than just tasks: the proposal and
+full delta spec get posted there too, so the issue is readable on its own without cloning the
+repo — see issues [#9](https://github.com/awais786/ai-on-boarding/issues/9) and
+[#10](https://github.com/awais786/ai-on-boarding/issues/10) for what that looks like in practice.
 
 `/code-review` is not optional theatre and it is not open-ended. `CLAUDE.md`/`AGENTS.md` (root
 and `sdd_django_demo/`) point it at the review contract in `openspec/config.yaml`: a finding
