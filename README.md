@@ -94,7 +94,8 @@ never the subject, it's the material spec-driven development is practised on.
 
 **You do need:**
 
-- Python 3.12 or newer installed (`python3 --version`)
+- Python 3.12 or newer installed (`python3 --version`) — Django 6.1's own floor; the project was
+  built and tested on 3.14, but nothing in it depends on that specific version
 - Git, and a GitHub account
 - A terminal you are comfortable opening
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) installed
