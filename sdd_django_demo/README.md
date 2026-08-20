@@ -76,6 +76,28 @@ requirement "Reject a password shorter than 8 characters"  →  tasks.md item  �
 A requirement with no test is unverified behaviour. A test with no requirement is work nobody
 asked for. A requirement with no code was never built. Steps 5–6 exist to catch all three.
 
+## Starting a new feature (steps 1–2, concretely)
+
+**If a GitHub issue already exists for the idea** (check first — don't assume there isn't one):
+use its actual content as the input to `/opsx:propose`, don't paraphrase or write a fresh
+description from scratch. Then link the resulting change back to *that* issue in step 3 — never
+create a second issue for something that already has one.
+
+**If no issue exists yet**: open one first, with the idea stated as a one-line, deliberately
+under-specified requirement (see issue [#8](https://github.com/awais786/ai-on-boarding/issues/8)
+for the shape). Then feed that issue's content into `/opsx:propose`.
+
+Either way, the flow is:
+
+```bash
+gh issue view <number>              # read what's actually there
+```
+```
+/opsx:propose "<the issue's content>"
+```
+
+then post the result back to the same issue (step 3), not a new one.
+
 ## Features built this way
 
 ### Signup — [issue #9](https://github.com/awais786/ai-on-boarding/issues/9)
