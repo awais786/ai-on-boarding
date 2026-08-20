@@ -6,18 +6,40 @@ used to build it — raw requirement through to implementation — not just how 
 
 ## Running it
 
-```bash
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py runserver
-```
+First time in this checkout — `.venv/` is gitignored, so it won't exist yet:
 
 ```bash
-.venv/bin/pytest -v
+cd sdd_django_demo
+make setup
 ```
+
+Requires Python 3.12+ (Django 6.1's own floor; built and tested on 3.14). Then:
+
+```bash
+make run     # migrates and starts the dev server
+make test    # pytest -v
+make check   # manage.py check
+```
+
+`make setup` is just `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`, and
+each other target is a one-line wrapper around the equivalent `.venv/bin/python manage.py ...` /
+`.venv/bin/pytest` command, if you'd rather run those directly — see `Makefile`.
 
 - Health check: `GET /api/health/`
 - API docs: `http://127.0.0.1:8000/api/docs/`
 - OpenAPI schema: `http://127.0.0.1:8000/api/schema/`
+
+## Setting up the planning tools
+
+Implementing a change also needs the OpenSpec CLI (Node.js 20.19.0+ required):
+
+```bash
+npm install -g @fission-ai/openspec@latest
+```
+
+Verify with `openspec doctor` from the repo root — it should report `OpenSpec root: ok`. The
+`/opsx:*` commands and `openspec-*` skills under `.claude/`/`.agents/` are already set up in this
+repo; the CLI install above is the one thing that has to happen on your machine before they work.
 
 ## The process, step by step
 
