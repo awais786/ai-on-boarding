@@ -132,11 +132,10 @@ least one test can actually fail — see `api/test_signup.py`'s dedicated race-c
 test for a concrete example of "prove it can fail" done for real, not just claimed.
 
 **7. Trace.** Build `traceability.md` in the change folder: one row per requirement, mapping it
-to its task, its code location, and its test — `| Requirement | Task | Code | Test |`, nothing
-left blank. **Known gap**: signup's own `traceability.md` existed during this project's earlier
-Spec Kit phase but was not carried over when that work was migrated into
-`openspec/changes/archive/2026-08-19-add-user-signup/` — there is currently no live example of
-this file in the repo to point at. Recreating it there is open work, not done.
+to its code location and its test — `| Requirement | Code | Test |`, nothing left blank. See
+[`openspec/changes/archive/2026-08-19-add-user-signup/traceability.md`](../openspec/changes/archive/2026-08-19-add-user-signup/traceability.md)
+for a real example — it existed during this project's earlier Spec Kit phase, was lost when that
+work was migrated into OpenSpec, and was recreated on 2026-08-20 (its own note explains the gap).
 
 **8. Review.**
 
@@ -177,7 +176,8 @@ and stopped cleanly on "n"). Only proceed past that warning if the change is gen
   `create_user`.
 - **Tasks**: mirrored on issue #9 as a checklist, each tagged with the requirement it satisfies.
 - **Tests**: [`api/test_signup.py`](api/test_signup.py) — 14 tests covering every requirement.
-  `traceability.md` in the archived change maps each one to its code and test.
+  [`traceability.md`](../openspec/changes/archive/2026-08-19-add-user-signup/traceability.md) in
+  the archived change maps each one to its code and test.
 - **Reviewed**: `/code-review` round 1 blocked on two findings — a check-then-create race in the
   duplicate-email rejection (concurrent signups for the same email could return an unhandled 500
   instead of a 400) and zero tests existing. Both fixed (the race via `transaction.atomic()` +
