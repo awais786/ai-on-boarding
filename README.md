@@ -105,7 +105,9 @@ never the subject, it's the material spec-driven development is practised on.
 
 ## What this repository contains
 
-- A working Django REST API with a tested signup endpoint, and signin built the same way
+- A working Django REST API with a tested, reviewed signup endpoint — signin is specced and
+  planned but not yet implemented; see *Status* in `sdd_django_demo/README.md` for exactly where
+  each feature stands right now
 - Interactive Swagger docs for it, usable to verify the API by hand and to check the generated
   schema against the specification
 - A specification for each feature, precise enough to rebuild it from scratch
@@ -116,7 +118,7 @@ never the subject, it's the material spec-driven development is practised on.
   specification outward rather than patched into the code
 
 See [`sdd_django_demo/README.md`](sdd_django_demo/README.md) for the concrete process each
-feature went through, spec to code.
+feature went through, spec to code, and current status.
 
 ## The reading behind it
 

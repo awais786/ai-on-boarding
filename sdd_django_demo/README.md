@@ -113,7 +113,9 @@ asked for. A requirement with no code was never built. Steps 5–6 exist to catc
   signup's "no new model" precedent, justified in the design's Risks/Trade-offs section.
 - **Tasks**: [`openspec/changes/add-user-signin/tasks.md`](../openspec/changes/add-user-signin/tasks.md),
   mirrored on issue #10.
-- **Status**: not yet implemented.
+- **Status**: not yet implemented. Planning (proposal, spec, design, tasks) is complete, so this
+  is ready to start at step 5 of the process table above, not step 1 — run `/opsx:apply
+  add-user-signin` to begin implementing it.
 
 ## Conventions this project follows
 
