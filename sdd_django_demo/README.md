@@ -98,6 +98,70 @@ gh issue view <number>              # read what's actually there
 
 then post the result back to the same issue (step 3), not a new one.
 
+## After propose: steps 3–9, concretely
+
+**3. Post to the issue.** Once `/opsx:propose` finishes, all four planning artifacts exist —
+post `proposal.md` and the delta spec(s) as a comment on the issue from step 1:
+
+```bash
+gh issue comment <number> --repo awais786/ai-on-boarding --body-file <(cat proposal.md; echo; cat specs/*/spec.md)
+```
+
+Skip this and the issue is just a task list nobody can act on without cloning the repo — see
+[#9](https://github.com/awais786/ai-on-boarding/issues/9) and
+[#10](https://github.com/awais786/ai-on-boarding/issues/10) for what "done" looks like.
+
+**4. Review the proposal.** Read `proposal.md` and the delta spec critically before any code
+exists — this is the cheapest point to catch scope creep or an invented requirement. Fix it
+directly in the files (`/opsx:update` can help reconcile artifacts if a fix in one place implies
+a change elsewhere); don't wait to catch it in the diff later.
+
+**5. Apply.**
+
+```
+/opsx:apply <change-name>
+```
+
+Works through `tasks.md` one item at a time, checking each box `[x]` as it lands. If it stops
+partway, re-run the same command — it picks up from the first unchecked task.
+
+**6. Test — from the spec, not from the code.** Once implementation tasks are done, list every
+requirement in the spec and what a test would need to assert, *before* looking at the
+implementation. Then write the tests, run them, and deliberately break something to prove at
+least one test can actually fail — see `api/test_signup.py`'s dedicated race-condition regression
+test for a concrete example of "prove it can fail" done for real, not just claimed.
+
+**7. Trace.** Build `traceability.md` in the change folder: one row per requirement, mapping it
+to its task, its code location, and its test — `| Requirement | Task | Code | Test |`, nothing
+left blank. **Known gap**: signup's own `traceability.md` existed during this project's earlier
+Spec Kit phase but was not carried over when that work was migrated into
+`openspec/changes/archive/2026-08-19-add-user-signup/` — there is currently no live example of
+this file in the repo to point at. Recreating it there is open work, not done.
+
+**8. Review.**
+
+```
+/code-review <target>
+```
+
+Bound by the contract in `openspec/config.yaml` / `CLAUDE.md` — reads as blocking only if it
+cites a requirement, a named failing test, or a documented convention; at most two passes; always
+ends in an explicit `Ready to merge: yes` or `Ready to merge: no`. Fix what's blocking, re-run
+once, then open the pull request.
+
+**9. Archive.**
+
+```
+openspec archive <change-name>
+```
+
+(or `/opsx:archive <change-name>`). This checks task completion first — if any are unchecked, it
+warns and asks for confirmation rather than silently archiving unfinished work (verified directly:
+running it against a change at 0/19 tasks printed `19 incomplete task(s) found. Continue? (y/N)`
+and stopped cleanly on "n"). Only proceed past that warning if the change is genuinely done —
+`operations.archive.guidance` in `openspec/config.yaml` says explicitly: only archive once
+`/code-review` has returned `Ready to merge: yes` and `pytest` passes for the whole project.
+
 ## Features built this way
 
 ### Signup — [issue #9](https://github.com/awais786/ai-on-boarding/issues/9)
