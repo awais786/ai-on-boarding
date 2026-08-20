@@ -14,9 +14,8 @@ exists to satisfy it, and tests are the executable evidence that it does. The ac
 
 ## What actually happens
 
-This project runs spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec)
-(previously GitHub's Spec Kit — fully removed; see `sdd_django_demo/README.md` for why). A
-feature moves from idea to reviewed, tested code as a **change**, living in
+This project runs spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec).
+A feature moves from idea to reviewed, tested code as a **change**, living in
 `openspec/changes/<name>/` until it's implemented, then archived.
 
 | You run | It produces | You then |
