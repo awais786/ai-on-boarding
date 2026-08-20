@@ -5,9 +5,8 @@ from written specifications rather than hand-written code. The actual project li
 `sdd_django_demo/` — see `sdd_django_demo/CLAUDE.md` for its specific conventions, and
 `sdd_django_demo/README.md` for the concrete process each feature went through.
 
-Spec-driven development here is run through [OpenSpec](https://github.com/Fission-AI/OpenSpec)
-(`/opsx:propose`, `/opsx:apply`, `/opsx:archive`) — not GitHub's Spec Kit, which this repo used
-earlier and has been fully removed.
+Spec-driven development here is run through [OpenSpec](https://github.com/Fission-AI/OpenSpec):
+`/opsx:propose`, `/opsx:apply`, `/opsx:archive`.
 
 ## Layout
 

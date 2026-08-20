@@ -6,25 +6,46 @@ used to build it — raw requirement through to implementation — not just how 
 
 ## Running it
 
-```bash
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py runserver
-```
+First time in this checkout — `.venv/` is gitignored, so it won't exist yet:
 
 ```bash
-.venv/bin/pytest -v
+cd sdd_django_demo
+make setup
 ```
+
+Requires Python 3.12+ (Django 6.1's own floor; built and tested on 3.14). Then:
+
+```bash
+make run     # migrates and starts the dev server
+make test    # pytest -v
+make check   # manage.py check
+```
+
+`make setup` is just `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`, and
+each other target is a one-line wrapper around the equivalent `.venv/bin/python manage.py ...` /
+`.venv/bin/pytest` command, if you'd rather run those directly — see `Makefile`.
 
 - Health check: `GET /api/health/`
 - API docs: `http://127.0.0.1:8000/api/docs/`
 - OpenAPI schema: `http://127.0.0.1:8000/api/schema/`
 
+## Setting up the planning tools
+
+Implementing a change also needs the OpenSpec CLI (Node.js 20.19.0+ required):
+
+```bash
+npm install -g @fission-ai/openspec@latest
+```
+
+Verify with `openspec doctor` from the repo root — it should report `OpenSpec root: ok`. The
+`/opsx:*` commands and `openspec-*` skills under `.claude/`/`.agents/` are already set up in this
+repo; the CLI install above is the one thing that has to happen on your machine before they work.
+
 ## The process, step by step
 
-This project runs on [OpenSpec](https://github.com/Fission-AI/OpenSpec), not GitHub's Spec Kit
-(used earlier in this project's history, then removed — see *Why OpenSpec, not Spec Kit* below).
-This project's rules live in [`../openspec/config.yaml`](../openspec/config.yaml) — read that
-first; everything below follows from it.
+This project runs on [OpenSpec](https://github.com/Fission-AI/OpenSpec). This project's rules
+live in [`../openspec/config.yaml`](../openspec/config.yaml) — read that first; everything below
+follows from it.
 
 | Step | Command | Produces | Where it lives |
 |---|---|---|---|
@@ -54,20 +75,6 @@ requirement "Reject a password shorter than 8 characters"  →  tasks.md item  �
 
 A requirement with no test is unverified behaviour. A test with no requirement is work nobody
 asked for. A requirement with no code was never built. Steps 5–6 exist to catch all three.
-
-## Why OpenSpec, not Spec Kit
-
-This project used GitHub's Spec Kit (`.specify/`, `/speckit-*` commands, `specs/NNN-feature/`
-directories) through signup's entire build — spec, plan, tasks, implementation, tests,
-traceability, two-round review, all of it. On feedback, Spec Kit was removed entirely and
-replaced with OpenSpec. Signup's Spec Kit artifacts were migrated into OpenSpec's format rather
-than left behind or rebuilt from scratch — see
-[`openspec/changes/archive/2026-08-19-add-user-signup/`](../openspec/changes/archive/2026-08-19-add-user-signup/)
-for the migrated proposal/spec/design/tasks, now the canonical
-[`openspec/specs/user-signup/spec.md`](../openspec/specs/user-signup/spec.md). Signin's
-in-progress Spec Kit spec/plan was likewise translated into
-[`openspec/changes/add-user-signin/`](../openspec/changes/add-user-signin/) before implementation
-started, so no planning work was thrown away in the switch.
 
 ## Features built this way
 
