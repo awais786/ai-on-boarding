@@ -1,0 +1,7 @@
+# Tooling the Claude Code hooks in this directory need.
+# The hooks themselves depend only on the standard library; pylint is what
+# pylint_after_edit.py shells out to, and pytest runs the hook tests.
+#
+#   python3 -m venv .venv && .venv/bin/pip install -r .claude/hooks/requirements-dev.txt
+pylint==4.0.7
+pytest==9.1.1
