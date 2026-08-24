@@ -47,3 +47,14 @@ class AccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['email']
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True, allow_blank=False)
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    code = serializers.CharField(required=True, allow_blank=False)
+    password = serializers.CharField(
+        required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
+    )
