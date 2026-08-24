@@ -5,6 +5,9 @@ from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 PASSWORD_MIN_LENGTH = 8
+USERNAME_MIN_LENGTH = 3
+USERNAME_MAX_LENGTH = 30
+USERNAME_RE = re.compile(r'^[A-Za-z0-9_]+$')
 
 
 def validate_password_strength(value):
@@ -18,8 +21,22 @@ def validate_password_strength(value):
         )
 
 
+def validate_username_format(value):
+    if not USERNAME_RE.fullmatch(value):
+        raise serializers.ValidationError(
+            'Must contain only letters, digits, or underscores.'
+        )
+
+
 class SignupSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True, allow_blank=False)
+    username = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        min_length=USERNAME_MIN_LENGTH,
+        max_length=USERNAME_MAX_LENGTH,
+        validators=[validate_username_format],
+    )
     password = serializers.CharField(
         required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
     )
@@ -30,20 +47,39 @@ class SignupSerializer(serializers.Serializer):
             raise serializers.ValidationError('An account with this email already exists.')
         return normalised
 
+    def validate_username(self, value):
+        normalised = value.lower()
+        if User.objects.filter(username=normalised).exists():
+            raise serializers.ValidationError('An account with this username already exists.')
+        return normalised
+
     def create(self, validated_data):
         email = validated_data['email']
+        username = validated_data['username']
         try:
             with transaction.atomic():
                 return User.objects.create_user(
-                    username=email, email=email, password=validated_data['password']
+                    username=username, email=email, password=validated_data['password']
                 )
-        except IntegrityError:
+        except IntegrityError as err:
+            message = str(err)
+            if 'username' in message:
+                field = 'username'
+            elif 'email' in message:
+                field = 'email'
+            else:
+                raise
             raise serializers.ValidationError(
-                {'email': ['An account with this email already exists.']}
+                {field: [f'An account with this {field} already exists.']}
             )
 
 
 class AccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['email']
+        fields = ['email', 'username']
+
+
+class SigninSerializer(serializers.Serializer):
+    email_or_username = serializers.CharField(required=True, allow_blank=False, max_length=255)
+    password = serializers.CharField(required=True, allow_blank=False, write_only=True)
