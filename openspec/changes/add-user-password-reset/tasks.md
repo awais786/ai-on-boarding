@@ -127,3 +127,66 @@ afterwards, so the passes below did not see the reset page - section 8 covers it
   delivered stays usable once the limit stops the superseding
 - [x] 10.5 Assert reaching the limit answers registered and unregistered addresses identically
 - [x] 10.6 Run `pytest` and confirm the whole project passes
+
+## 11. A uniform response when the limit refuses a request
+
+- [x] 11.1 Return a fixed body for a request the per-address limit refuses, dropping the wait
+  remaining that the framework appends - verify two refusals taken a second apart are
+  byte-identical in status and body
+- [x] 11.2 Keep the fixed body in the same shape as the endpoint's other bodies, defined once
+  beside them rather than inline at the raise - verify the constant is not mutated by a response
+  that carries it
+
+## 12. Tests for section 11 (after implementation, from the spec)
+
+- [x] 12.1 Assert two refusals separated in time are identical in status and body, and that the
+  body carries no countdown
+- [x] 12.2 Rewrite `test_being_limited_does_not_reveal_whether_an_account_exists` to assert
+  equality outright - it currently compares two separately-timed bursts whose bodies embed a
+  rounded countdown, so it can fail for a reason unrelated to what it checks
+- [x] 12.3 Assert the refused status is 429
+- [x] 12.4 Run `pytest` and confirm the whole project passes
+
+## 13. Review cleanup (raised in review, no requirement attached)
+
+- [x] 13.1 Document 429 in the reset-request endpoint's OpenAPI annotation and drop "always"
+  from the 200 description - verify `manage.py spectacular` still reports no warnings
+- [x] 13.2 Correct the comment above the response constants: passing the constant to `Response`
+  shares the module-level dict, it does not make `response.data` the module object
+- [x] 13.3 Replace the locally-defined `explode` in `test_password_reset.py` that duplicates the
+  module-level `_explode` with `_explode` itself. Only one of the two locals is a duplicate: the
+  other raises `IntegrityError` against a different patch target, so it stays
+- [x] 13.4 Remove the unreachable `return None` at the end of `PasswordResetCode.issue_for` -
+  every loop path already returns or raises. Deleting the line alone makes pylint report
+  `inconsistent-return-statements`, since it cannot prove the counter loop always exits, so the
+  retry is restructured as an explicit try/retry that provably does
+
+## 14. A malformed request body must not reach the limit's key
+
+- [x] 14.1 Stop a body that is not a JSON object from raising inside the per-address limit's
+  key. The limit runs before any serializer, so the body reaches it unvalidated - verify a list,
+  a string and a number each return the same 400 the confirm endpoint already returns for them,
+  rather than raising
+- [x] 14.2 Confirm that skipping the limit for a body carrying no address opens nothing: such a
+  request is refused before it can issue or send - verify a flood of malformed bodies issues no
+  code, sends no message, and leaves the address's own allowance untouched
+
+## 15. Tests for section 14 (after implementation, from the spec)
+
+- [x] 15.1 Assert a list, a string and a number body are each refused rather than raising
+- [x] 15.2 Assert a malformed body issues no code and sends no message
+- [x] 15.3 Run `pytest` and confirm the whole project passes
+
+## 16. Close the gaps review left open (nits, non-blocking)
+
+- [x] 16.1 Assert the refusal carries no retry-after header. Dropping it is half of why
+  `wait=None` is passed, and the code comment says so, but only the body is asserted - a
+  regression restoring the header while leaving the detail string alone would stay green
+- [x] 16.2 Exercise `PasswordResetCode.issue_for`'s retry branch, which nothing currently
+  reaches: the one test that could patches `issue_for` out wholesale. Verify a collision on the
+  partial unique index is retried and still yields a usable code
+- [x] 16.3 Correct the traceability row for *Reject a reset request with no email* - the
+  malformed-body tests do not demonstrate its "names the email field" scenario, since a
+  non-object body is answered with `non_field_errors`. They belong on their own line
+- [x] 16.4 Record on `RESET_LIMITED_BODY` that only its `detail` reaches the response, so a
+  second key added to it would silently not appear

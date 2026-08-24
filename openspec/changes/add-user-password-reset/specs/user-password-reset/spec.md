@@ -30,7 +30,8 @@ two from the response alone.
 - **THEN** both responses are identical in status and body
 
 #### Scenario: Reset request response shape
-- **WHEN** a reset is requested with a well-formed email address
+- **WHEN** a reset is requested with a well-formed email address and the per-address limit has
+  not been reached
 - **THEN** the response is HTTP 200
 
 ### Requirement: Deliver a reset code to a registered address
@@ -74,7 +75,14 @@ already hold because a later request failed to reach them.
 ### Requirement: Limit how often a reset may be requested for one address
 The system SHALL limit how many reset requests it acts on for the same email address within a
 period. Beyond that limit it SHALL issue and deliver nothing further for that address until the
-period passes.
+period passes. A request refused by the limit SHALL return HTTP 429 with a fixed body that does
+not vary between refusals. Neither the body nor the response headers SHALL carry a countdown or
+any other detail about when the request was made or when it may be retried.
+
+#### Scenario: Two refusals are indistinguishable
+- **WHEN** two reset requests for one address are refused by the limit at different moments
+- **THEN** both responses are identical in status and body, and neither carries a header naming
+  a retry time
 
 #### Scenario: Requests beyond the limit are not acted on
 - **WHEN** more reset requests are made for one address than the limit allows

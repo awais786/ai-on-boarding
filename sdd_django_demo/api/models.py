@@ -37,17 +37,21 @@ class PasswordResetCode(models.Model):
 
     @classmethod
     def issue_for(cls, user):
-        for attempt in (1, 2):
-            try:
-                with transaction.atomic():
-                    cls.objects.filter(user=user, usable=True).update(usable=False)
-                    code = secrets.token_urlsafe(RESET_CODE_BYTES)
-                    cls.objects.create(user=user, code_digest=hash_reset_code(code))
-                    return code
-            except IntegrityError:
-                if attempt == 2:
-                    raise
-        return None
+        try:
+            return cls._issue(user)
+        except IntegrityError:
+            # A concurrent request took the one usable row the partial unique index
+            # allows. Retrying is enough: the winner's row is now the earlier code
+            # this attempt supersedes. A second failure is not a race and propagates.
+            return cls._issue(user)
+
+    @classmethod
+    def _issue(cls, user):
+        with transaction.atomic():
+            cls.objects.filter(user=user, usable=True).update(usable=False)
+            code = secrets.token_urlsafe(RESET_CODE_BYTES)
+            cls.objects.create(user=user, code_digest=hash_reset_code(code))
+            return code
 
     @classmethod
     def resolve(cls, code):

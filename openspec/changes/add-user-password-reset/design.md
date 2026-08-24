@@ -111,6 +111,17 @@ The limit is applied to the address as submitted, whether or not an account exis
 being limited reveals nothing about who has an account - the same reason `SigninAttempt` is keyed
 on the submitted email rather than on a found account.
 
+**A refused request gets a fixed body, not the framework's default.** DRF's throttled response
+appends the wait remaining, rounded up: `Expected available in 3595 seconds.` Two refusals a
+second apart therefore differ by one, which quietly breaks *Limit how often a reset may be
+requested for one address* - its refusals are required to be identical in status and body, and
+the surrounding uniformity requirements are built on byte-identity rather than on status alone.
+The countdown is dropped and the body fixed, so the guarantee holds literally and a test of it
+can assert equality outright instead of tolerating a drift. Cost accepted: a legitimate client
+loses the retry-after hint, which this project has no client relying on. Alternative considered:
+scoping the guarantee to status only, rejected because it would leave two different meanings of
+"identical" in one spec.
+
 **Nothing on the registered-only branch may raise.** A single return statement is not enough on
 its own: issuing a code and sending mail happen only when an account exists, so an exception in
 either answers a registered address with a 500 while an unregistered one still gets 200. That
@@ -200,6 +211,26 @@ any requirement here.
   unbounded churn rather than about an exact number. `SigninAttempt` took the opposite decision
   for lockout, where the exact count is the requirement - the divergence is deliberate and worth
   revisiting if the two ever merge.
+- [Mail is sent while the transaction that issued the code is still open] → the insert and the
+  supersede take SQLite's write lock, and it is then held for as long as the send takes. With the
+  console backend configured here that is microseconds and invisible; against a real SMTP server
+  it is a network round-trip, during which every other write - a signup, another reset - blocks
+  and then fails with `database is locked` once the driver's timeout expires. There is a second
+  edge: the message can leave before the commit, so a commit that then fails hands the recipient
+  a link to a code that does not exist. Accepted for now because the alternative - commit the
+  issuance, send, then retire the new code and restore the previous one on failure - replaces one
+  atomic step with a compensating one that can itself fail, and *Leave earlier codes usable when
+  delivery fails* currently rests on the rollback being free. Revisit before a real mail backend
+  is configured; that is the point at which the trade stops being free.
+- [Two accounts can hold the same email address, and only the lowest-numbered one can ever reset]
+  → `User.email` carries no uniqueness constraint and only `SignupSerializer` normalises and
+  de-duplicates, so accounts made by `createsuperuser`, the admin, or a shell can collide. The
+  lookup is ordered by primary key for determinism, which means the same holder is chosen every
+  time and the others are permanently unable to reset - while still receiving the uniform 200
+  that says a link was sent. Recorded rather than fixed: refusing the request would need a
+  response that differs from the uniform one, and mailing every match would let anyone who
+  registers a colliding address receive somebody else's reset link. The real remedy is a
+  uniqueness constraint on the column, which belongs to a change of its own.
 - [Timing may distinguish a registered from an unregistered address on the request endpoint,
   since only one of them hashes and sends] → the spec's uniformity requirement is scoped to the
   response, as signin's is. Noted so that a later decision to close the timing channel is a

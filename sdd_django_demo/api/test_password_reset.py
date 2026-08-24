@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from api import views
-from api.models import PasswordResetCode
+from api.models import PasswordResetCode, hash_reset_code
 
 EMAIL = 'ada@example.com'
 OLD_PASSWORD = 'lovelace1'
@@ -86,6 +86,33 @@ def test_reset_request_without_an_email_names_the_email_field(client):
     assert 'email' in response.data
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize('body', ['["a"]', '"hello"', '123'], ids=['list', 'string', 'number'])
+def test_a_body_that_is_not_an_object_is_refused_not_raised(client, body):
+    """A malformed body must be answered, not crash the endpoint.
+
+    The per-address limit reads the body before any serializer does, so a payload
+    that parses to something other than an object reaches it unvalidated. Asking
+    such a payload for a field used to raise, which the caller saw as a 500.
+    """
+    response = client.post('/api/password-reset/', body, content_type='application/json')
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('body', ['["a"]', '"hello"', '123'], ids=['list', 'string', 'number'])
+def test_a_malformed_body_is_refused_the_same_way_on_both_endpoints(client, body):
+    """The endpoint with a limit in front of it answers like the one without."""
+    requested = client.post('/api/password-reset/', body, content_type='application/json')
+    confirmed = client.post(
+        '/api/password-reset/confirm/', body, content_type='application/json'
+    )
+
+    assert requested.status_code == confirmed.status_code
+    assert requested.content == confirmed.content
+
+
 # Requirement: Answer every reset request identically
 
 
@@ -141,10 +168,7 @@ def test_a_dead_mail_server_does_not_make_addresses_distinguishable(
 ):
     """Regression: a delivery error must not turn into a 500 for known addresses only."""
 
-    def explode(*_args, **_kwargs):
-        raise OSError('mail server is down')
-
-    monkeypatch.setattr('api.views.send_mail', explode)
+    monkeypatch.setattr('api.views.send_mail', _explode)
 
     registered = request_reset(client, EMAIL)
     unregistered = request_reset(client, 'nobody@example.com')
@@ -320,6 +344,47 @@ def test_a_used_code_cannot_be_replayed(client, account, mailoutbox):
     assert replay.status_code == 400
     account.refresh_from_db()
     assert account.check_password(NEW_PASSWORD)
+
+
+@pytest.mark.django_db
+def test_issuing_retries_when_the_digest_collides(account, monkeypatch):
+    """The retry branch in `issue_for`, which nothing else in the suite reaches.
+
+    A real collision is forced rather than simulated: a row is planted holding the
+    digest of the code the generator is about to produce, so `create` raises a
+    genuine `IntegrityError` against the unique digest column. The retry generates a
+    fresh code, which no longer collides.
+
+    The planted row belongs to another account and is already spent, so it cannot
+    satisfy the request by accident or trip the one-usable-code-per-user index.
+    """
+    stranger = User.objects.create_user(username='taken@example.com', email='taken@example.com')
+    PasswordResetCode.objects.create(
+        user=stranger, code_digest=hash_reset_code('collide'), usable=False
+    )
+
+    generated = ['collide', 'fresh-code-that-does-not-collide']
+    monkeypatch.setattr('api.models.secrets.token_urlsafe', lambda _n: generated.pop(0))
+
+    code = PasswordResetCode.issue_for(account)
+
+    # The first code was consumed by the failed attempt, so the retry ran.
+    assert not generated, 'the retry did not run: the second code was never generated'
+    assert code == 'fresh-code-that-does-not-collide'
+    assert PasswordResetCode.resolve(code) is not None
+
+
+@pytest.mark.django_db
+def test_issuing_gives_up_when_the_collision_persists(account, monkeypatch):
+    """One retry, not a loop: a second failure is not a race and must propagate."""
+    stranger = User.objects.create_user(username='taken@example.com', email='taken@example.com')
+    PasswordResetCode.objects.create(
+        user=stranger, code_digest=hash_reset_code('collide'), usable=False
+    )
+    monkeypatch.setattr('api.models.secrets.token_urlsafe', lambda _n: 'collide')
+
+    with pytest.raises(IntegrityError):
+        PasswordResetCode.issue_for(account)
 
 
 # Requirement: Supersede an earlier unused code
@@ -643,8 +708,75 @@ def test_being_limited_does_not_reveal_whether_an_account_exists(
     for _ in range(6):
         unregistered = request_reset(client, 'nobody@example.com')
 
-    assert registered.status_code == unregistered.status_code
-    assert registered.data == unregistered.data
+    # Both must actually have been refused: if the limit stopped applying, these two
+    # would still match while proving nothing.
+    assert registered.status_code == unregistered.status_code == 429
+    # Compared as rendered bytes rather than as `.data` - byte-identity is what the
+    # requirement asks for, and it is the stronger of the two.
+    assert registered.content == unregistered.content
+
+
+@pytest.mark.django_db
+def test_a_request_refused_by_the_limit_returns_429(client, account):
+    for _ in range(5):
+        request_reset(client)
+
+    assert request_reset(client).status_code == 429
+
+
+@pytest.mark.django_db
+def test_two_refusals_are_identical_however_far_apart_they_are(client, account, monkeypatch):
+    """The refusal carries no countdown, so time passing cannot change it.
+
+    The clock the limit reads is moved between the two refusals rather than waiting:
+    real elapsed time inside a test is both too small and too variable to show the
+    difference this guards against. The framework's default refusal appends the wait
+    remaining, rounded up, which would differ across the gap below.
+    """
+    clock = [1_000_000.0]
+    monkeypatch.setattr(
+        views.PasswordResetAddressThrottle, 'timer', staticmethod(lambda: clock[0])
+    )
+
+    for _ in range(5):
+        request_reset(client)
+    first = request_reset(client)
+
+    clock[0] += 900  # a quarter of the way through the window
+
+    second = request_reset(client)
+
+    assert first.status_code == second.status_code == 429
+    assert first.content == second.content
+    # Named directly rather than left to the equality above: a body that happened to
+    # carry the same countdown twice would satisfy that check without meaning it.
+    assert b'second' not in first.content
+    # The header is the other half of what `wait=None` suppresses, and the spec puts
+    # headers alongside the body. Asserted separately because the equality above
+    # compares bodies only and would not notice it coming back.
+    assert 'Retry-After' not in first.headers
+    assert 'Retry-After' not in second.headers
+
+
+@pytest.mark.django_db
+def test_malformed_bodies_are_not_a_way_around_the_limit(client, account, mailoutbox):
+    """Skipping the limit for a body with no address must open nothing.
+
+    A body carrying no address gives the limit nothing to count against, so it is
+    not counted at all. That is only safe because such a request is refused before
+    it can issue or send - which is what this asserts, along with the address's own
+    allowance being untouched by the flood.
+    """
+    for _ in range(50):
+        client.post('/api/password-reset/', '["a"]', content_type='application/json')
+
+    assert PasswordResetCode.objects.count() == 0
+    assert mailoutbox == []
+
+    # The real address still has its full allowance: the flood consumed none of it.
+    for _ in range(5):
+        assert request_reset(client).status_code == 200
+    assert request_reset(client).status_code == 429
 
 
 @pytest.mark.django_db

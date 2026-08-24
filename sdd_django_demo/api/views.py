@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -10,7 +11,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import generics
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
@@ -29,10 +30,10 @@ logger = logging.getLogger(__name__)
 # used to discover which addresses have accounts.
 #
 # These are templates, not response bodies: `Response(...)` keeps whatever dict it
-# is handed, so passing the constant itself would make `response.data` the module
-# object and let any renderer or test that mutates it corrupt the constant for the
-# life of the process. Two requirements depend on these staying byte-identical, so
-# each response gets its own copy via the helpers below.
+# is handed, so passing a constant itself would leave `response.data` referring to
+# that same module-level dict, and any renderer or test that mutates it would
+# corrupt the constant for the life of the process. Two requirements depend on
+# these staying byte-identical, so each response gets its own copy.
 RESET_REQUESTED_BODY = {
     'detail': 'If that email address has an account, a reset link has been sent to it.'
 }
@@ -43,6 +44,17 @@ RESET_REQUESTED_BODY = {
 RESET_REFUSED_BODY = {'detail': 'That reset link is not valid.'}
 
 RESET_COMPLETED_BODY = {'detail': 'Your password has been changed.'}
+
+# Returned when the per-address limit refuses a request. Fixed on purpose: DRF's
+# default appends the wait remaining, rounded up ("Expected available in 3595
+# seconds."), so two refusals a second apart differ by one. *Limit how often a
+# reset may be requested for one address* requires its refusals to be identical in
+# status and body, so the countdown is dropped rather than tolerated.
+#
+# Unlike the constants above, this one is never handed to `Response`: the exception
+# handler builds the 429 body itself, and only `detail` is read from here. A second
+# key added to this dict would not appear in the response.
+RESET_LIMITED_BODY = {'detail': 'Too many reset requests for that address. Try again later.'}
 
 # The page equivalent of RESET_REFUSED_BODY: one wording for all four causes, so
 # following a link cannot reveal which of them applies.
@@ -218,7 +230,14 @@ class PasswordResetAddressThrottle(SimpleRateThrottle):
     scope = 'password-reset'
 
     def get_cache_key(self, request, view):
-        email = (request.data or {}).get('email')
+        # A throttle runs in `initial()`, before any serializer has looked at the
+        # body, so what arrives here is whatever the parser produced: a JSON list,
+        # string or number reaches this line just as readily as an object. Only a
+        # mapping can be asked for a key, and the rest carry no address to key on -
+        # the serializer refuses them a moment later, which is where a malformed
+        # body is supposed to be answered.
+        data = request.data if isinstance(request.data, Mapping) else {}
+        email = data.get('email')
         if not isinstance(email, str) or not email.strip():
             return None  # nothing to key on; the serializer will reject it anyway
         return self.cache_format % {'scope': self.scope, 'ident': email.strip().lower()}
@@ -228,13 +247,29 @@ class PasswordResetRequestView(generics.GenericAPIView):
     serializer_class = PasswordResetRequestSerializer
     throttle_classes = [PasswordResetAddressThrottle]
 
+    def throttled(self, request, wait):
+        # `wait=None` is the point: it stops DRF appending the countdown to the
+        # detail, and stops the exception handler deriving a Retry-After header
+        # from it. Both vary between two refusals of the same address, and the
+        # requirement behind this limit asks for refusals that do not.
+        raise Throttled(detail=RESET_LIMITED_BODY['detail'], wait=None)
+
     @extend_schema(
         request=PasswordResetRequestSerializer,
         responses={
             200: OpenApiResponse(
-                description='Always returned, whether or not the address has an account.'
+                description=(
+                    'Returned whether or not the address has an account, so the response '
+                    'cannot be used to tell the two apart.'
+                )
             ),
             400: OpenApiResponse(description='The email field was missing or malformed.'),
+            429: OpenApiResponse(
+                description=(
+                    'Too many reset requests for that address. Nothing was issued or sent. '
+                    'The body is fixed and carries no wait time.'
+                )
+            ),
         },
     )
     def post(self, request, *args, **kwargs):
