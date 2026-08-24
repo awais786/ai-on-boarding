@@ -23,6 +23,16 @@ BLOCKED_CASES = [
     ("Edit", "/repo/myproject/production_settings.py"),
     ("Write", "/repo/myproject/settings/production.py"),
     ("Read", "/repo/.env"),
+    ("Read", "/home/user/.ssh/known_hosts"),
+    ("Write", "/home/user/.aws/credentials"),
+    ("Edit", "/home/user/.aws/config"),
+    ("Write", "/repo/.npmrc"),
+    ("Write", "/repo/.pypirc"),
+    ("Write", "/home/user/.netrc"),
+    ("Write", "/home/user/.git-credentials"),
+    ("Write", "/home/user/.kube/config"),
+    ("Write", "/home/user/.docker/config.json"),
+    ("Write", "/repo/certs/client.key"),
 ]
 
 ALLOWED_CASES = [
