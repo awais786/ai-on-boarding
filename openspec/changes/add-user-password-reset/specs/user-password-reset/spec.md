@@ -57,6 +57,41 @@ message to that address.
 - **WHEN** a reset is requested for an email that has no account
 - **THEN** no message is sent
 
+### Requirement: Leave earlier codes usable when delivery fails
+When a reset code cannot be delivered, the system SHALL leave the account as it was, so that a
+code delivered earlier and not yet used stays usable. A person MUST NOT lose the link they
+already hold because a later request failed to reach them.
+
+#### Scenario: A failed delivery does not retire the code already sent
+- **WHEN** a reset is requested for an address that already holds an unused code, and the new
+  message cannot be delivered
+- **THEN** the code delivered earlier is still usable
+
+#### Scenario: A failed delivery is answered like any other request
+- **WHEN** a reset is requested and the message cannot be delivered
+- **THEN** the response is identical to that of a request whose message was delivered
+
+### Requirement: Limit how often a reset may be requested for one address
+The system SHALL limit how many reset requests it acts on for the same email address within a
+period. Beyond that limit it SHALL issue and deliver nothing further for that address until the
+period passes.
+
+#### Scenario: Requests beyond the limit are not acted on
+- **WHEN** more reset requests are made for one address than the limit allows
+- **THEN** no further code is issued and no further message is sent for that address
+
+#### Scenario: A flood cannot leave an address with no usable code
+- **WHEN** a reset is requested repeatedly for one address until the limit is reached
+- **THEN** the most recently delivered code is still usable
+
+Note: an earlier code is *not* expected to survive - *Supersede an earlier unused code* requires
+the opposite. What the limit guarantees is that the superseding stops, so the last code to reach
+the account holder stays usable rather than being replaced indefinitely.
+
+#### Scenario: Reaching the limit does not reveal whether an account exists
+- **WHEN** the limit is reached for a registered address, and separately for an unregistered one
+- **THEN** both responses are identical in status and body
+
 ### Requirement: Never return the reset code in a response
 The system SHALL NOT include the reset code, or the link carrying it, in the body of any
 response to a request that did not already carry that code. The code is obtainable only by

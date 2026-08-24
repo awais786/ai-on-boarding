@@ -45,6 +45,12 @@ INSTALLED_APPS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Keyed on the submitted email address, not the caller: the harm this caps is
+    # done to an account, and every request supersedes that account's previous
+    # code. See the change's design.md.
+    'DEFAULT_THROTTLE_RATES': {
+        'password-reset': '5/hour',
+    },
 }
 
 SPECTACULAR_SETTINGS = {

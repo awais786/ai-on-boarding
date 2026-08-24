@@ -106,3 +106,24 @@ afterwards, so the passes below did not see the reset page - section 8 covers it
 - [x] 8.2 Run `/code-review` over sections 6 and 7
 - [x] 8.3 Fix any blocking findings and re-review once (two passes max) until the verdict is
   `Ready to merge: yes`
+
+## 9. Survive a failed delivery, and cap requests per address
+
+- [x] 9.1 Wrap issuing and sending in one transaction so a delivery failure rolls the issuance
+  back - verify that with sending forced to fail, a previously delivered code still resolves and
+  no new row is left behind
+- [x] 9.2 Limit the reset-request endpoint per submitted email address, applying the limit
+  whether or not an account exists - verify a registered and an unregistered address are answered
+  identically once each is limited
+- [x] 9.3 Put the rate in settings so it can be changed without touching the view, keeping the
+  project's no-environment-variables constraint - verify the view honours an overridden rate
+
+## 10. Tests for section 9 (after implementation, from the spec)
+
+- [x] 10.1 Assert a failed delivery leaves an earlier unused code usable and adds no row
+- [x] 10.2 Assert a failed delivery is answered identically to a successful one
+- [x] 10.3 Assert requests beyond the limit issue no code and send no message
+- [x] 10.4 Assert a flood cannot leave an address with no usable code - the last code
+  delivered stays usable once the limit stops the superseding
+- [x] 10.5 Assert reaching the limit answers registered and unregistered addresses identically
+- [x] 10.6 Run `pytest` and confirm the whole project passes

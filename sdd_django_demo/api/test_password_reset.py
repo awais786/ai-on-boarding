@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
@@ -14,6 +15,19 @@ from api.models import PasswordResetCode
 EMAIL = 'ada@example.com'
 OLD_PASSWORD = 'lovelace1'
 NEW_PASSWORD = 'babbage22'
+
+
+@pytest.fixture(autouse=True)
+def _isolate_throttle_counters():
+    """Give every test its own rate-limit budget.
+
+    The reset endpoint counts requests per address in Django's cache, which lives
+    for the whole process. Without clearing it, one test's requests limit the next
+    and the failures land far from their cause.
+    """
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture
@@ -42,6 +56,10 @@ def link_from(mailoutbox):
 
 def code_from(mailoutbox):
     return link_from(mailoutbox).rstrip('/').rsplit('/', 1)[-1]
+
+
+def _explode(*_args, **_kwargs):
+    raise OSError('mail server is down')
 
 
 def issue_code(client, mailoutbox, email=EMAIL):
@@ -550,3 +568,93 @@ def test_response_bodies_are_not_shared_between_requests(client, account):
 def test_validation_messages_render_as_text_not_characters(raised, expected):
     """Regression: ErrorDetail subclasses str, so a dict value was iterated per character."""
     assert views.flatten_messages(ValidationError(raised).detail) == expected
+
+
+# Requirement: Leave earlier codes usable when delivery fails
+
+
+@pytest.mark.django_db
+def test_a_failed_delivery_leaves_the_earlier_code_usable(
+    client, account, mailoutbox, monkeypatch
+):
+    first = issue_code(client, mailoutbox)
+    rows_before = PasswordResetCode.objects.count()
+
+    monkeypatch.setattr('api.views.send_mail', _explode)
+    request_reset(client)
+
+    assert PasswordResetCode.resolve(first) is not None
+    assert PasswordResetCode.objects.count() == rows_before
+
+
+@pytest.mark.django_db
+def test_a_failed_delivery_is_answered_like_a_successful_one(
+    client, account, mailoutbox, monkeypatch
+):
+    delivered = request_reset(client)
+
+    monkeypatch.setattr('api.views.send_mail', _explode)
+    failed = request_reset(client)
+
+    assert delivered.status_code == failed.status_code
+    assert delivered.data == failed.data
+
+
+# Requirement: Limit how often a reset may be requested for one address
+
+
+@pytest.mark.django_db
+def test_requests_beyond_the_limit_issue_and_send_nothing(
+    client, account, mailoutbox
+):
+    for _ in range(5):
+        request_reset(client)
+    sent_at_limit = len(mailoutbox)
+    rows_at_limit = PasswordResetCode.objects.count()
+
+    for _ in range(5):
+        request_reset(client)
+
+    assert len(mailoutbox) == sent_at_limit
+    assert PasswordResetCode.objects.count() == rows_at_limit
+
+
+@pytest.mark.django_db
+def test_a_flood_cannot_leave_an_address_with_no_usable_code(client, account, mailoutbox):
+    """The limit stops the superseding, so the last code delivered stays usable.
+
+    An *earlier* code is not expected to survive - "Supersede an earlier unused
+    code" requires the opposite. What matters is that the churn ends.
+    """
+    for _ in range(20):
+        request_reset(client)
+
+    latest = code_from(mailoutbox)
+    assert PasswordResetCode.resolve(latest) is not None
+    assert confirm(client, latest).status_code == 200
+
+
+@pytest.mark.django_db
+def test_being_limited_does_not_reveal_whether_an_account_exists(
+    client, account
+):
+    for _ in range(6):
+        registered = request_reset(client, EMAIL)
+    for _ in range(6):
+        unregistered = request_reset(client, 'nobody@example.com')
+
+    assert registered.status_code == unregistered.status_code
+    assert registered.data == unregistered.data
+
+
+@pytest.mark.django_db
+def test_the_limit_is_per_address_not_global(client, account, mailoutbox):
+    """One address being limited must not stop a different person resetting."""
+    User.objects.create_user(username='grace@example.com', email='grace@example.com')
+    for _ in range(8):
+        request_reset(client, EMAIL)
+    before = len(mailoutbox)
+
+    request_reset(client, 'grace@example.com')
+
+    assert len(mailoutbox) == before + 1

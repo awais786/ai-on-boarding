@@ -14,6 +14,10 @@ a forgotten password is a permanently lost account.
 - Serve a page at the address the link points to, so a person who follows it from their mail can
   choose a new password there rather than needing a client that can make API calls.
 - Expire a reset code 30 minutes after it is issued, and retire it once it has been used.
+- Leave a person's existing link working when a new reset cannot be delivered, so a mail outage
+  does not take away the only way back into their account.
+- Cap how often a reset can be requested for one address, so nobody can keep somebody else from
+  finishing a reset by repeatedly requesting one on their behalf.
 - Reject an invalid, expired, or already-used code identically, so a caller cannot tell which
   was true.
 - Hold a new password to the same strength rules signup already enforces.

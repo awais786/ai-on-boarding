@@ -12,6 +12,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 
 from .models import PasswordResetCode
 from .serializers import (
@@ -117,7 +118,12 @@ def try_deliver_reset_link(user):
     call inside it. Failures are logged, so a broken configuration stays visible.
     """
     try:
-        send_reset_link(user, PasswordResetCode.issue_for(user))
+        # One transaction: issuing retires the account's previous code, and that
+        # happens before the send can succeed. Without the rollback, a mail outage
+        # destroyed the link already in someone's inbox and supplied no
+        # replacement - "Leave earlier codes usable when delivery fails".
+        with transaction.atomic():
+            send_reset_link(user, PasswordResetCode.issue_for(user))
     # Deliberately broad: the guarantee is that no failure of any kind on this
     # branch reaches the caller, so there is no exception type worth re-raising.
     except Exception:  # pylint: disable=broad-exception-caught
@@ -196,8 +202,31 @@ class PasswordResetPageView(View):
         return render(request, self.template_name, {'completed': True})
 
 
+class PasswordResetAddressThrottle(SimpleRateThrottle):
+    """Cap reset requests per submitted email address.
+
+    Keyed on the address rather than the caller because the harm is done to an
+    account: every request supersedes that account's previous code, so anyone
+    could keep somebody else from finishing a reset by requesting one repeatedly
+    on their behalf. A per-caller limit would miss that entirely, and a
+    distributed caller would walk through it.
+
+    The key is the address as submitted, whether or not an account exists for it,
+    so being limited reveals nothing about who has an account.
+    """
+
+    scope = 'password-reset'
+
+    def get_cache_key(self, request, view):
+        email = (request.data or {}).get('email')
+        if not isinstance(email, str) or not email.strip():
+            return None  # nothing to key on; the serializer will reject it anyway
+        return self.cache_format % {'scope': self.scope, 'ident': email.strip().lower()}
+
+
 class PasswordResetRequestView(generics.GenericAPIView):
     serializer_class = PasswordResetRequestSerializer
+    throttle_classes = [PasswordResetAddressThrottle]
 
     @extend_schema(
         request=PasswordResetRequestSerializer,

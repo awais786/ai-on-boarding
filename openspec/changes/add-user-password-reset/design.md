@@ -17,9 +17,11 @@ tokens live.
 
 **Non-Goals:**
 - No reset by SMS, security question, or support-desk override.
-- No rate limiting on the reset-request endpoint beyond what the specs require. `add-user-signin`
-  owns lockout; the two are deliberately not wired together yet (see proposal.md - Sequencing).
 - No account lockout or notification-on-reset email to the account holder.
+- No general-purpose rate limiting across the API. The limit added here is specific to the
+  reset-request endpoint and exists to protect a named requirement; `add-user-signin` still owns
+  failed-credential lockout, and the two are deliberately not wired together (see proposal.md -
+  Sequencing).
 
 ## Decisions
 
@@ -86,6 +88,28 @@ enough for accounts it created - but accounts made through `createsuperuser`, th
 shell keep whatever case they were given, and their holders are equally entitled to a reset.
 Matching case-insensitively is what *Deliver a reset code to a registered address* means by
 "registered"; an exact match would silently answer 200 and send nothing.
+
+**Issuing and sending are one transaction, so a failed delivery undoes the issuance.** Issuing a
+code retires the account's previous one, and that happens before the send can possibly succeed.
+Left alone, a mail server being down destroyed the link already sitting in someone's inbox and
+supplied no replacement - the account became unable to complete a reset at all, and the 200 said
+nothing was wrong. Wrapping issue-and-send in one transaction means a delivery failure rolls the
+issuance back: the earlier code is still usable and no orphan row is left behind, which is what
+*Leave earlier codes usable when delivery fails* asks for. Alternative considered: send first and
+supersede afterwards, which is impossible - the message has to carry the new code.
+
+**The reset-request endpoint is limited per email address, not per caller.** *Limit how often a
+reset may be requested for one address* exists because every request supersedes the previous
+code, so an unauthenticated caller looping on someone else's address could keep that person
+permanently unable to finish a reset, and mail-bomb them on the way. Limiting by client address
+would not fix it: the harm is done to the account, not by a particular caller, and a distributed
+caller would walk straight through. Limiting by the submitted address caps the churn at its
+target, and combined with the transaction above it means the code a person already holds
+survives a flood.
+
+The limit is applied to the address as submitted, whether or not an account exists for it, so
+being limited reveals nothing about who has an account - the same reason `SigninAttempt` is keyed
+on the submitted email rather than on a found account.
 
 **Nothing on the registered-only branch may raise.** A single return statement is not enough on
 its own: issuing a code and sending mail happen only when an account exists, so an exception in
@@ -165,8 +189,17 @@ any requirement here.
   trade-off `add-user-signin` accepted for `SigninAttempt`. Recorded here rather than discovered
   later; a periodic purge of used and expired rows is the obvious remedy if it ever matters.
 - [The reset-request endpoint is a free outbound-mail trigger for any address that has an
-  account] → an attacker cannot learn whether mail was sent, but can cause it. Rate limiting is
-  the remedy and is deliberately out of scope while `add-user-signin` still owns that concern.
+  account] → capped by the per-address limit above. An attacker can still cause some mail, and
+  can still consume a person's own allowance for the period, but can no longer keep them from
+  finishing a reset: the code already delivered survives, because a limited request never reaches
+  the issuing step.
+- [The limit is counted in Django's cache, which this project has not configured beyond the
+  process-local default] → counts are therefore per worker process, so the effective limit under
+  several workers is the configured one multiplied by the worker count. Chosen anyway: it is the
+  idiomatic mechanism, it needs no new table, and the requirement it protects is about stopping
+  unbounded churn rather than about an exact number. `SigninAttempt` took the opposite decision
+  for lockout, where the exact count is the requirement - the divergence is deliberate and worth
+  revisiting if the two ever merge.
 - [Timing may distinguish a registered from an unregistered address on the request endpoint,
   since only one of them hashes and sends] → the spec's uniformity requirement is scoped to the
   response, as signin's is. Noted so that a later decision to close the timing channel is a
