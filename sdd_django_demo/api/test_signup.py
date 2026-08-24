@@ -10,13 +10,19 @@ def client():
     return APIClient()
 
 
-def signup(client, email='ada@example.com', password='lovelace1'):
-    return client.post('/api/signup/', {'email': email, 'password': password}, format='json')
+def signup(client, email='ada@example.com', password='lovelace1', country='France'):
+    return client.post(
+        '/api/signup/',
+        {'email': email, 'password': password, 'country': country},
+        format='json',
+    )
 
 
 @pytest.mark.django_db
 def test_signup_requires_email(client):
-    response = client.post('/api/signup/', {'password': 'lovelace1'}, format='json')
+    response = client.post(
+        '/api/signup/', {'password': 'lovelace1', 'country': 'France'}, format='json'
+    )
 
     assert response.status_code == 400
     assert 'email' in response.data
@@ -24,10 +30,38 @@ def test_signup_requires_email(client):
 
 @pytest.mark.django_db
 def test_signup_requires_password(client):
-    response = client.post('/api/signup/', {'email': 'ada@example.com'}, format='json')
+    response = client.post(
+        '/api/signup/', {'email': 'ada@example.com', 'country': 'France'}, format='json'
+    )
 
     assert response.status_code == 400
     assert 'password' in response.data
+
+
+@pytest.mark.django_db
+def test_signup_requires_country(client):
+    response = client.post(
+        '/api/signup/', {'email': 'ada@example.com', 'password': 'lovelace1'}, format='json'
+    )
+
+    assert response.status_code == 400
+    assert 'country' in response.data
+
+
+@pytest.mark.django_db
+def test_signup_rejects_blocked_country(client):
+    response = signup(client, country='India')
+
+    assert response.status_code == 400
+    assert 'country' in response.data
+    assert User.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_signup_allows_unblocked_country(client):
+    response = signup(client, country='France')
+
+    assert response.status_code == 200
 
 
 @pytest.mark.django_db

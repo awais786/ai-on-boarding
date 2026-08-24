@@ -4,6 +4,8 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
+from embargo.rules import is_blocked, record_account_country
+
 PASSWORD_MIN_LENGTH = 8
 
 
@@ -23,6 +25,7 @@ class SignupSerializer(serializers.Serializer):
     password = serializers.CharField(
         required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
     )
+    country = serializers.CharField(required=True, allow_blank=False)
 
     def validate_email(self, value):
         normalised = value.lower()
@@ -30,13 +33,20 @@ class SignupSerializer(serializers.Serializer):
             raise serializers.ValidationError('An account with this email already exists.')
         return normalised
 
+    def validate_country(self, value):
+        if is_blocked(value):
+            raise serializers.ValidationError('Signups from this country are not allowed.')
+        return value
+
     def create(self, validated_data):
         email = validated_data['email']
         try:
             with transaction.atomic():
-                return User.objects.create_user(
+                user = User.objects.create_user(
                     username=email, email=email, password=validated_data['password']
                 )
+                record_account_country(user, validated_data['country'])
+                return user
         except IntegrityError:
             raise serializers.ValidationError(
                 {'email': ['An account with this email already exists.']}
@@ -47,3 +57,12 @@ class AccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['email']
+
+
+class SigninSerializer(serializers.Serializer):
+    email = serializers.CharField(required=True, allow_blank=False)
+    password = serializers.CharField(required=True, allow_blank=False, write_only=True)
+
+
+class TokenSerializer(serializers.Serializer):
+    token = serializers.CharField()
