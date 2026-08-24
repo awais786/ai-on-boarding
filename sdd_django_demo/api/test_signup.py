@@ -10,13 +10,19 @@ def client():
     return APIClient()
 
 
-def signup(client, email='ada@example.com', password='lovelace1'):
-    return client.post('/api/signup/', {'email': email, 'password': password}, format='json')
+def signup(client, email='ada@example.com', username='ada', password='lovelace1'):
+    return client.post(
+        '/api/signup/',
+        {'email': email, 'username': username, 'password': password},
+        format='json',
+    )
 
 
 @pytest.mark.django_db
 def test_signup_requires_email(client):
-    response = client.post('/api/signup/', {'password': 'lovelace1'}, format='json')
+    response = client.post(
+        '/api/signup/', {'username': 'ada', 'password': 'lovelace1'}, format='json'
+    )
 
     assert response.status_code == 400
     assert 'email' in response.data
@@ -24,10 +30,22 @@ def test_signup_requires_email(client):
 
 @pytest.mark.django_db
 def test_signup_requires_password(client):
-    response = client.post('/api/signup/', {'email': 'ada@example.com'}, format='json')
+    response = client.post(
+        '/api/signup/', {'email': 'ada@example.com', 'username': 'ada'}, format='json'
+    )
 
     assert response.status_code == 400
     assert 'password' in response.data
+
+
+@pytest.mark.django_db
+def test_signup_requires_username(client):
+    response = client.post(
+        '/api/signup/', {'email': 'ada@example.com', 'password': 'lovelace1'}, format='json'
+    )
+
+    assert response.status_code == 400
+    assert 'username' in response.data
 
 
 @pytest.mark.django_db
@@ -40,9 +58,9 @@ def test_signup_rejects_malformed_email(client):
 
 @pytest.mark.django_db
 def test_signup_rejects_duplicate_email(client):
-    signup(client, email='ada@example.com')
+    signup(client, email='ada@example.com', username='ada1')
 
-    response = signup(client, email='ada@example.com', password='lovelace2')
+    response = signup(client, email='ada@example.com', username='ada2', password='lovelace2')
 
     assert response.status_code == 400
     assert 'email' in response.data
@@ -51,9 +69,11 @@ def test_signup_rejects_duplicate_email(client):
 
 @pytest.mark.django_db
 def test_signup_duplicate_email_is_case_insensitive(client):
-    signup(client, email='Ada@Example.com')
+    signup(client, email='Ada@Example.com', username='ada1')
 
-    response = signup(client, email='ADA@EXAMPLE.COM', password='lovelace2')
+    response = signup(
+        client, email='ADA@EXAMPLE.COM', username='ada2', password='lovelace2'
+    )
 
     assert response.status_code == 400
     assert User.objects.filter(email='ada@example.com').count() == 1
@@ -69,13 +89,11 @@ def test_signup_normalises_email_to_lowercase(client):
 
 @pytest.mark.django_db
 def test_signup_duplicate_email_race_returns_400_not_500(client):
-    User.objects.create_user(
-        username='ada@example.com', email='ada@example.com', password='lovelace1'
-    )
+    User.objects.create_user(username='someoneelse', email='ada@example.com', password='lovelace1')
 
     with patch('api.serializers.User.objects.filter') as mock_filter:
         mock_filter.return_value.exists.return_value = False
-        response = signup(client, email='ada@example.com', password='lovelace2')
+        response = signup(client, email='ada@example.com', username='newada', password='lovelace2')
 
     assert response.status_code == 400
     assert 'email' in response.data
@@ -131,8 +149,74 @@ def test_signup_response_never_contains_password(client):
 
 
 @pytest.mark.django_db
-def test_signup_success_returns_200_with_only_email(client):
-    response = signup(client, email='ada@example.com')
+def test_signup_success_returns_200_with_email_and_username(client):
+    response = signup(client, email='ada@example.com', username='ada')
 
     assert response.status_code == 200
-    assert response.data == {'email': 'ada@example.com'}
+    assert response.data == {'email': 'ada@example.com', 'username': 'ada'}
+
+
+@pytest.mark.django_db
+def test_signup_rejects_username_too_short(client):
+    response = signup(client, username='ab')
+
+    assert response.status_code == 400
+    assert 'username' in response.data
+
+
+@pytest.mark.django_db
+def test_signup_rejects_username_too_long(client):
+    response = signup(client, username='a' * 31)
+
+    assert response.status_code == 400
+    assert 'username' in response.data
+
+
+@pytest.mark.django_db
+def test_signup_rejects_username_with_disallowed_character(client):
+    response = signup(client, username='ada-lovelace')
+
+    assert response.status_code == 400
+    assert 'username' in response.data
+
+
+@pytest.mark.django_db
+def test_signup_rejects_duplicate_username(client):
+    signup(client, email='ada1@example.com', username='ada')
+
+    response = signup(client, email='ada2@example.com', username='ada', password='lovelace2')
+
+    assert response.status_code == 400
+    assert 'username' in response.data
+    assert User.objects.filter(username='ada').count() == 1
+
+
+@pytest.mark.django_db
+def test_signup_duplicate_username_is_case_insensitive(client):
+    signup(client, email='ada1@example.com', username='Ada')
+
+    response = signup(client, email='ada2@example.com', username='ADA', password='lovelace2')
+
+    assert response.status_code == 400
+    assert User.objects.filter(username='ada').count() == 1
+
+
+@pytest.mark.django_db
+def test_signup_normalises_username_to_lowercase(client):
+    response = signup(client, username='Ada')
+
+    assert response.data['username'] == 'ada'
+    assert User.objects.get().username == 'ada'
+
+
+@pytest.mark.django_db
+def test_signup_duplicate_username_race_returns_400_not_500(client):
+    User.objects.create_user(username='ada', email='someoneelse@example.com', password='lovelace1')
+
+    with patch('api.serializers.User.objects.filter') as mock_filter:
+        mock_filter.return_value.exists.return_value = False
+        response = signup(client, email='newada@example.com', username='ada', password='lovelace2')
+
+    assert response.status_code == 400
+    assert 'username' in response.data
+    assert User.objects.filter(username='ada').count() == 1
