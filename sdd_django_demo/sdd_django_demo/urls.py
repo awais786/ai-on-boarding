@@ -17,7 +17,16 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
+from api.views import PasswordResetPageView
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
+    # Not under api/: this is the human-facing address the reset mail carries, and
+    # it must match RESET_LINK_BASE_URL + the path build_reset_link composes.
+    path(
+        'reset-password/<str:code>/',
+        PasswordResetPageView.as_view(),
+        name='password-reset-page',
+    ),
 ]

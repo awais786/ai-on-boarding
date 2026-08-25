@@ -6,6 +6,16 @@ from . import views
 urlpatterns = [
     path('health/', views.health, name='health'),
     path('signup/', views.SignupView.as_view(), name='signup'),
+    path(
+        'password-reset/',
+        views.PasswordResetRequestView.as_view(),
+        name='password-reset',
+    ),
+    path(
+        'password-reset/confirm/',
+        views.PasswordResetConfirmView.as_view(),
+        name='password-reset-confirm',
+    ),
     path('schema/', SpectacularAPIView.as_view(), name='schema'),
     path('docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='docs'),
 ]
