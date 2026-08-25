@@ -25,7 +25,7 @@ class SignupSerializer(serializers.Serializer):
     password = serializers.CharField(
         required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
     )
-    country = serializers.CharField(required=True, allow_blank=False)
+    country = serializers.CharField(required=True, allow_blank=False, max_length=100)
 
     def validate_email(self, value):
         normalised = value.lower()

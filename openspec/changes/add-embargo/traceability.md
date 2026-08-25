@@ -17,6 +17,7 @@ One row per requirement across `specs/embargo/spec.md` and this change's `user-s
 |---|---|---|
 | Accept a signup submission (MODIFIED - now includes country) | `api/serializers.py:SignupSerializer.country` | `test_signup_allows_unblocked_country` |
 | Reject a missing country | `api/serializers.py:SignupSerializer.country` (`required=True, allow_blank=False`) | `test_signup_requires_country` |
+| Reject a submission over the persisted length limit | `api/serializers.py:SignupSerializer.country` (`max_length=100`, matching `embargo.models.AccountCountry.country`) | `test_signup_rejects_country_over_max_length` |
 | Reject a submission from a blocked country | `api/serializers.py:SignupSerializer.validate_country` (`embargo.rules.is_blocked`) | `test_signup_rejects_blocked_country` |
 
 ## `user-signin` (delta)
@@ -28,6 +29,14 @@ One row per requirement across `specs/embargo/spec.md` and this change's `user-s
 
 ## Notes
 
+- GitHub's Copilot PR review flagged two issues, both fixed: `SignupSerializer.country` had
+  no `max_length`, so a value longer than `AccountCountry.country`'s `max_length=100` column
+  could pass validation and only fail (or silently truncate, backend-dependent) at
+  persistence time - fixed by matching the serializer's `max_length` to the model's; and the
+  India-seeding data migration used a plain `get_or_create` with no explicit DB alias and no
+  case-insensitive existence check before creating - fixed to use
+  `schema_editor.connection.alias` and an `iexact` existence check before creating, per
+  Django migration best practice.
 - `/code-review` raised two findings, both on pre-existing signin code this change does not
   touch: `SigninSerializer.email` has no format/length bound, and the success-path counter reset
   re-queries instead of reusing the already-fetched `SigninAttempt` row. Neither cites a

@@ -43,6 +43,15 @@ def test_signup_requires_country(client):
 
 
 @pytest.mark.django_db
+def test_signup_rejects_country_over_max_length(client):
+    response = signup(client, country='A' * 101)
+
+    assert response.status_code == 400
+    assert 'country' in response.data
+    assert User.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_signup_rejects_blocked_country(client):
     response = signup(client, country='India')
 

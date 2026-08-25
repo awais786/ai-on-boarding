@@ -5,12 +5,15 @@ from django.db import migrations
 
 def block_india(apps, schema_editor):
     BlockedCountry = apps.get_model('embargo', 'BlockedCountry')
-    BlockedCountry.objects.get_or_create(country='India')
+    db_alias = schema_editor.connection.alias
+    if not BlockedCountry.objects.using(db_alias).filter(country__iexact='India').exists():
+        BlockedCountry.objects.using(db_alias).create(country='India')
 
 
 def unblock_india(apps, schema_editor):
     BlockedCountry = apps.get_model('embargo', 'BlockedCountry')
-    BlockedCountry.objects.filter(country__iexact='India').delete()
+    db_alias = schema_editor.connection.alias
+    BlockedCountry.objects.using(db_alias).filter(country__iexact='India').delete()
 
 
 class Migration(migrations.Migration):
