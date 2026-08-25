@@ -3,16 +3,10 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth.models import User
 from django.utils import timezone
-from rest_framework.test import APIClient
 
 from api.models import SigninAttempt
 from embargo.models import BlockedCountry
 from embargo.rules import record_account_country
-
-
-@pytest.fixture
-def client():
-    return APIClient()
 
 
 def create_account(email='ada@example.com', password='lovelace1', country=None):
