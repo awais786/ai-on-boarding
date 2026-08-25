@@ -2,7 +2,7 @@ from .models import AccountCountry, BlockedCountry
 
 
 def is_blocked(country):
-    return BlockedCountry.objects.filter(country__iexact=country).exists()
+    return BlockedCountry.objects.filter(country=country.lower()).exists()
 
 
 def record_account_country(user, country):

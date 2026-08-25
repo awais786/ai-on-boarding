@@ -8,7 +8,7 @@ One row per requirement across `specs/embargo/spec.md` and this change's `user-s
 | Requirement | Code | Test |
 |---|---|---|
 | Maintain a configurable list of blocked countries | `embargo/models.py:BlockedCountry` + `embargo/rules.py:is_blocked` | `test_unlisted_country_is_allowed`, `test_listed_country_is_blocked` |
-| Match a country case-insensitively | `embargo/rules.py:is_blocked` (`country__iexact`) | `test_country_matched_case_insensitively` |
+| Match a country case-insensitively | `embargo/models.py:BlockedCountry.save`/`AccountCountry.save` normalise to lowercase at write time; `embargo/rules.py:is_blocked` lowercases its input and does a plain exact match | `test_country_matched_case_insensitively`, `test_blocked_country_is_stored_lowercase`, `test_account_country_is_stored_lowercase` |
 | Evaluate checks against the list's current state | `embargo/rules.py:is_blocked` (queries the table fresh on every call, no caching) | `test_later_addition_takes_effect`, `test_later_removal_takes_effect` |
 
 ## `user-signup` (delta)
@@ -29,6 +29,7 @@ One row per requirement across `specs/embargo/spec.md` and this change's `user-s
 
 ## Notes
 
+- Per review feedback from the repo owner, case normalisation moved from query-time (`__iexact` sprinkled through the code) to the model's `save()` boundary: `BlockedCountry` and `AccountCountry` now lowercase `country` on every save, so `is_blocked` can do a plain exact match instead of relying on `__iexact` everywhere. The seed migration writes `'india'` directly rather than relying on this, since `apps.get_model()` in a migration returns a historical model without the real class's `save()` override - a genuine gotcha, not an oversight. No backfill of existing records was needed: this table is new in this same change, and the migration is the only thing that has ever written to it.
 - GitHub's Copilot PR review flagged two issues, both fixed: `SignupSerializer.country` had
   no `max_length`, so a value longer than `AccountCountry.country`'s `max_length=100` column
   could pass validation and only fail (or silently truncate, backend-dependent) at
