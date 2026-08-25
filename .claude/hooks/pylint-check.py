@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """PostToolUse hook: runs Pylint on a Python file after Claude edits/writes it
-and feeds any findings back to Claude."""
+and feeds any findings back to Claude.
+
+Scope: fires only for the Write/Edit/MultiEdit tools (see the PostToolUse matcher
+in settings.json). A Python file changed via a raw Bash command (e.g. `sed -i`)
+is not covered — deriving "which .py file did this shell command touch" reliably
+isn't worth the complexity here, so that case is intentionally out of scope
+rather than approximated."""
 
 import glob
 import json

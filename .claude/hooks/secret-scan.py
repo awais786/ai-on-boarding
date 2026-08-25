@@ -23,8 +23,8 @@ SECRET_PATTERNS = [
     ("Private Key Block", re.compile(r"-----BEGIN[ A-Z]*PRIVATE KEY-----")),
     ("Bearer Token", re.compile(r"(?i)bearer\s+[A-Za-z0-9\-._~+/]{20,}=*")),
     ("Generic Secret Assignment", re.compile(
-        r"(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token"
-        r"|client[_-]?secret|password|passwd|pwd)\b\s*[=:]\s*"
+        r"(?i)['\"]?\b(api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token"
+        r"|client[_-]?secret|password|passwd|pwd)\b['\"]?\s*[=:]\s*"
         r"['\"][^'\"\s]{12,}['\"]"
     )),
 ]

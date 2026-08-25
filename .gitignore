@@ -10,6 +10,10 @@ db.sqlite3
 .pytest_cache/
 .private/
 
+# personal, machine-specific Claude Code hook config — never shared with the team
+.claude/settings.local.json
+.claude/hooks/local/
+
 # sdd_django_demo build workspace (distilled into reference/signup-worked-example/)
 sdd_django_demo/.venv/
 sdd_django_demo/db.sqlite3

@@ -8,27 +8,26 @@ allowed the turn to proceed silently.
 
 import json
 import os
-import subprocess
-import sys
+import shutil
 import tempfile
 import unittest
 
+from hook_test_case import HookTestCase
+
 HOOK = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pylint-check.py")
 
+# Mirrors pylint-check.py's own PYLINT_BIN fallback: prefer the Homebrew
+# install, then whatever "pylint" resolves to on PATH.
+PYLINT_AVAILABLE = bool(
+    os.path.exists("/opt/homebrew/bin/pylint") or shutil.which("pylint")
+)
 
-class PylintCheckHookTest(unittest.TestCase):
-    def run_hook(self, tool_name, file_path):
-        payload = {"tool_name": tool_name, "tool_input": {"file_path": file_path}}
-        result = subprocess.run(
-            [sys.executable, HOOK],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout.strip()
 
+class PylintCheckHookTest(HookTestCase):
+    hook_path = HOOK
+    timeout = 30
+
+    @unittest.skipUnless(PYLINT_AVAILABLE, "pylint is not installed on this machine")
     def test_python_file_with_lint_errors_is_fed_back(self):
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", delete=False
@@ -45,6 +44,7 @@ class PylintCheckHookTest(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    @unittest.skipUnless(PYLINT_AVAILABLE, "pylint is not installed on this machine")
     def test_clean_python_file_produces_no_output(self):
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", delete=False
