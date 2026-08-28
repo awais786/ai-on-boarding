@@ -55,12 +55,17 @@ MUTATING_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 # control characters so redirection targets show up as their own token even when
 # written with no surrounding space (`echo x>.env`).
 COMMAND_TOKEN_SPLIT = re.compile(r"[\s;|&<>]+")
+WHITESPACE = re.compile(r"\s")
 
-# Quoted strings and heredoc bodies are free-text payloads (a commit message, a
-# file's new content), not path arguments — scanning them word-by-word would
-# treat any prose that happens to mention a protected filename as a hit. Blank
-# each one out to a single opaque placeholder before tokenizing, so real
-# unquoted shell syntax (the actual redirects/arguments) is still scanned.
+# Quoted strings are ambiguous: `cat "/repo/.env"` is a real path argument that
+# must still be checked, while `git commit -m "mentions .env in passing"` is
+# free-text prose that merely mentions a protected-looking name. The two are
+# told apart by whether the quoted content itself contains whitespace — a
+# path/argument is a single word, prose is not — so only *multi-word* quoted
+# spans are blanked to an opaque placeholder; single-word ones are left as-is
+# for the normal tokenizer to pick up (quotes and all — it already strips
+# surrounding quote characters off each token). Heredoc bodies are unambiguous
+# free text (a file's new content) and are always blanked.
 QUOTE_OR_HEREDOC_START = re.compile(r"""(['"])|<<-?\s*(['"]?)(\w+)\2""")
 
 
@@ -79,12 +84,13 @@ def is_protected(path):
 
 
 def strip_free_text_payloads(command):
-    """Blank out quoted strings and heredoc bodies to a single opaque token each,
-    leaving unquoted shell syntax untouched. Best-effort, not a full shell
-    parser: a quote embedded inside a payload (e.g. a commit message quoting a
-    value) can end the span early, in which case the remainder is scanned as
-    if it were ordinary command text — matching this hook's normal behavior
-    rather than silently allowing it through."""
+    """Blank out multi-word quoted strings and heredoc bodies to a single
+    opaque token each, leaving single-word quoted spans (real path/argument
+    literals) and unquoted shell syntax untouched. Best-effort, not a full
+    shell parser: a quote embedded inside a payload (e.g. a commit message
+    quoting a value) can end the span early, in which case the remainder is
+    scanned as if it were ordinary command text — matching this hook's normal
+    behavior rather than silently allowing it through."""
     out = []
     i, n = 0, len(command)
     while i < n:
@@ -100,7 +106,10 @@ def strip_free_text_payloads(command):
             if end == -1:
                 out.append(command[match.start():])
                 break
-            out.append(" _OPAQUE_ ")
+            if WHITESPACE.search(command[match.end():end]):
+                out.append(" _OPAQUE_ ")
+            else:
+                out.append(command[match.start():end + 1])
             i = end + 1
             continue
 

@@ -141,6 +141,21 @@ class ProtectFilesHookTest(HookTestCase):
         stdout = self.run_hook("Bash", command=command)
         self.assertEqual(stdout, "")
 
+    def test_bash_double_quoted_protected_path_is_blocked(self):
+        # A quoted path argument (as opposed to quoted prose) must still be
+        # caught — quoting is not a way to smuggle a protected path past the
+        # single-word/multi-word free-text heuristic.
+        stdout = self.run_hook("Bash", command='cat "/repo/.env"')
+        self.assert_blocked(stdout, 'cat "/repo/.env"')
+
+    def test_bash_single_quoted_protected_path_is_blocked(self):
+        stdout = self.run_hook("Bash", command="cat '/repo/.env'")
+        self.assert_blocked(stdout, "cat '/repo/.env'")
+
+    def test_bash_quoted_redirect_target_is_blocked(self):
+        stdout = self.run_hook("Bash", command='echo x > "/home/user/.ssh/id_rsa"')
+        self.assert_blocked(stdout, 'echo x > "/home/user/.ssh/id_rsa"')
+
 
 if __name__ == "__main__":
     unittest.main()
