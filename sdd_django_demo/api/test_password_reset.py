@@ -492,6 +492,20 @@ def page_url(code):
     return f'/reset-password/{code}/'
 
 
+def submit_form(client, code, password=NEW_PASSWORD, confirmation=None):
+    """Submit the reset page's form, confirming the password unless told otherwise.
+
+    Defaulting the confirmation to the password keeps tests that are about
+    something else - expiry, replay, token invalidation - saying only what they
+    are about. Tests that are about the confirmation pass it explicitly.
+    """
+    if confirmation is None:
+        confirmation = password
+    return client.post(
+        page_url(code), {'password': password, 'confirm_password': confirmation}
+    )
+
+
 @pytest.mark.django_db
 def test_a_usable_link_opens_a_password_form(client, account, mailoutbox):
     response = client.get(page_url(issue_code(client, mailoutbox)))
@@ -506,7 +520,7 @@ def test_a_usable_link_opens_a_password_form(client, account, mailoutbox):
 def test_submitting_the_form_completes_the_reset(client, account, mailoutbox):
     code = issue_code(client, mailoutbox)
 
-    response = client.post(page_url(code), {'password': NEW_PASSWORD})
+    response = submit_form(client, code, NEW_PASSWORD)
 
     assert response.status_code == 200
     account.refresh_from_db()
@@ -525,7 +539,7 @@ def test_every_unusable_link_shows_the_same_page_and_no_form(client, account, ma
     expired_page = client.get(page_url(expired))
 
     used = issue_code(client, mailoutbox)
-    client.post(page_url(used), {'password': NEW_PASSWORD})
+    submit_form(client, used, NEW_PASSWORD)
     used_page = client.get(page_url(used))
 
     superseded = issue_code(client, mailoutbox)
@@ -543,7 +557,7 @@ def test_every_unusable_link_shows_the_same_page_and_no_form(client, account, ma
 def test_a_weak_password_keeps_the_form_open(client, account, mailoutbox):
     code = issue_code(client, mailoutbox)
 
-    response = client.post(page_url(code), {'password': 'short1'})
+    response = submit_form(client, code, 'short1')
 
     assert 'name="password"' in response.content.decode()
     account.refresh_from_db()
@@ -553,9 +567,9 @@ def test_a_weak_password_keeps_the_form_open(client, account, mailoutbox):
 @pytest.mark.django_db
 def test_the_page_cannot_be_used_twice(client, account, mailoutbox):
     code = issue_code(client, mailoutbox)
-    client.post(page_url(code), {'password': NEW_PASSWORD})
+    submit_form(client, code, NEW_PASSWORD)
 
-    replay = client.post(page_url(code), {'password': 'ontheway3'})
+    replay = submit_form(client, code, 'ontheway3')
 
     assert 'name="password"' not in replay.content.decode()
     account.refresh_from_db()
@@ -567,7 +581,7 @@ def test_the_page_invalidates_a_token_held_beforehand(client, account, mailoutbo
     token = Token.objects.create(user=account)
     code = issue_code(client, mailoutbox)
 
-    client.post(page_url(code), {'password': NEW_PASSWORD})
+    submit_form(client, code, NEW_PASSWORD)
 
     assert not Token.objects.filter(key=token.key).exists()
 
@@ -589,9 +603,9 @@ def test_an_unusable_link_offers_no_form_even_when_the_password_is_weak(
 ):
     """Regression: a dead link must say so, not render a live form to fill in."""
     code = issue_code(client, mailoutbox)
-    client.post(page_url(code), {'password': NEW_PASSWORD})  # spend it
+    submit_form(client, code, NEW_PASSWORD)  # spend it
 
-    replay = client.post(page_url(code), {'password': 'short1'})
+    replay = submit_form(client, code, 'short1')
 
     body = replay.content.decode()
     assert 'name="password"' not in body
@@ -602,10 +616,10 @@ def test_an_unusable_link_offers_no_form_even_when_the_password_is_weak(
 def test_a_dead_link_answers_the_same_way_to_get_and_post(client, account, mailoutbox):
     """Regression: GET inlined its own refusal and answered 200 where POST answered 400."""
     code = issue_code(client, mailoutbox)
-    client.post(page_url(code), {'password': NEW_PASSWORD})
+    submit_form(client, code, NEW_PASSWORD)
 
     got = client.get(page_url(code))
-    posted = client.post(page_url(code), {'password': NEW_PASSWORD})
+    posted = submit_form(client, code, NEW_PASSWORD)
 
     assert got.status_code == posted.status_code == 400
     assert got.content == posted.content
@@ -790,3 +804,180 @@ def test_the_limit_is_per_address_not_global(client, account, mailoutbox):
     request_reset(client, 'grace@example.com')
 
     assert len(mailoutbox) == before + 1
+
+
+# Requirement: Serve a page at the delivered link
+
+
+@pytest.mark.django_db
+def test_the_form_asks_for_the_new_password_twice(client, account, mailoutbox):
+    response = client.get(page_url(issue_code(client, mailoutbox)))
+
+    body = response.content.decode()
+    assert 'name="password"' in body
+    assert 'name="confirm_password"' in body
+
+
+# Requirement: Require the two password entries to match
+
+
+@pytest.mark.django_db
+def test_two_entries_that_differ_change_nothing(client, account, mailoutbox):
+    code = issue_code(client, mailoutbox)
+
+    response = client.post(
+        page_url(code), {'password': NEW_PASSWORD, 'confirm_password': 'babbage23'}
+    )
+
+    assert 'do not match' in response.content.decode()
+    account.refresh_from_db()
+    assert account.check_password(OLD_PASSWORD)
+
+
+@pytest.mark.django_db
+def test_a_mismatch_keeps_the_form_open(client, account, mailoutbox):
+    code = issue_code(client, mailoutbox)
+
+    response = client.post(
+        page_url(code), {'password': NEW_PASSWORD, 'confirm_password': 'babbage23'}
+    )
+
+    body = response.content.decode()
+    assert 'name="password"' in body
+    assert 'name="confirm_password"' in body
+
+
+@pytest.mark.django_db
+def test_a_mismatch_does_not_spend_the_reset_link(client, account, mailoutbox):
+    """Asserted directly, not through a later success.
+
+    A mismatch that quietly spent the code would leave someone holding a link that
+    stops working the moment they mistype - and nothing in a passing success path
+    would notice.
+    """
+    code = issue_code(client, mailoutbox)
+
+    client.post(page_url(code), {'password': NEW_PASSWORD, 'confirm_password': 'babbage23'})
+
+    still_open = client.get(page_url(code))
+    assert still_open.status_code == 200
+    assert 'name="password"' in still_open.content.decode()
+    assert PasswordResetCode.objects.filter(user=account, usable=True).exists()
+
+
+@pytest.mark.django_db
+def test_an_empty_second_entry_is_a_mismatch(client, account, mailoutbox):
+    code = issue_code(client, mailoutbox)
+
+    response = client.post(page_url(code), {'password': NEW_PASSWORD, 'confirm_password': ''})
+
+    assert 'do not match' in response.content.decode()
+    account.refresh_from_db()
+    assert account.check_password(OLD_PASSWORD)
+
+
+# Requirement: Report a mismatch before judging the password
+
+
+@pytest.mark.django_db
+def test_a_mismatch_is_reported_ahead_of_a_strength_complaint(client, account, mailoutbox):
+    """A weak password that was also mistyped is a typo first, a weak password second."""
+    code = issue_code(client, mailoutbox)
+
+    response = client.post(page_url(code), {'password': 'abc', 'confirm_password': 'abd'})
+
+    body = response.content.decode()
+    assert 'do not match' in body
+    assert 'at least' not in body
+
+
+@pytest.mark.django_db
+def test_strength_is_still_judged_once_the_entries_match(client, account, mailoutbox):
+    code = issue_code(client, mailoutbox)
+
+    response = client.post(page_url(code), {'password': 'abc', 'confirm_password': 'abc'})
+
+    body = response.content.decode()
+    assert 'at least' in body
+    assert 'do not match' not in body
+    account.refresh_from_db()
+    assert account.check_password(OLD_PASSWORD)
+
+
+# Requirement: Decide the link before the password
+
+
+@pytest.mark.django_db
+def test_a_dead_link_is_refused_rather_than_reporting_a_mismatch(client, account, mailoutbox):
+    """The link's state is decided first, whatever was typed into the form."""
+    code = issue_code(client, mailoutbox)
+    submit_form(client, code)  # spend it
+
+    replay = client.post(
+        page_url(code), {'password': NEW_PASSWORD, 'confirm_password': 'babbage23'}
+    )
+
+    body = replay.content.decode()
+    assert views.PAGE_REFUSAL in body
+    assert 'name="password"' not in body
+    assert 'do not match' not in body
+
+
+# Requirement: Never retain the confirmation entry
+
+
+@pytest.mark.django_db
+def test_the_confirmation_is_not_stored(client, account, mailoutbox):
+    code = issue_code(client, mailoutbox)
+
+    submit_form(client, code, NEW_PASSWORD, confirmation=NEW_PASSWORD)
+
+    stored = [
+        str(value)
+        for record in PasswordResetCode.objects.all()
+        for value in (record.code_digest, record.usable, record.issued_at)
+    ]
+    account.refresh_from_db()
+    stored.append(account.password)
+    assert not any(NEW_PASSWORD in value for value in stored)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    'password,confirmation',
+    [
+        (NEW_PASSWORD, NEW_PASSWORD),  # completes
+        (NEW_PASSWORD, 'babbage23'),  # mismatch
+        ('abc', 'abc'),  # too weak
+    ],
+)
+def test_neither_entry_appears_in_any_response(
+    client, account, mailoutbox, password, confirmation
+):
+    code = issue_code(client, mailoutbox)
+
+    response = client.post(
+        page_url(code), {'password': password, 'confirm_password': confirmation}
+    )
+
+    body = response.content.decode()
+    assert password not in body
+    assert confirmation not in body
+
+
+# Requirement: Complete a reset through the API with a single password
+
+
+@pytest.mark.django_db
+def test_the_api_completes_with_one_password_and_no_confirmation(client, account, mailoutbox):
+    """The asymmetry is deliberate - see the change's proposal. Pinned so a later
+    'let's make these consistent' breaks a test instead of every API caller."""
+    code = issue_code(client, mailoutbox)
+
+    response = client.post(
+        '/api/password-reset/confirm/', {'code': code, 'password': NEW_PASSWORD}, format='json'
+    )
+
+    assert response.status_code == 200
+    account.refresh_from_db()
+    assert account.check_password(NEW_PASSWORD)

@@ -60,6 +60,11 @@ RESET_LIMITED_BODY = {'detail': 'Too many reset requests for that address. Try a
 # following a link cannot reveal which of them applies.
 PAGE_REFUSAL = 'That reset link is not valid.'
 
+# Shown when the two entries differ. It says nothing about the passwords themselves -
+# not their length, not how far apart they are - because the page has no reason to
+# describe input it is about to discard.
+PAGE_MISMATCH = 'Those passwords do not match. Type the same one in both boxes.'
+
 
 @api_view(['GET'])
 def health(request):
@@ -186,6 +191,21 @@ class PasswordResetPageView(View):
             status=400,
         )
 
+    def reopen(self, request, problem):
+        """Hand the form back with a reason, and without either entry filled in.
+
+        Nothing submitted is echoed into the response: "Never retain the
+        confirmation entry" forbids it, and a password re-rendered into HTML is
+        one browser cache or shoulder away from being read. The cost is that a
+        refused submission means retyping both boxes.
+        """
+        return render(
+            request,
+            self.template_name,
+            {'usable': True, 'problem': problem},
+            status=400,
+        )
+
     def get(self, request, code):
         if PasswordResetCode.resolve(code) is None:
             return self.refuse(request)
@@ -198,15 +218,18 @@ class PasswordResetPageView(View):
         if PasswordResetCode.resolve(code) is None:
             return self.refuse(request)
         password = request.POST.get('password', '')
+        # Then the two entries, before the password is judged on its merits.
+        # "Report a mismatch before judging the password": someone who mistyped is
+        # owed the news that they mistyped, not a verdict on a password they never
+        # meant to submit. An absent second entry is a mismatch like any other -
+        # `''` does not equal a real password - so the empty case needs no branch
+        # of its own.
+        if password != request.POST.get('confirm_password', ''):
+            return self.reopen(request, PAGE_MISMATCH)
         try:
             validate_password_strength(password)
         except ValidationError as invalid:
-            return render(
-                request,
-                self.template_name,
-                {'usable': True, 'problem': flatten_messages(invalid.detail)},
-                status=400,
-            )
+            return self.reopen(request, flatten_messages(invalid.detail))
         # Still checked: the code can be spent by a racing request between the
         # resolve above and the claim inside complete_reset.
         if not complete_reset(code, password):
