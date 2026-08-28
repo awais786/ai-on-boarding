@@ -218,5 +218,4 @@ def test_signin_embargo_rejection_does_not_increment_failure_count(client):
 
     signin(client)
 
-    attempt = SigninAttempt.objects.get(email='ada@example.com')
-    assert attempt.failed_count == 0
+    assert not SigninAttempt.objects.filter(email='ada@example.com').exists()

@@ -71,7 +71,7 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 
 
 class SigninSerializer(serializers.Serializer):
-    email = serializers.CharField(required=True, allow_blank=False)
+    email = serializers.CharField(required=True, allow_blank=False, max_length=254)
     password = serializers.CharField(required=True, allow_blank=False, write_only=True)
 
 

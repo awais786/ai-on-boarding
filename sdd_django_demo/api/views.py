@@ -19,8 +19,7 @@ from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
-from embargo.models import AccountCountry
-from embargo.rules import is_blocked
+from embargo.rules import is_user_embargoed
 
 from .models import PasswordResetCode, SigninAttempt
 from .serializers import (
@@ -348,11 +347,15 @@ class SigninView(generics.GenericAPIView):
         email = serializer.validated_data['email'].lower()
         password = serializer.validated_data['password']
 
-        attempt, _ = SigninAttempt.objects.get_or_create(email=email)
+        # Read-only lookup: a row is only ever written for an email that has actually
+        # failed a signin (below), so probing many unregistered/junk emails can't grow
+        # this table for free.
+        attempt = SigninAttempt.objects.filter(email=email).first()
         now = timezone.now()
 
         if (
-            attempt.failed_count >= LOCKOUT_THRESHOLD
+            attempt is not None
+            and attempt.failed_count >= LOCKOUT_THRESHOLD
             and attempt.last_failed_at is not None
             and now < attempt.last_failed_at + LOCKOUT_DURATION
         ):
@@ -361,8 +364,7 @@ class SigninView(generics.GenericAPIView):
         user = authenticate(username=email, password=password)
 
         if user is not None:
-            account_country = AccountCountry.objects.filter(user=user).first()
-            if account_country is not None and is_blocked(account_country.country):
+            if is_user_embargoed(user):
                 return Response(SIGNIN_REJECTION_BODY, status=401)
 
             SigninAttempt.objects.filter(email=email).update(failed_count=0)
@@ -373,7 +375,7 @@ class SigninView(generics.GenericAPIView):
         # decision and the write happen in one server-side statement, so concurrent failed
         # attempts against the same email can't race and lose an update (unlike
         # select_for_update(), which is a silent no-op on this project's SQLite backend).
-        SigninAttempt.objects.filter(email=email).update(
+        updated = SigninAttempt.objects.filter(email=email).update(
             failed_count=Case(
                 When(
                     Q(last_failed_at__isnull=True) | Q(last_failed_at__lt=now - LOCKOUT_WINDOW),
@@ -383,5 +385,10 @@ class SigninView(generics.GenericAPIView):
             ),
             last_failed_at=now,
         )
+        if not updated:
+            # First-ever failure for this email: no row exists yet to update.
+            SigninAttempt.objects.get_or_create(
+                email=email, defaults={'failed_count': 1, 'last_failed_at': now}
+            )
 
         return Response(SIGNIN_REJECTION_BODY, status=401)
