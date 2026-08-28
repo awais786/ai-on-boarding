@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -141,13 +142,41 @@ STATIC_URL = 'static/'
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+# The console backend is the default so the project still runs, and the test suite
+# still passes, with no environment set up at all - the reset link simply prints to
+# the runserver terminal.
+#
+# Setting RESET_SMTP_HOST switches delivery to a real SMTP server instead. Nothing
+# in the application changes: `send_reset_link` calls `send_mail` either way, and
+# only the transport underneath it differs. Credentials are read from the
+# environment rather than written here, because this file is tracked.
 
-DEFAULT_FROM_EMAIL = 'no-reply@example.com'
+_SMTP_HOST = os.environ.get('RESET_SMTP_HOST')
+
+if _SMTP_HOST:
+    MAILERS = {
+        'default': {
+            'BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
+            'OPTIONS': {
+                'host': _SMTP_HOST,
+                'port': int(os.environ.get('RESET_SMTP_PORT', '587')),
+                'username': os.environ.get('RESET_SMTP_USER', ''),
+                'password': os.environ.get('RESET_SMTP_PASSWORD', ''),
+                # Off for a local catcher on 1025, which speaks plain SMTP; on for a
+                # real provider on 587.
+                'use_tls': os.environ.get('RESET_SMTP_TLS', '') == '1',
+                'timeout': 10,
+            },
+        },
+    }
+else:
+    MAILERS = {
+        'default': {
+            'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        },
+    }
+
+DEFAULT_FROM_EMAIL = os.environ.get('RESET_SMTP_FROM', 'no-reply@example.com')
 
 
 # Password reset
