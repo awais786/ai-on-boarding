@@ -159,12 +159,20 @@ if _SMTP_HOST:
             'BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
             'OPTIONS': {
                 'host': _SMTP_HOST,
-                'port': int(os.environ.get('RESET_SMTP_PORT', '587')),
+                # Stripped, and `or 587` rather than a default argument: a variable
+                # that is set but blank reaches this line as '' or '   ', and int()
+                # raises on both at import, taking down the whole application rather
+                # than only its mail.
+                'port': int((os.environ.get('RESET_SMTP_PORT') or '').strip() or 587),
                 'username': os.environ.get('RESET_SMTP_USER', ''),
                 'password': os.environ.get('RESET_SMTP_PASSWORD', ''),
-                # Off for a local catcher on 1025, which speaks plain SMTP; on for a
-                # real provider on 587.
-                'use_tls': os.environ.get('RESET_SMTP_TLS', '') == '1',
+                # On unless explicitly turned off. Django's SMTP backend authenticates
+                # whenever a username and password are set, encrypted or not, so a
+                # default of off would put credentials on the wire for anyone who
+                # pointed this at a real provider without reading this far. A local
+                # catcher speaking plain SMTP is the case that has to ask, by setting
+                # RESET_SMTP_TLS=0.
+                'use_tls': os.environ.get('RESET_SMTP_TLS', '1') != '0',
                 'timeout': 10,
             },
         },
