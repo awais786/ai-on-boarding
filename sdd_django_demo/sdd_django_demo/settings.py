@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -41,10 +42,17 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'drf_spectacular',
     'api',
+    'embargo',
 ]
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Keyed on the submitted email address, not the caller: the harm this caps is
+    # done to an account, and every request supersedes that account's previous
+    # code. See the change's design.md.
+    'DEFAULT_THROTTLE_RATES': {
+        'password-reset': '5/hour',
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -135,8 +143,60 @@ STATIC_URL = 'static/'
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+# The console backend is the default so the project still runs, and the test suite
+# still passes, with no environment set up at all - the reset link simply prints to
+# the runserver terminal.
+#
+# Setting RESET_SMTP_HOST switches delivery to a real SMTP server instead. Nothing
+# in the application changes: `send_reset_link` calls `send_mail` either way, and
+# only the transport underneath it differs. Credentials are read from the
+# environment rather than written here, because this file is tracked.
+
+# Stripped for the same reason the port below is: a variable set to whitespace is
+# truthy, so an unstripped host would switch the SMTP backend on with a host that
+# cannot resolve. That failure is swallowed by `try_deliver_reset_link`, so it
+# would surface as mail silently not arriving rather than as an error.
+_SMTP_HOST = (os.environ.get('RESET_SMTP_HOST') or '').strip()
+
+if _SMTP_HOST:
+    MAILERS = {
+        'default': {
+            'BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
+            'OPTIONS': {
+                'host': _SMTP_HOST,
+                # Stripped, and `or 587` rather than a default argument: a variable
+                # that is set but blank reaches this line as '' or '   ', and int()
+                # raises on both at import, taking down the whole application rather
+                # than only its mail.
+                'port': int((os.environ.get('RESET_SMTP_PORT') or '').strip() or 587),
+                'username': os.environ.get('RESET_SMTP_USER', ''),
+                'password': os.environ.get('RESET_SMTP_PASSWORD', ''),
+                # On unless explicitly turned off. Django's SMTP backend authenticates
+                # whenever a username and password are set, encrypted or not, so a
+                # default of off would put credentials on the wire for anyone who
+                # pointed this at a real provider without reading this far. A local
+                # catcher speaking plain SMTP is the case that has to ask, by setting
+                # RESET_SMTP_TLS=0.
+                'use_tls': os.environ.get('RESET_SMTP_TLS', '1') != '0',
+                'timeout': 10,
+            },
+        },
+    }
+else:
+    MAILERS = {
+        'default': {
+            'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        },
+    }
+
+DEFAULT_FROM_EMAIL = os.environ.get('RESET_SMTP_FROM', 'no-reply@example.com')
+
+
+# Password reset
+#
+# Where a reset link points. Deliberately a setting rather than something derived
+# from the incoming request: the request that asks for a reset is made by whoever
+# wants it, so trusting its Host would let an attacker aim a genuine reset mail at
+# their own server. See the change's design.md for the full reasoning.
+
+RESET_LINK_BASE_URL = 'http://localhost:8000'

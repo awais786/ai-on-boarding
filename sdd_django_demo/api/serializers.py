@@ -4,6 +4,8 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
+from embargo.rules import is_blocked, record_account_country
+
 PASSWORD_MIN_LENGTH = 8
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 30
@@ -40,6 +42,7 @@ class SignupSerializer(serializers.Serializer):
     password = serializers.CharField(
         required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
     )
+    country = serializers.CharField(required=True, allow_blank=False, max_length=100)
 
     def validate_email(self, value):
         normalised = value.lower()
@@ -52,6 +55,10 @@ class SignupSerializer(serializers.Serializer):
         if User.objects.filter(username=normalised).exists():
             raise serializers.ValidationError('An account with this username already exists.')
         return normalised
+    def validate_country(self, value):
+        if is_blocked(value):
+            raise serializers.ValidationError('Signups from this country are not allowed.')
+        return value
 
     def create(self, validated_data):
         email = validated_data['email']
@@ -69,6 +76,12 @@ class SignupSerializer(serializers.Serializer):
                 field = 'email'
             else:
                 raise
+                user = User.objects.create_user(
+                    username=email, email=email, password=validated_data['password']
+                )
+                record_account_country(user, validated_data['country'])
+                return user
+        except IntegrityError:
             raise serializers.ValidationError(
                 {field: [f'An account with this {field} already exists.']}
             )
@@ -83,3 +96,24 @@ class AccountSerializer(serializers.ModelSerializer):
 class SigninSerializer(serializers.Serializer):
     email_or_username = serializers.CharField(required=True, allow_blank=False, max_length=255)
     password = serializers.CharField(required=True, allow_blank=False, write_only=True)
+        fields = ['email']
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True, allow_blank=False)
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    code = serializers.CharField(required=True, allow_blank=False)
+    password = serializers.CharField(
+        required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
+    )
+
+
+class SigninSerializer(serializers.Serializer):
+    email = serializers.CharField(required=True, allow_blank=False, max_length=254)
+    password = serializers.CharField(required=True, allow_blank=False, write_only=True)
+
+
+class TokenSerializer(serializers.Serializer):
+    token = serializers.CharField()

@@ -2,7 +2,6 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
-from rest_framework.test import APIClient
 
 
 @pytest.fixture
@@ -14,6 +13,10 @@ def signup(client, email='ada@example.com', username='ada', password='lovelace1'
     return client.post(
         '/api/signup/',
         {'email': email, 'username': username, 'password': password},
+def signup(client, email='ada@example.com', password='lovelace1', country='France'):
+    return client.post(
+        '/api/signup/',
+        {'email': email, 'password': password, 'country': country},
         format='json',
     )
 
@@ -22,6 +25,7 @@ def signup(client, email='ada@example.com', username='ada', password='lovelace1'
 def test_signup_requires_email(client):
     response = client.post(
         '/api/signup/', {'username': 'ada', 'password': 'lovelace1'}, format='json'
+        '/api/signup/', {'password': 'lovelace1', 'country': 'France'}, format='json'
     )
 
     assert response.status_code == 400
@@ -32,6 +36,7 @@ def test_signup_requires_email(client):
 def test_signup_requires_password(client):
     response = client.post(
         '/api/signup/', {'email': 'ada@example.com', 'username': 'ada'}, format='json'
+        '/api/signup/', {'email': 'ada@example.com', 'country': 'France'}, format='json'
     )
 
     assert response.status_code == 400
@@ -40,12 +45,39 @@ def test_signup_requires_password(client):
 
 @pytest.mark.django_db
 def test_signup_requires_username(client):
+def test_signup_requires_country(client):
     response = client.post(
         '/api/signup/', {'email': 'ada@example.com', 'password': 'lovelace1'}, format='json'
     )
 
     assert response.status_code == 400
     assert 'username' in response.data
+    assert 'country' in response.data
+
+
+@pytest.mark.django_db
+def test_signup_rejects_country_over_max_length(client):
+    response = signup(client, country='A' * 101)
+
+    assert response.status_code == 400
+    assert 'country' in response.data
+    assert User.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_signup_rejects_blocked_country(client):
+    response = signup(client, country='India')
+
+    assert response.status_code == 400
+    assert 'country' in response.data
+    assert User.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_signup_allows_unblocked_country(client):
+    response = signup(client, country='France')
+
+    assert response.status_code == 200
 
 
 @pytest.mark.django_db
