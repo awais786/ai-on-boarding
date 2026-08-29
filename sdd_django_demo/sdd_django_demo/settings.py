@@ -151,7 +151,11 @@ STATIC_URL = 'static/'
 # only the transport underneath it differs. Credentials are read from the
 # environment rather than written here, because this file is tracked.
 
-_SMTP_HOST = os.environ.get('RESET_SMTP_HOST')
+# Stripped for the same reason the port below is: a variable set to whitespace is
+# truthy, so an unstripped host would switch the SMTP backend on with a host that
+# cannot resolve. That failure is swallowed by `try_deliver_reset_link`, so it
+# would surface as mail silently not arriving rather than as an error.
+_SMTP_HOST = (os.environ.get('RESET_SMTP_HOST') or '').strip()
 
 if _SMTP_HOST:
     MAILERS = {
