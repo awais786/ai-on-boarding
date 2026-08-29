@@ -1,0 +1,45 @@
+# Pylint configuration for this repository.
+#
+# The PostToolUse hook in .claude/hooks/pylint_after_edit.py lints every Python file
+# Claude edits and hands the report back to it. That feedback is only useful if it is
+# mostly true, so the messages disabled below are the ones that fire on correct
+# Django/DRF code or that contradict this repository's own conventions.
+
+[MAIN]
+# Resolve `api.*` imports the way manage.py does.
+init-hook = 'import sys; sys.path.insert(0, "sdd_django_demo")'
+ignore-paths = ^\.venv/.*$,^.*/migrations/.*$
+
+[TYPECHECK]
+# Django attaches `objects` to every model at class-creation time, which pylint
+# cannot see without the pylint-django plugin. Naming it here keeps E1101 useful
+# for genuine typos instead of firing on every queryset in the project.
+generated-members = objects
+
+[FORMAT]
+max-line-length = 100
+
+[MESSAGES CONTROL]
+disable =
+    # This project generates its Django code from specs and does not write
+    # docstrings in it; nagging about them on every edit would be pure noise.
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    # DRF serializers, their inner Meta classes, and small CBVs legitimately
+    # have fewer than two public methods.
+    too-few-public-methods,
+    # Django and DRF fix these signatures: a view must accept `request`, and an
+    # overridden `create` must accept *args/**kwargs, used or not.
+    unused-argument,
+    # A serializer used only to validate input never saves anything, so leaving
+    # DRF's abstract create()/update() alone is correct rather than an omission.
+    abstract-method,
+    # Requesting a pytest fixture means naming it as a test argument, which pylint
+    # reads as shadowing the fixture function. Every test in the project would
+    # otherwise report it.
+    redefined-outer-name,
+    # The two hook scripts each parse stdin the same way on purpose: Claude Code
+    # invokes them independently, and neither should break because a sibling module
+    # moved. Six shared lines is the cost of keeping them standalone.
+    duplicate-code,
