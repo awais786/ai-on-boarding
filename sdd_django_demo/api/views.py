@@ -1,11 +1,15 @@
 import logging
 from collections.abc import Mapping
+from datetime import timedelta
 
 from django.conf import settings
+from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import transaction
+from django.db.models import Case, F, Q, Value, When
 from django.shortcuts import render
+from django.utils import timezone
 from django.views import View
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import generics
@@ -15,16 +19,25 @@ from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
-from .models import PasswordResetCode
+from embargo.rules import is_user_embargoed
+
+from .models import PasswordResetCode, SigninAttempt
 from .serializers import (
     AccountSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
+    SigninSerializer,
     SignupSerializer,
+    TokenSerializer,
     validate_password_strength,
 )
 
 logger = logging.getLogger(__name__)
+
+LOCKOUT_THRESHOLD = 3
+LOCKOUT_WINDOW = timedelta(minutes=5)
+LOCKOUT_DURATION = timedelta(minutes=30)
+SIGNIN_REJECTION_BODY = {'detail': 'Unable to sign in with the provided credentials.'}
 
 # Returned for every reset request, registered or not, so the response cannot be
 # used to discover which addresses have accounts.
@@ -335,3 +348,70 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         if not completed:
             return Response(dict(RESET_REFUSED_BODY), status=400)
         return Response(dict(RESET_COMPLETED_BODY), status=200)
+
+
+class SigninView(generics.GenericAPIView):
+    serializer_class = SigninSerializer
+
+    @extend_schema(
+        request=SigninSerializer,
+        responses={
+            200: OpenApiResponse(response=TokenSerializer, description='Signed in.'),
+            401: OpenApiResponse(
+                description='Rejected: unregistered email, wrong password, locked out, or the '
+                'account is embargoed - identical in status and body for all four.'
+            ),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data['email'].lower()
+        password = serializer.validated_data['password']
+
+        # Read-only lookup: a row is only ever written for an email that has actually
+        # failed a signin (below), so probing many unregistered/junk emails can't grow
+        # this table for free.
+        attempt = SigninAttempt.objects.filter(email=email).first()
+        now = timezone.now()
+
+        if (
+            attempt is not None
+            and attempt.failed_count >= LOCKOUT_THRESHOLD
+            and attempt.last_failed_at is not None
+            and now < attempt.last_failed_at + LOCKOUT_DURATION
+        ):
+            return Response(SIGNIN_REJECTION_BODY, status=401)
+
+        user = authenticate(username=email, password=password)
+
+        if user is not None:
+            if is_user_embargoed(user):
+                return Response(SIGNIN_REJECTION_BODY, status=401)
+
+            SigninAttempt.objects.filter(email=email).update(failed_count=0)
+            token, _ = Token.objects.get_or_create(user=user)
+            return Response({'token': token.key}, status=200)
+
+        # A single atomic UPDATE, not a Python read-modify-write: the reset-vs-increment
+        # decision and the write happen in one server-side statement, so concurrent failed
+        # attempts against the same email can't race and lose an update (unlike
+        # select_for_update(), which is a silent no-op on this project's SQLite backend).
+        updated = SigninAttempt.objects.filter(email=email).update(
+            failed_count=Case(
+                When(
+                    Q(last_failed_at__isnull=True) | Q(last_failed_at__lt=now - LOCKOUT_WINDOW),
+                    then=Value(1),
+                ),
+                default=F('failed_count') + 1,
+            ),
+            last_failed_at=now,
+        )
+        if not updated:
+            # First-ever failure for this email: no row exists yet to update.
+            SigninAttempt.objects.get_or_create(
+                email=email, defaults={'failed_count': 1, 'last_failed_at': now}
+            )
+
+        return Response(SIGNIN_REJECTION_BODY, status=401)

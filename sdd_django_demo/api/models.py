@@ -73,3 +73,9 @@ class PasswordResetCode(models.Model):
         row locks the SQLite backend does not have.
         """
         return type(self).objects.filter(pk=self.pk, usable=True).update(usable=False) == 1
+
+
+class SigninAttempt(models.Model):
+    email = models.EmailField(unique=True)
+    failed_count = models.PositiveIntegerField(default=0)
+    last_failed_at = models.DateTimeField(null=True, blank=True)
