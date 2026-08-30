@@ -65,9 +65,11 @@ class SignupSerializer(serializers.Serializer):
         username = validated_data['username']
         try:
             with transaction.atomic():
-                return User.objects.create_user(
+                user = User.objects.create_user(
                     username=username, email=email, password=validated_data['password']
                 )
+                record_account_country(user, validated_data['country'])
+                return user
         except IntegrityError as err:
             message = str(err)
             if 'username' in message:
@@ -76,12 +78,6 @@ class SignupSerializer(serializers.Serializer):
                 field = 'email'
             else:
                 raise
-                user = User.objects.create_user(
-                    username=email, email=email, password=validated_data['password']
-                )
-                record_account_country(user, validated_data['country'])
-                return user
-        except IntegrityError:
             raise serializers.ValidationError(
                 {field: [f'An account with this {field} already exists.']}
             )
@@ -96,7 +92,6 @@ class AccountSerializer(serializers.ModelSerializer):
 class SigninSerializer(serializers.Serializer):
     email_or_username = serializers.CharField(required=True, allow_blank=False, max_length=255)
     password = serializers.CharField(required=True, allow_blank=False, write_only=True)
-        fields = ['email']
 
 
 class PasswordResetRequestSerializer(serializers.Serializer):
@@ -108,11 +103,6 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     password = serializers.CharField(
         required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
     )
-
-
-class SigninSerializer(serializers.Serializer):
-    email = serializers.CharField(required=True, allow_blank=False, max_length=254)
-    password = serializers.CharField(required=True, allow_blank=False, write_only=True)
 
 
 class TokenSerializer(serializers.Serializer):

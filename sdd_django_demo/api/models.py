@@ -2,9 +2,6 @@ import hashlib
 import secrets
 from datetime import timedelta
 
-
-class SigninAttempt(models.Model):
-    email_or_username = models.CharField(max_length=255, unique=True)
 from django.contrib.auth.models import User
 from django.db import IntegrityError, models, transaction
 from django.utils import timezone
@@ -79,6 +76,13 @@ class PasswordResetCode(models.Model):
 
 
 class SigninAttempt(models.Model):
-    email = models.EmailField(unique=True)
+    email_or_username = models.CharField(max_length=255, unique=True)
     failed_count = models.PositiveIntegerField(default=0)
+    # When the current run of consecutive failures began. Reset only when a failure
+    # lands after the window has fully elapsed, so a burst of failures each less
+    # than FAILURE_WINDOW apart than its predecessor - but spanning longer than
+    # FAILURE_WINDOW overall - does not falsely trigger lockout. Distinct from
+    # last_failed_at (below), which tracks the most recent failure and drives
+    # lockout *expiry* instead.
+    window_started_at = models.DateTimeField(null=True, blank=True)
     last_failed_at = models.DateTimeField(null=True, blank=True)

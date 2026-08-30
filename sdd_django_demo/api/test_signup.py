@@ -2,6 +2,9 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
+from rest_framework.test import APIClient
+
+from embargo.models import AccountCountry
 
 
 @pytest.fixture
@@ -9,14 +12,10 @@ def client():
     return APIClient()
 
 
-def signup(client, email='ada@example.com', username='ada', password='lovelace1'):
+def signup(client, email='ada@example.com', username='ada', password='lovelace1', country='France'):
     return client.post(
         '/api/signup/',
-        {'email': email, 'username': username, 'password': password},
-def signup(client, email='ada@example.com', password='lovelace1', country='France'):
-    return client.post(
-        '/api/signup/',
-        {'email': email, 'password': password, 'country': country},
+        {'email': email, 'username': username, 'password': password, 'country': country},
         format='json',
     )
 
@@ -24,8 +23,9 @@ def signup(client, email='ada@example.com', password='lovelace1', country='Franc
 @pytest.mark.django_db
 def test_signup_requires_email(client):
     response = client.post(
-        '/api/signup/', {'username': 'ada', 'password': 'lovelace1'}, format='json'
-        '/api/signup/', {'password': 'lovelace1', 'country': 'France'}, format='json'
+        '/api/signup/',
+        {'username': 'ada', 'password': 'lovelace1', 'country': 'France'},
+        format='json',
     )
 
     assert response.status_code == 400
@@ -35,8 +35,9 @@ def test_signup_requires_email(client):
 @pytest.mark.django_db
 def test_signup_requires_password(client):
     response = client.post(
-        '/api/signup/', {'email': 'ada@example.com', 'username': 'ada'}, format='json'
-        '/api/signup/', {'email': 'ada@example.com', 'country': 'France'}, format='json'
+        '/api/signup/',
+        {'email': 'ada@example.com', 'username': 'ada', 'country': 'France'},
+        format='json',
     )
 
     assert response.status_code == 400
@@ -45,13 +46,25 @@ def test_signup_requires_password(client):
 
 @pytest.mark.django_db
 def test_signup_requires_username(client):
-def test_signup_requires_country(client):
     response = client.post(
-        '/api/signup/', {'email': 'ada@example.com', 'password': 'lovelace1'}, format='json'
+        '/api/signup/',
+        {'email': 'ada@example.com', 'password': 'lovelace1', 'country': 'France'},
+        format='json',
     )
 
     assert response.status_code == 400
     assert 'username' in response.data
+
+
+@pytest.mark.django_db
+def test_signup_requires_country(client):
+    response = client.post(
+        '/api/signup/',
+        {'email': 'ada@example.com', 'username': 'ada', 'password': 'lovelace1'},
+        format='json',
+    )
+
+    assert response.status_code == 400
     assert 'country' in response.data
 
 
@@ -78,6 +91,15 @@ def test_signup_allows_unblocked_country(client):
     response = signup(client, country='France')
 
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_signup_persists_submitted_country(client):
+    """Signin's embargo re-check reads this record, not anything from signup time."""
+    signup(client, country='France')
+
+    user = User.objects.get()
+    assert AccountCountry.objects.get(user=user).country == 'france'
 
 
 @pytest.mark.django_db
