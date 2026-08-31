@@ -34,8 +34,8 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-LOCKOUT_THRESHOLD = 3
-LOCKOUT_WINDOW = timedelta(minutes=5)
+MAX_FAILURES = 3
+FAILURE_WINDOW = timedelta(minutes=5)
 LOCKOUT_DURATION = timedelta(minutes=30)
 SIGNIN_REJECTION_BODY = {'detail': 'Unable to sign in with the provided credentials.'}
 
@@ -358,60 +358,86 @@ class SigninView(generics.GenericAPIView):
         responses={
             200: OpenApiResponse(response=TokenSerializer, description='Signed in.'),
             401: OpenApiResponse(
-                description='Rejected: unregistered email, wrong password, locked out, or the '
-                'account is embargoed - identical in status and body for all four.'
+                description='Rejected: unregistered email or username, wrong password, locked '
+                'out, or the account is embargoed - identical in status and body for all four.'
             ),
         },
     )
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=401)
 
-        email = serializer.validated_data['email'].lower()
+        email_or_username = serializer.validated_data['email_or_username'].lower()
         password = serializer.validated_data['password']
 
-        # Read-only lookup: a row is only ever written for an email that has actually
-        # failed a signin (below), so probing many unregistered/junk emails can't grow
-        # this table for free.
-        attempt = SigninAttempt.objects.filter(email=email).first()
+        candidate = User.objects.filter(
+            Q(email__iexact=email_or_username) | Q(username__iexact=email_or_username)
+        ).first()
+        attempt_key = candidate.email.lower() if candidate is not None else email_or_username
         now = timezone.now()
+
+        # Read-only lookup: a row is only ever written for a key that has actually
+        # failed a signin (below), so probing many unregistered/junk identifiers can't
+        # grow this table for free.
+        attempt = SigninAttempt.objects.filter(email_or_username=attempt_key).first()
 
         if (
             attempt is not None
-            and attempt.failed_count >= LOCKOUT_THRESHOLD
+            and attempt.failed_count >= MAX_FAILURES
             and attempt.last_failed_at is not None
-            and now < attempt.last_failed_at + LOCKOUT_DURATION
+            and now - attempt.last_failed_at < LOCKOUT_DURATION
         ):
             return Response(SIGNIN_REJECTION_BODY, status=401)
 
-        user = authenticate(username=email, password=password)
+        user = None
+        if candidate is not None:
+            user = authenticate(username=candidate.username, password=password)
 
-        if user is not None:
-            if is_user_embargoed(user):
-                return Response(SIGNIN_REJECTION_BODY, status=401)
+        if user is None:
+            self._record_failure(attempt_key, now)
+            return Response(SIGNIN_REJECTION_BODY, status=401)
 
-            SigninAttempt.objects.filter(email=email).update(failed_count=0)
-            token, _ = Token.objects.get_or_create(user=user)
-            return Response({'token': token.key}, status=200)
+        if is_user_embargoed(user):
+            return Response(SIGNIN_REJECTION_BODY, status=401)
 
-        # A single atomic UPDATE, not a Python read-modify-write: the reset-vs-increment
-        # decision and the write happen in one server-side statement, so concurrent failed
-        # attempts against the same email can't race and lose an update (unlike
-        # select_for_update(), which is a silent no-op on this project's SQLite backend).
-        updated = SigninAttempt.objects.filter(email=email).update(
+        SigninAttempt.objects.filter(email_or_username=attempt_key).update(failed_count=0)
+        token, _ = Token.objects.get_or_create(user=user)
+        return Response({'token': token.key}, status=200)
+
+    @staticmethod
+    def _record_failure(attempt_key, now):
+        """Bump the failure count for a key, respecting the failure window.
+
+        A single atomic UPDATE, not a Python read-modify-write: the reset-vs-increment
+        decision and the write happen in one server-side statement, so concurrent failed
+        attempts against the same key can't race and lose an update (unlike
+        select_for_update(), which is a silent no-op on this project's SQLite backend).
+
+        window_started_at only resets once the *elapsed time since the window began*
+        exceeds FAILURE_WINDOW - not whenever the gap since the *last* failure does.
+        Resetting on the latter would count "failures under FAILURE_WINDOW apart from
+        each other" instead of "failures within one FAILURE_WINDOW-wide window", which
+        can trigger lockout for a spread that no single window actually contains (e.g.
+        three failures four minutes apart each: 12 minutes end to end).
+        """
+        window_expired = Q(window_started_at__isnull=True) | Q(
+            window_started_at__lt=now - FAILURE_WINDOW
+        )
+        updated = SigninAttempt.objects.filter(email_or_username=attempt_key).update(
             failed_count=Case(
-                When(
-                    Q(last_failed_at__isnull=True) | Q(last_failed_at__lt=now - LOCKOUT_WINDOW),
-                    then=Value(1),
-                ),
+                When(window_expired, then=Value(1)),
                 default=F('failed_count') + 1,
+            ),
+            window_started_at=Case(
+                When(window_expired, then=Value(now)),
+                default=F('window_started_at'),
             ),
             last_failed_at=now,
         )
         if not updated:
-            # First-ever failure for this email: no row exists yet to update.
+            # First-ever failure for this key: no row exists yet to update.
             SigninAttempt.objects.get_or_create(
-                email=email, defaults={'failed_count': 1, 'last_failed_at': now}
+                email_or_username=attempt_key,
+                defaults={'failed_count': 1, 'window_started_at': now, 'last_failed_at': now},
             )
-
-        return Response(SIGNIN_REJECTION_BODY, status=401)
