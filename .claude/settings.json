@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/protect-files.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/secret-scan.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/pylint-check.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
