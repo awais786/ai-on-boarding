@@ -81,9 +81,9 @@ def scan_text(text):
     for label, pattern in SECRET_PATTERNS:
         match = pattern.search(text)
         if match and not looks_like_placeholder(match.group(0)):
-            hits.append(f"{label} (matched: {match.group(0)[:12]}...)")
-    for token in find_high_entropy_tokens(text):
-        hits.append(f"Suspicious high-entropy token (possible secret): {token[:12]}...")
+            hits.append(label)
+    if find_high_entropy_tokens(text):
+        hits.append("Suspicious high-entropy token (possible secret)")
     return hits
 
 

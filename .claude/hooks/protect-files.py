@@ -85,13 +85,22 @@ def is_protected(path):
 
 def strip_free_text_payloads(command):
     """Blank out multi-word quoted strings and heredoc bodies to a single
-    opaque token each, leaving single-word quoted spans (real path/argument
-    literals) and unquoted shell syntax untouched. Best-effort, not a full
-    shell parser: a quote embedded inside a payload (e.g. a commit message
-    quoting a value) can end the span early, in which case the remainder is
-    scanned as if it were ordinary command text — matching this hook's normal
-    behavior rather than silently allowing it through."""
+    opaque token each in the returned command text, leaving single-word
+    quoted spans (real path/argument literals) and unquoted shell syntax
+    untouched for the normal tokenizer. Best-effort, not a full shell parser:
+    a quote embedded inside a payload (e.g. a commit message quoting a value)
+    can end the span early, in which case the remainder is scanned as if it
+    were ordinary command text — matching this hook's normal behavior rather
+    than silently allowing it through.
+
+    Also returns every multi-word quoted span's raw content (spaces intact)
+    as a separate list. A protected path can itself contain spaces (e.g. a
+    macOS path like "/Users/Jane Doe/.aws/credentials"), so blanking those
+    spans out of the scrubbed text must not be the only thing that happens to
+    them — the caller checks each one as a whole path candidate too, since
+    splitting it on whitespace like ordinary prose would hide the match."""
     out = []
+    quoted_spans = []
     i, n = 0, len(command)
     while i < n:
         match = QUOTE_OR_HEREDOC_START.search(command, i)
@@ -106,7 +115,9 @@ def strip_free_text_payloads(command):
             if end == -1:
                 out.append(command[match.start():])
                 break
-            if WHITESPACE.search(command[match.end():end]):
+            content = command[match.end():end]
+            if WHITESPACE.search(content):
+                quoted_spans.append(content)
                 out.append(" _OPAQUE_ ")
             else:
                 out.append(command[match.start():end + 1])
@@ -125,13 +136,15 @@ def strip_free_text_payloads(command):
         out.append(command[match.start():match.end()])
         out.append(" _OPAQUE_ ")
         i = end_match.end()
-    return "".join(out)
+    return "".join(out), quoted_spans
 
 
 def command_candidate_paths(command):
-    scrubbed = strip_free_text_payloads(command)
+    scrubbed, quoted_spans = strip_free_text_payloads(command)
     tokens = (t.strip("'\"") for t in COMMAND_TOKEN_SPLIT.split(scrubbed) if t)
-    return [os.path.expanduser(t) for t in tokens]
+    candidates = [os.path.expanduser(t) for t in tokens]
+    candidates.extend(os.path.expanduser(span) for span in quoted_spans)
+    return candidates
 
 
 def target_paths(tool_name, tool_input):

@@ -156,6 +156,14 @@ class ProtectFilesHookTest(HookTestCase):
         stdout = self.run_hook("Bash", command='echo x > "/home/user/.ssh/id_rsa"')
         self.assert_blocked(stdout, 'echo x > "/home/user/.ssh/id_rsa"')
 
+    def test_bash_quoted_protected_path_containing_a_space_is_blocked(self):
+        # A protected path can itself contain a space (e.g. a macOS username
+        # with a space in it). Quoting it must not let the multi-word
+        # free-text heuristic wave it through as prose.
+        command = 'cat "/Users/Jane Doe/.aws/credentials"'
+        stdout = self.run_hook("Bash", command=command)
+        self.assert_blocked(stdout, command)
+
 
 if __name__ == "__main__":
     unittest.main()

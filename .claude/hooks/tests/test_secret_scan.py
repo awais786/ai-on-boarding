@@ -60,6 +60,16 @@ class SecretScanHookTest(HookTestCase):
         stdout = self.run_hook("Write", "/repo/config.py", content=f"TOKEN = '{fake_token}'")
         self.assert_blocked(stdout)
 
+    def test_deny_reason_does_not_echo_the_matched_secret(self):
+        # Even a prefix of a real secret is sensitive and could end up logged
+        # or fed back into model context; the reason must name the kind of
+        # secret found, never any part of its value.
+        fake_key = "AKIA" + "ABCDEFGHIJKLMNOP"
+        stdout = self.run_hook("Bash", command=f"export AWS_KEY={fake_key}")
+        reason = self.assert_blocked(stdout)
+        self.assertNotIn(fake_key, reason)
+        self.assertNotIn(fake_key[:12], reason)
+
     def test_allows_placeholder_value(self):
         stdout = self.run_hook("Write", "/repo/.env.example", content="API_KEY=your_api_key_here")
         self.assertEqual(stdout, "")
