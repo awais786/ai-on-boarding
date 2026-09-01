@@ -120,18 +120,46 @@ change.
 
 ## Running it locally
 
+Before opening a PR, run this from the repo root:
+
 ```bash
-cd sdd_django_demo && make schema          # -> ../postman/schema.json
+# 1. Generate the OpenAPI schema
+cd sdd_django_demo
+make schema                      # -> ../postman/schema.json
+
+# 2. Install Postman tooling (first time only)
 cd ../postman
-npm install                                # first time only
-npm run generate                           # -> collection.generated.json
-npm run merge                              # -> collection.merged.json
-cd ../sdd_django_demo && make ci-serve     # starts the API, waits for /api/health/
-cd ../postman && npm run newman            # -> result.json; exits non-zero on any failed check
-cd ../sdd_django_demo && make ci-stop
+npm install
+
+# 3. Unit-test the merge/review scripts themselves (no server, no API key needed)
+npm test                         # 4 Node tests (lib/merge.js) + 12 Python tests (review_with_claude.py)
+
+# 4. Derive the collection from OpenAPI, then attach assertions from the specs
+npm run generate                 # -> collection.generated.json
+npm run merge                    # -> collection.merged.json
+
+# 5. Start the API and wait for it to be healthy
+cd ../sdd_django_demo
+make ci-serve
+
+# 6. Run the collection against the live server
 cd ../postman
+npm run newman                   # -> result.json; prints pass/fail per assertion
+
+# 7. Stop the server
+cd ../sdd_django_demo
+make ci-stop
+```
+
+Expect step 6 to report exactly the failures listed under "Known exclusions and known drift"
+above (5 today, each test name tagged `KNOWN DRIFT`) - not zero. Anything beyond that set is
+worth investigating before opening a PR.
+
+Then, from `postman/`, the Claude evaluation step:
+
+```bash
 pip install -r requirements.txt            # first time only
-export ANTHROPIC_API_KEY=...               # or pass --dry-run to review_with_claude.py to skip the call
+export ANTHROPIC_API_KEY=...               # or pass --dry-run to skip the call
 python3 review_with_claude.py
 ```
 
