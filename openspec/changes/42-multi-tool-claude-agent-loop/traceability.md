@@ -30,6 +30,27 @@ are relative to `agent_loop/` (repo root); test paths are relative to the repo r
   instead of returning an error result. Fix: `evaluate_expression()` now rejects expressions over
   a fixed length (200 characters) before evaluating them, and also catches `ArithmeticError`
   (covers `OverflowError`) and `RecursionError` as defense in depth.
+- A fresh `/code-review` pass (run after the change was already marked complete) found that
+  design.md's Risks/Trade-offs section still called the round-2 length-cap guard "out of scope,"
+  contradicting the code it was supposed to describe - a hand-patch that should have updated the
+  design instead. Fix: design.md now documents the guard as a Decision, and its Risks section is
+  narrowed to the genuine remaining gap (the cap bounds string length, not AST depth or
+  magnitude directly). The same review found a short expression under the length cap
+  (`"1e400"`) can still overflow float range via Python's own literal parsing, silently
+  returning `{"result": inf}` instead of an error; `evaluate_expression()` now also rejects a
+  non-finite result, covered by
+  `test_calculator_rejects_expression_that_evaluates_to_a_non_finite_result`. The two existing
+  length-cap regression tests were renamed and tightened (`test_calculator_rejects_expression_over_the_length_cap_before_it_can_overflow` /
+  `..._before_it_can_recurse`) since they were passing via the length cap, not the
+  ArithmeticError/RecursionError handlers their old names claimed to cover.
+- The same review found `run_agent_loop`'s `on_event` stream emitted `{"type": "end_turn"}` for
+  any non-`tool_use` stop_reason, including an anomalous one like `max_tokens` - indistinguishable
+  from normal completion to a caller driving off the event stream, even though the returned
+  `terminated_via` value was already correct. Fix: a distinct `{"type": "terminated",
+  "stop_reason": ...}` event now carries the real stop_reason, covered by
+  `test_loop_emits_terminated_event_for_a_non_end_turn_stop_reason`; `__main__.py`'s
+  post-loop check (which duplicated this same warning) was removed since the event stream now
+  reports it directly.
 - `test_multi_step_live_france_population_search_then_calculate` is the only test that calls the
   real Claude API; it is `pytest.mark.skipif`'d when `ANTHROPIC_API_KEY` is not set, per
   design.md's live-API test strategy. Every other row is covered by an offline test using a

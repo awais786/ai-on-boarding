@@ -85,17 +85,30 @@ def test_calculator_reports_division_by_zero_as_error_not_exception():
 # expression could raise an uncaught OverflowError (converting a giant integer literal to
 # float) or RecursionError (a very deep AST from thousands of chained operators), crashing
 # the loop instead of returning {"error": ...}. Fix: evaluate_expression() rejects
-# expressions over a fixed length before evaluating them.
+# expressions over a fixed length before evaluating them - both cases below are caught by
+# that length cap, not by the ArithmeticError/RecursionError handlers (which exist as
+# defense in depth for a shorter expression that still overflows or recurses too deeply).
 
-def test_calculator_rejects_expression_that_would_overflow_a_float_conversion():
+def test_calculator_rejects_expression_over_the_length_cap_before_it_can_overflow():
     outcome = tools.dispatch(
         "calculator", {"expression": "1" + "0" * 400 + " * 1.5"}
     )
-    assert "error" in outcome
+    assert outcome == {"error": "expression too long (max 200 characters)"}
 
 
-def test_calculator_rejects_expression_that_would_recurse_too_deeply():
+def test_calculator_rejects_expression_over_the_length_cap_before_it_can_recurse():
     outcome = tools.dispatch("calculator", {"expression": "+".join(["1"] * 5000)})
+    assert outcome == {"error": "expression too long (max 200 characters)"}
+
+
+# Regression test for a /code-review finding: a short expression under the length cap can
+# still overflow float range via Python's own literal parsing (ast.parse() folds an
+# out-of-range scientific-notation literal to inf before evaluate_expression() ever sees
+# it), which the length cap and the ArithmeticError handler both miss since no exception is
+# raised. Fix: evaluate_expression() rejects a non-finite result after evaluation.
+
+def test_calculator_rejects_expression_that_evaluates_to_a_non_finite_result():
+    outcome = tools.dispatch("calculator", {"expression": "1e400"})
     assert "error" in outcome
 
 
@@ -227,6 +240,31 @@ def test_loop_supports_multiple_sequential_tool_calls():
     assert final_text == "6.8 million"
     assert terminated_via == "end_turn"
     assert len(client.calls) == 3
+
+
+# Regression test for a /code-review finding: on_event previously emitted
+# {"type": "end_turn"} for ANY non-tool_use stop_reason, including an anomalous one like
+# "max_tokens", making a truncated response indistinguishable from normal completion to a
+# caller driving off the event stream. Fix: a distinct "terminated" event carries the real
+# stop_reason.
+
+def test_loop_emits_terminated_event_for_a_non_end_turn_stop_reason(caplog):
+    client = _ScriptedClient(
+        [SimpleNamespace(stop_reason="max_tokens", content=[_text_block("cut off")])]
+    )
+    events = []
+
+    with caplog.at_level(logging.WARNING):
+        final_text, tool_calls, terminated_via = run_agent_loop(
+            client, [{"role": "user", "content": "say a lot"}], on_event=events.append
+        )
+
+    assert final_text == "cut off"
+    assert tool_calls == []
+    assert terminated_via == "max_tokens"
+    assert {"type": "terminated", "stop_reason": "max_tokens"} in events
+    assert not any(e["type"] == "end_turn" for e in events)
+    assert any("max_tokens" in record.message for record in caplog.records)
 
 
 def test_loop_enforces_max_iterations_safety_cap_and_logs_warning(caplog):

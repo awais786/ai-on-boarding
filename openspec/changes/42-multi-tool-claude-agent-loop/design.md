@@ -55,6 +55,16 @@ needs it, and allowing it re-opens a classic safe-eval denial-of-service (`9**9*
 by zero and any other evaluation error is caught and returned as an error result, per the spec's
 "Expression is not arithmetic" scenario, rather than raising out of the tool call.
 
+**Calculator rejects oversized input and non-finite results, so `dispatch()`'s "never raises"
+contract holds for anything Claude's tool-call might supply.** Two lightweight checks, added
+after a live crash during implementation (see traceability.md): a 200-character cap on the
+expression string, rejecting deeply nested or absurdly long input before parsing; and a
+finiteness check on the evaluated result, rejecting `inf`/`-inf`/`nan` - e.g. a scientific-notation
+literal like `1e400`, which Python's own parser silently overflows to `inf` before any AST-level
+guard runs, so it must be caught after evaluation rather than during it. Both exist to keep the
+tool from crashing or returning a non-numeric value, not to defend against a hostile actor - the
+narrower magnitude/depth-defense question below remains genuinely out of scope.
+
 **`web_search` is a small fixed lookup table with a generic fallback.** It returns a
 deterministic string that includes the number learners need for the two-step example, so the
 same fixture that this repo's acceptance test drives can also be run by hand.
@@ -100,7 +110,9 @@ terminal-with-a-warning rather than silently continuing.
 - **Live test costs tokens/money and needs network access on every run** → skipped cleanly via
   `pytest.mark.skipif` when no `ANTHROPIC_API_KEY` is present, rather than failing hard for
   contributors without a key.
-- **AST-based safe eval still allows attacker-controlled magnitude** (e.g. deeply nested
-  parentheses) → out of scope for a teaching exercise processing the model's own tool-call
-  arguments, not untrusted external input; documented here rather than defended against, since
-  adding recursion/size limits would be design creep beyond what any requirement asks for.
+- **The 200-character length cap and finiteness check are proxies, not semantic bounds** →
+  they stop the tool from crashing or returning `inf`/`nan` today, but neither bounds AST depth
+  or intermediate magnitude directly. If `**` is ever added to the operator whitelist, a short
+  expression like `9**9**9**9` would need a dedicated guard - this cap would not catch it.
+  Documented here as a known gap for that future change, not defended against now, since adding
+  one would be design creep beyond what today's requirements ask for.

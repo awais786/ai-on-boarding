@@ -28,6 +28,11 @@ def _print_event(event):
         print(f'\ntool_result:\n"{event["content"]}"')
     elif etype == "end_turn":
         print("\nend_turn")
+    elif etype == "terminated":
+        print(
+            f"\n[warning] terminated via {event['stop_reason']!r}, not end_turn",
+            file=sys.stderr,
+        )
     elif etype == "max_iterations":
         print("\n[warning] MAX_ITERATIONS reached without end_turn", file=sys.stderr)
 
@@ -44,10 +49,7 @@ def main(argv=None):
     client = anthropic.Anthropic()
     messages = [{"role": "user", "content": prompt}]
 
-    _, _, terminated_via = run_agent_loop(client, messages, on_event=_print_event)
-
-    if terminated_via not in ("end_turn", "max_iterations"):
-        print(f"\n[warning] terminated via {terminated_via!r}, not end_turn", file=sys.stderr)
+    run_agent_loop(client, messages, on_event=_print_event)
 
 
 if __name__ == "__main__":

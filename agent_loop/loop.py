@@ -34,7 +34,9 @@ def run_agent_loop(client, messages, max_iterations=MAX_ITERATIONS, on_event=Non
     - `{"type": "text", "text": ...}` - a text block Claude produced
     - `{"type": "tool_use", "name": ..., "input": ...}`
     - `{"type": "tool_result", "name": ..., "content": ..., "is_error": ...}`
-    - `{"type": "end_turn"}`
+    - `{"type": "end_turn"}` - normal completion
+    - `{"type": "terminated", "stop_reason": ...}` - a terminal response with
+      any `stop_reason` other than `tool_use` or `end_turn` (e.g. `max_tokens`)
     - `{"type": "max_iterations"}`
     This lets a caller render the running transcript without duplicating the
     loop's control flow.
@@ -46,7 +48,7 @@ def run_agent_loop(client, messages, max_iterations=MAX_ITERATIONS, on_event=Non
     emit = on_event if on_event is not None else lambda event: None
     messages = list(messages)
     tool_calls = []
-    response = None
+    text = ""
 
     for _ in range(max_iterations):
         response = client.messages.create(
@@ -90,17 +92,18 @@ def run_agent_loop(client, messages, max_iterations=MAX_ITERATIONS, on_event=Non
             messages.append({"role": "user", "content": tool_results})
             continue
 
-        if response.stop_reason != "end_turn":
+        if response.stop_reason == "end_turn":
+            emit({"type": "end_turn"})
+        else:
             logger.warning(
                 "agent_loop: unexpected stop_reason %r, returning best-effort text",
                 response.stop_reason,
             )
-        emit({"type": "end_turn"})
+            emit({"type": "terminated", "stop_reason": response.stop_reason})
         return text, tool_calls, response.stop_reason
 
     logger.warning(
         "agent_loop: MAX_ITERATIONS (%d) reached without end_turn", max_iterations
     )
     emit({"type": "max_iterations"})
-    final_text = _extract_text(response.content) if response is not None else ""
-    return final_text, tool_calls, "max_iterations"
+    return text, tool_calls, "max_iterations"

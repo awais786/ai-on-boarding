@@ -5,6 +5,7 @@ Two tools are exposed to Claude: `calculator` (safe arithmetic evaluation) and
 """
 
 import ast
+import math
 import operator
 
 TOOLS = [
@@ -105,13 +106,21 @@ def evaluate_expression(expression):
         raise ExpressionError(f"invalid syntax: {exc.msg}") from exc
 
     try:
-        return _eval_node(tree)
+        result = _eval_node(tree)
     except ArithmeticError as exc:
         # covers ZeroDivisionError and OverflowError (e.g. a huge integer literal
         # multiplied into a float)
         raise ExpressionError(str(exc)) from exc
     except RecursionError as exc:
         raise ExpressionError("expression too deeply nested") from exc
+
+    if not math.isfinite(result):
+        # a scientific-notation literal like "1e400" overflows to inf during
+        # ast.parse() itself, before any node is evaluated, so it must be
+        # caught here rather than via ArithmeticError above
+        raise ExpressionError(f"result is not finite: {result!r}")
+
+    return result
 
 
 def calculator(expression):
