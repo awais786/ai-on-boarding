@@ -2,7 +2,7 @@
 
 Automatically checks, on every push to `main`, that the live API's real HTTP behaviour matches
 what the [OpenSpec specs](../openspec/specs/) say it should do. See
-[`openspec/changes/archive/`](../openspec/changes/) once archived, or
+[`openspec/changes/archive/`](../openspec/changes/archive/) once archived, or
 `openspec/changes/add-api-behavior-verification/` for the proposal/spec/design this pipeline was
 built from.
 
