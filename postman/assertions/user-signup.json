@@ -38,10 +38,10 @@
       "variant": "success",
       "requirement": "Signal success with the created account's email",
       "test": [
-        "pm.test(\"KNOWN DRIFT: Signal success with the created account's email\", function () {",
+        "pm.test(\"Signal success with the created account's email\", function () {",
         "    pm.response.to.have.status(200);",
         "    const body = pm.response.json();",
-        "    pm.expect(Object.keys(body)).to.eql(['email']);",
+        "    pm.expect(Object.keys(body).sort()).to.eql(['email', 'username']);",
         "});"
       ]
     },
@@ -152,6 +152,73 @@
         "    pm.response.to.have.status(200);",
         "    const body = pm.response.json();",
         "    pm.expect(body.email).to.eql('conformance-case@example.com');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "missing_username",
+      "requirement": "Reject a missing username",
+      "test": [
+        "pm.test('Reject a missing username', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('username');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "invalid_username_length",
+      "requirement": "Enforce a username format",
+      "test": [
+        "pm.test('Enforce a username format (too short)', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('username');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "invalid_username_chars",
+      "requirement": "Enforce a username format",
+      "test": [
+        "pm.test('Enforce a username format (disallowed character)', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('username');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "duplicate_username",
+      "requirement": "Reject a duplicate username",
+      "test": [
+        "pm.test('Reject a duplicate username', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('username');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "duplicate_username_case",
+      "requirement": "Normalise username to lowercase",
+      "test": [
+        "pm.test('Normalise username to lowercase (case-insensitive duplicate detection)', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('username');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "case_success_username",
+      "requirement": "Normalise username to lowercase",
+      "test": [
+        "pm.test('Normalise username to lowercase (stored and returned username is lowercase)', function () {",
+        "    pm.response.to.have.status(200);",
+        "    const body = pm.response.json();",
+        "    pm.expect(body.username).to.eql('conformance_caseuser');",
         "});"
       ]
     }

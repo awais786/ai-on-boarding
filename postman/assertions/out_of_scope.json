@@ -13,6 +13,12 @@
       "reason": "True concurrency (two requests racing) cannot be reliably triggered by Newman's sequential request execution. The non-concurrent duplicate-email scenario for this same requirement is covered live."
     },
     {
+      "capability": "user-signup",
+      "requirement": "Reject a duplicate username",
+      "scenario": "Concurrent signups for the same username",
+      "reason": "True concurrency (two requests racing) cannot be reliably triggered by Newman's sequential request execution. The non-concurrent duplicate-username scenario for this same requirement is covered live."
+    },
+    {
       "capability": "user-signin",
       "requirement": "Lock an email out after repeated failures",
       "scenario": "Lockout expires",

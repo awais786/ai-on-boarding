@@ -67,6 +67,17 @@
     },
     {
       "operationId": "signin_create",
+      "variant": "case_insensitive_username",
+      "requirement": "Authenticate against the matching account",
+      "test": [
+        "pm.test('Authenticate against the matching account (case-insensitive username)', function () {",
+        "    pm.response.to.have.status(200);",
+        "    pm.expect(pm.response.json()).to.have.property('token');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signin_create",
       "variant": "missing_password",
       "requirement": "Reject a missing password",
       "test": [
@@ -81,9 +92,9 @@
       "variant": "missing_identifier",
       "requirement": "Reject a missing email",
       "test": [
-        "pm.test('KNOWN DRIFT: Reject a missing email (signin)', function () {",
+        "pm.test('Reject a missing email or username (signin)', function () {",
         "    pm.response.to.have.status(401);",
-        "    pm.expect(pm.response.json()).to.have.property('email');",
+        "    pm.expect(pm.response.json()).to.have.property('email_or_username');",
         "});"
       ]
     },
@@ -166,6 +177,16 @@
         "pm.test('Reset the failure count on success', function () {",
         "    pm.response.to.have.status(200);",
         "    pm.expect(pm.response.json()).to.have.property('token');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "lockout_mixed_verify",
+      "requirement": "Lock an email out after repeated failures",
+      "test": [
+        "pm.test('Lock an email out after repeated failures (lockout applies across email and username)', function () {",
+        "    pm.response.to.have.status(401);",
         "});"
       ]
     }

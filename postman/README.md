@@ -116,28 +116,28 @@ leaves the old password intact) is checked live, and the rest goes in `out_of_sc
 
 ## Known drift
 
-Building this pipeline surfaced real drift between `../openspec/specs/` and the live API that
-predates this change and is out of scope to fix here (see `design.md`, "Risks / Trade-offs"):
+Building this pipeline originally surfaced real drift between `../openspec/specs/` and the live
+API (see `design.md`, "Risks / Trade-offs"). The `user-signup` and `user-signin` specs have since
+been updated upstream to describe `username` and `email_or_username`, so that part of the drift
+is resolved - the two assertions this previously affected
+(`assertions/user-signup.json`'s "Signal success with the created account's email" and
+`assertions/user-signin.json`'s "Reject a missing email") are written strictly from the canonical
+specs and pass, with no `KNOWN DRIFT` tag needed.
 
-- **Signup** requires `username` and `country` in addition to `email`/`password`, and a
-  successful response includes `username` alongside `email` - the canonical spec describes
-  neither.
-- **Signin**'s identifier field is `email_or_username`, not `email` as the canonical spec
-  describes.
+One piece of drift remains, out of scope to fix here:
 
-Two assertions - `assertions/user-signup.json`'s "Signal success with the created account's
-email" and `assertions/user-signin.json`'s "Reject a missing email" - are written strictly from
-the canonical specs, so they **currently and correctly fail**. Each is tagged `KNOWN DRIFT` in
-its test name. This is the pipeline doing its job, not a defect in it: fixing the drift (by
-updating the code or by writing and archiving specs that describe the current behaviour) is
-separate follow-up work.
+- **Signup** requires a `country` field in addition to `email`/`username`/`password` - the
+  canonical spec doesn't mention it. There is no assertion for this, since a requirement that
+  doesn't exist in the spec has nothing to check `country` against; fixing the drift (by updating
+  the code or by writing and archiving a spec change that describes the current behaviour) is
+  separate follow-up work.
 
-Because these two failures are permanent until that follow-up work happens, Newman itself runs
-with `--suppress-exit-code` (see `package.json`'s `newman` script) - if Newman's raw exit code
-gated the workflow, it could never go green, and a genuinely new regression would be
-indistinguishable from the two accepted failures. `check_results.js` is the actual gate: it reads
-Newman's `result.json` and fails only on an assertion failure whose test name is **not** tagged
-`KNOWN DRIFT`. Run it after Newman, locally or in CI, via `npm run check`.
+Newman still runs with `--suppress-exit-code` (see `package.json`'s `newman` script), and
+`check_results.js` remains the actual gate: it reads Newman's `result.json` and fails on any
+assertion failure whose test name is not tagged `KNOWN DRIFT`. Run it after Newman, locally or in
+CI, via `npm run check`. If a future change reintroduces drift between a spec and the live API,
+tag the affected assertion's test name `KNOWN DRIFT` (as before) so the gate can distinguish it
+from a genuine regression.
 
 ## Adding coverage for a new endpoint
 
@@ -189,9 +189,9 @@ cd ../postman
 npm run check
 ```
 
-Expect step 6 to report exactly the two `KNOWN DRIFT` failures listed above - not zero, and not
-more - and step 8 to exit 0, printing those same two as documented and nothing under "unexpected
-assertion failure(s)". Anything else is worth investigating before opening a PR.
+Expect step 6 to report zero failures (no assertion is currently tagged `KNOWN DRIFT` - see
+"Known drift" above) and step 8 to exit 0 with nothing under "unexpected assertion failure(s)".
+Anything else is worth investigating before opening a PR.
 
 ## CI
 
