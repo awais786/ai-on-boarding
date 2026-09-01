@@ -2,17 +2,17 @@
 
 ### Requirement: Reject all failure modes identically
 A rejected signin SHALL return an identical response - same status, same body - whether the
-email was unregistered, the password was wrong, the email is currently locked out, or the
-account's country is currently blocked. A caller MUST NOT be able to distinguish any of the four
-from the response alone.
+email or username was unregistered, the password was wrong, the account is currently locked
+out, or the account's country is currently blocked. A caller MUST NOT be able to distinguish any
+of the four from the response alone.
 
-#### Scenario: Unregistered email and wrong password are indistinguishable
-- **WHEN** signin is attempted with an unregistered email, and separately with a registered
-  email and the wrong password
+#### Scenario: Unregistered email or username and wrong password are indistinguishable
+- **WHEN** signin is attempted with an unregistered email or username, and separately with a
+  registered one and the wrong password
 - **THEN** both responses are identical in status and body
 
 #### Scenario: Lockout is indistinguishable from a wrong password
-- **WHEN** signin is attempted against an email currently locked out
+- **WHEN** signin is attempted against an account currently locked out
 - **THEN** the response is identical in status and body to a wrong-password rejection
 
 #### Scenario: Embargo is indistinguishable from a wrong password
