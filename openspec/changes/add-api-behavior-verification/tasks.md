@@ -112,3 +112,18 @@
   returns `Ready to merge: yes`
 - [x] 10.4 Post `proposal.md` and `specs/api-behavior-verification/spec.md` as a comment on issue
   #38 (`gh issue comment 38 --repo awais786/ai-on-boarding`), so the issue stays self-contained
+
+## 11. Follow-up: assertions updated after signin/embargo drift was closed
+
+- [x] 11.1 After `add-user-signin`, `add-embargo`, and `add-reset-password-confirmation` were
+  archived and their deltas synced into `openspec/specs/`, rewrite
+  `postman/assertions/user-signup.json`/`user-signin.json` to match: add username/country
+  coverage for signup, and real authentication/lockout/indistinguishable-rejection coverage for
+  signin (no longer blocked by the `email_or_username` field-name drift)
+- [x] 11.2 Update `postman/assertions/out_of_scope.json`: remove the 6 signin entries that are no
+  longer blocked, add the `embargo` capability entries and the confirmation-page entries from the
+  newly-synced deltas
+- [x] 11.3 Run the full pipeline locally end to end and confirm zero failures (50 requests, 61
+  assertions)
+- [x] 11.4 Update `postman/README.md` ("Known exclusions and known drift" -> "Known exclusions",
+  drift section rewritten to describe how it was resolved) and this file's traceability entries

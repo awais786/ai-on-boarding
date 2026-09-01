@@ -3,22 +3,12 @@
     "operationId": "signup_create",
     "variant": "success",
     "name": "signup - valid submission (success)",
-    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('signupGenId', genId);\nconst mixed = 'SigUp.' + genId + '@Example.com';\npm.collectionVariables.set('signupEmailMixed', mixed);\npm.collectionVariables.set('signupEmailLower', mixed.toLowerCase());\npm.collectionVariables.set('signupEmailUpper', mixed.toUpperCase());\npm.collectionVariables.set('signupUsername', 'user' + genId);",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('signupGenId', genId);\nconst mixedEmail = 'SigUp.' + genId + '@Example.com';\npm.collectionVariables.set('signupEmailMixed', mixedEmail);\npm.collectionVariables.set('signupEmailLower', mixedEmail.toLowerCase());\npm.collectionVariables.set('signupEmailUpper', mixedEmail.toUpperCase());\nconst mixedUsername = 'SigUp' + genId;\npm.collectionVariables.set('signupUsernameMixed', mixedUsername);\npm.collectionVariables.set('signupUsernameLower', mixedUsername.toLowerCase());\npm.collectionVariables.set('signupUsernameUpper', mixedUsername.toUpperCase());",
     "body": {
       "email": "{{signupEmailMixed}}",
-      "username": "{{signupUsername}}",
+      "username": "{{signupUsernameMixed}}",
       "password": "Passw0rd1",
       "country": "US"
-    }
-  },
-  {
-    "operationId": "signup_create",
-    "variant": "spec_minimal",
-    "name": "signup - spec-minimal (email + password only, per canonical spec)",
-    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('specMinEmail', 'specmin.' + genId + '@example.com');",
-    "body": {
-      "email": "{{specMinEmail}}",
-      "password": "Passw0rd1"
     }
   },
   {
@@ -45,12 +35,70 @@
   },
   {
     "operationId": "signup_create",
+    "variant": "missing_username",
+    "name": "signup - missing username",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('missingUsernameEmail', 'nouser.' + genId + '@example.com');",
+    "body": {
+      "email": "{{missingUsernameEmail}}",
+      "password": "Passw0rd1",
+      "country": "US"
+    }
+  },
+  {
+    "operationId": "signup_create",
+    "variant": "missing_country",
+    "name": "signup - missing country",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('missingCountryEmail', 'nocountry.' + genId + '@example.com');\npm.collectionVariables.set('missingCountryUsername', 'user' + genId);",
+    "body": {
+      "email": "{{missingCountryEmail}}",
+      "username": "{{missingCountryUsername}}",
+      "password": "Passw0rd1"
+    }
+  },
+  {
+    "operationId": "signup_create",
+    "variant": "blocked_country",
+    "name": "signup - blocked country (India)",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('blockedCountryEmail', 'blocked.' + genId + '@example.com');\npm.collectionVariables.set('blockedCountryUsername', 'user' + genId);",
+    "body": {
+      "email": "{{blockedCountryEmail}}",
+      "username": "{{blockedCountryUsername}}",
+      "password": "Passw0rd1",
+      "country": "India"
+    }
+  },
+  {
+    "operationId": "signup_create",
     "variant": "invalid_email",
     "name": "signup - malformed email",
     "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('invalidEmailUsername', 'user' + genId);",
     "body": {
       "email": "not-an-email",
       "username": "{{invalidEmailUsername}}",
+      "password": "Passw0rd1",
+      "country": "US"
+    }
+  },
+  {
+    "operationId": "signup_create",
+    "variant": "invalid_username_short",
+    "name": "signup - username too short",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('shortUsernameEmail', 'shortuser.' + genId + '@example.com');",
+    "body": {
+      "email": "{{shortUsernameEmail}}",
+      "username": "ab",
+      "password": "Passw0rd1",
+      "country": "US"
+    }
+  },
+  {
+    "operationId": "signup_create",
+    "variant": "invalid_username_chars",
+    "name": "signup - username with a disallowed character",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('badCharsUsernameEmail', 'badchars.' + genId + '@example.com');",
+    "body": {
+      "email": "{{badCharsUsernameEmail}}",
+      "username": "bad-user!",
       "password": "Passw0rd1",
       "country": "US"
     }
@@ -81,24 +129,48 @@
   },
   {
     "operationId": "signup_create",
-    "variant": "duplicate_repeat",
-    "name": "signup - duplicate email (repeats the 'success' request's email)",
-    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('duplicateUsername', 'user' + genId);",
+    "variant": "duplicate_email_repeat",
+    "name": "signup - duplicate email (repeats the 'success' request's email, new username)",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('duplicateEmailUsername', 'user' + genId);",
     "body": {
       "email": "{{signupEmailMixed}}",
-      "username": "{{duplicateUsername}}",
+      "username": "{{duplicateEmailUsername}}",
       "password": "Passw0rd1",
       "country": "US"
     }
   },
   {
     "operationId": "signup_create",
-    "variant": "case_repeat",
-    "name": "signup - duplicate email with different casing",
-    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('caseUsername', 'user' + genId);",
+    "variant": "case_email_repeat",
+    "name": "signup - duplicate email with different casing, new username",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('caseEmailUsername', 'user' + genId);",
     "body": {
       "email": "{{signupEmailUpper}}",
-      "username": "{{caseUsername}}",
+      "username": "{{caseEmailUsername}}",
+      "password": "Passw0rd1",
+      "country": "US"
+    }
+  },
+  {
+    "operationId": "signup_create",
+    "variant": "duplicate_username_repeat",
+    "name": "signup - duplicate username (repeats the 'success' request's username, new email)",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('duplicateUsernameEmail', 'dupuser.' + genId + '@example.com');",
+    "body": {
+      "email": "{{duplicateUsernameEmail}}",
+      "username": "{{signupUsernameMixed}}",
+      "password": "Passw0rd1",
+      "country": "US"
+    }
+  },
+  {
+    "operationId": "signup_create",
+    "variant": "case_username_repeat",
+    "name": "signup - duplicate username with different casing, new email",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('caseUsernameEmail', 'caseuser.' + genId + '@example.com');",
+    "body": {
+      "email": "{{caseUsernameEmail}}",
+      "username": "{{signupUsernameUpper}}",
       "password": "Passw0rd1",
       "country": "US"
     }

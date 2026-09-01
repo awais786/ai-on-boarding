@@ -42,30 +42,54 @@ satisfies it and the test/evidence that verifies it.
 - **Verdict: Ready to merge: yes** (round 2's one finding fixed and self-verified per the above;
   everything else round 2 checked was already confirmed correct).
 
-## Known, documented gaps (not a failure of this spec - see postman/README.md)
+## Post-merge follow-up: signin/signup drift closed, assertions rewritten
 
-- The live signup/signin endpoints have drifted from `openspec/specs/user-signup/spec.md` and
-  `user-signin/spec.md` in ways this change did not introduce and is not scoped to fix (extra
+The `email_or_username`/`username` drift described below (and the `country`/embargo drift from
+the "add-embargo not archived" follow-up above) is now closed: `add-user-signin` was restored
+and archived (`openspec/changes/archive/2026-09-01-add-user-signin/`, PR #41), and `add-embargo`/
+`add-reset-password-confirmation` were archived with their deltas synced. `openspec/specs/`
+now accurately describes what the live API does.
+
+`postman/assertions/user-signup.json` and `user-signin.json` were rewritten accordingly:
+- Signup gained real coverage for `username` (missing, format, duplicate, case-normalisation) and
+  `country` (missing, blocked) - previously untested.
+- Signin, no longer blocked by a field-name mismatch, gained coverage for authentication by email
+  and by username (including case-insensitivity), the indistinguishable-rejection guarantee
+  (unregistered identifier vs. wrong password, compared via captured collection variables),
+  lockout after 3 failures (a 4-request chained fragment: 3 failures then a still-rejected
+  correct-password attempt), and the failure-count reset below the lockout threshold.
+- `assertions/out_of_scope.json` was updated: the 6 signin entries blocked by the field-name
+  drift were removed (now covered for real); "Reject signin for an embargoed account" was added
+  (still blocked - no HTTP way to change a country's blocked status between requests); the 3
+  `embargo` capability requirements and the 5 confirmation-page requirements (from the
+  `add-embargo`/`add-reset-password-confirmation` sync) were added, each with its own rationale.
+
+A full local run after these changes: 50 requests, 61 assertions, **zero failures** - confirmed
+via `npm run newman` against `make ci-serve`. `postman/README.md`'s "Known exclusions and known
+drift" section was renamed to "Known exclusions" (the drift half no longer applies) and rewritten
+accordingly.
+
+## Known, documented gaps (historical - the drift below is now closed, see the follow-up above)
+
+- The live signup/signin endpoints had drifted from `openspec/specs/user-signup/spec.md` and
+  `user-signin/spec.md` in ways this change did not introduce and was not scoped to fix (extra
   required fields, `email_or_username` instead of `email`). Five assertions, written strictly
-  from the canonical specs, currently and correctly fail against the live API as a result - this
-  is the pipeline doing its job, not a defect in it. All five test names now carry a `KNOWN
+  from the canonical specs, correctly failed against the live API as a result - this was the
+  pipeline doing its job, not a defect in it. All five test names carried a `KNOWN
   DRIFT` marker (three signin, two signup - `postman/assertions/user-signin.json`,
   `user-signup.json`) so `review_with_claude.py` and a human reading Newman's output both
-  recognize them as already-documented, not newly discovered. See `design.md` "Risks /
-  Trade-offs" and `postman/README.md` "Known exclusions and known drift" for the full list and
-  rationale.
-- **These five failures still fail the CI job**, on purpose: `specs/api-behavior-verification/
+  recognized them as already-documented, not newly discovered. See `design.md` "Risks /
+  Trade-offs" and the follow-up section above for how this was resolved.
+- **These five failures failed the CI job**, on purpose: `specs/api-behavior-verification/
   spec.md`'s "Fail the run on an assertion failure" requirement is unconditional - it does not
-  carve out an exception for drift that predates a given push. `main`'s check will read red on
-  every push until the drift itself is fixed (application code) or reconciled (specs updated to
-  match, via a separate change) - that follow-up is out of scope for this change (see
-  proposal.md "Impact"). `/code-review` round 1 flagged this as a possible defect
-  ("defeats the pipeline's stated purpose of distinguishing real regressions from known drift");
-  it was not changed, because doing so - e.g. making a `KNOWN DRIFT`-tagged Newman failure
-  non-blocking - would directly contradict the spec's own unconditional wording and the explicit
-  choice made when this change was proposed (assert strictly per the canonical specs rather than
-  the live behaviour, specifically so real drift surfaces as a failure instead of passing
-  silently).
+  carve out an exception for drift that predates a given push. `/code-review` round 1 flagged
+  this as a possible defect ("defeats the pipeline's stated purpose of distinguishing real
+  regressions from known drift"); it was not changed, because doing so - e.g. making a `KNOWN
+  DRIFT`-tagged Newman failure non-blocking - would directly contradict the spec's own
+  unconditional wording and the explicit choice made when this change was proposed (assert
+  strictly per the canonical specs rather than the live behaviour, specifically so real drift
+  surfaces as a failure instead of passing silently). That prediction held: the drift did surface
+  as a failure, and is now fixed at the source (the specs) rather than by weakening this rule.
 - `postman/assertions/out_of_scope.json` documents every requirement this pipeline deliberately
   does not check (time-based expiry, true concurrency, outbound-email inspection, database-only
   state, and the non-DRF reset-password HTML page), each with its own rationale, so the Claude

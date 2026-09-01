@@ -5,18 +5,13 @@
   "entries": [
     {
       "requirement": "Accept a signin submission",
-      "variant": "spec_minimal",
-      "script": "pm.test('signin accepts a submission with email and password, per the canonical spec (KNOWN DRIFT: the live API requires \\'email_or_username\\', not \\'email\\' - see postman/README.md)', function () {\n  pm.expect(pm.response.code, 'expected the submission to proceed rather than be rejected outright').to.not.equal(401);\n});"
-    },
-    {
-      "requirement": "Signal success with an authentication token",
-      "variant": "spec_minimal",
-      "script": "pm.test('signin succeeds and returns a token for a spec-compliant submission (KNOWN DRIFT: see postman/README.md)', function () {\n  pm.expect(pm.response.code).to.equal(200);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('token');\n});"
+      "variant": "success_setup",
+      "script": "pm.test('signin accepts a submission with email_or_username and password', function () {\n  pm.expect(pm.response.code, 'expected the submission to proceed to authentication').to.not.equal(401);\n});"
     },
     {
       "requirement": "Reject a missing email",
-      "variant": "missing_email",
-      "script": "pm.test('signin rejects a submission with no email and names the email field (KNOWN DRIFT: see postman/README.md)', function () {\n  pm.expect(pm.response.code).to.equal(401);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the email field').to.have.property('email');\n});"
+      "variant": "missing_email_or_username",
+      "script": "pm.test('signin rejects a submission with no email_or_username and names the field', function () {\n  pm.expect(pm.response.code).to.equal(401);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the email_or_username field').to.have.property('email_or_username');\n});"
     },
     {
       "requirement": "Reject a missing password",
@@ -24,14 +19,64 @@
       "script": "pm.test('signin rejects a submission with no password and names the password field', function () {\n  pm.expect(pm.response.code).to.equal(401);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('password');\n});"
     },
     {
-      "requirement": "Never return the password",
-      "variant": "spec_minimal",
-      "script": "pm.test('a rejected signin response never contains the submitted password', function () {\n  pm.expect(pm.response.text()).to.not.include('Passw0rd1');\n});"
+      "requirement": "Authenticate against the matching account",
+      "variant": "success_case_insensitive_email",
+      "script": "pm.test('signin succeeds when the registered email is submitted in a different case', function () {\n  pm.expect(pm.response.code).to.equal(200);\n});"
+    },
+    {
+      "requirement": "Authenticate against the matching account",
+      "variant": "success_case_insensitive_username",
+      "script": "pm.test('signin succeeds when the registered username is submitted in a different case', function () {\n  pm.expect(pm.response.code).to.equal(200);\n});"
+    },
+    {
+      "requirement": "Succeed with correct credentials",
+      "variant": "success_setup",
+      "script": "pm.test('signin succeeds with a registered email and its correct password', function () {\n  pm.expect(pm.response.code).to.equal(200);\n});"
+    },
+    {
+      "requirement": "Succeed with correct credentials",
+      "variant": "success_by_username",
+      "script": "pm.test('signin succeeds again for the same account via a different valid identifier (username)', function () {\n  pm.expect(pm.response.code).to.equal(200);\n});"
+    },
+    {
+      "requirement": "Signal success with an authentication token",
+      "variant": "success_setup",
+      "script": "pm.test('a successful signin returns HTTP 200 with a body of the form {token: ...}', function () {\n  pm.expect(pm.response.code).to.equal(200);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('token');\n  pm.expect(Object.keys(body)).to.eql(['token']);\n});"
+    },
+    {
+      "requirement": "Reject an unregistered email",
+      "variant": "unregistered",
+      "script": "pm.test('signin rejects an unregistered identifier and captures the response for the identical-rejection comparison', function () {\n  pm.expect(pm.response.code).to.equal(401);\n  pm.collectionVariables.set('unregisteredStatus', pm.response.code);\n  pm.collectionVariables.set('unregisteredBody', pm.response.text());\n});"
+    },
+    {
+      "requirement": "Reject an incorrect password",
+      "variant": "wrong_password",
+      "script": "pm.test('signin rejects a registered identifier with the wrong password', function () {\n  pm.expect(pm.response.code).to.equal(401);\n});"
+    },
+    {
+      "requirement": "Reject all failure modes identically",
+      "variant": "wrong_password",
+      "script": "pm.test('an unregistered identifier and a wrong password produce identical rejections', function () {\n  const unregisteredStatus = pm.collectionVariables.get('unregisteredStatus');\n  const unregisteredBody = pm.collectionVariables.get('unregisteredBody');\n  pm.expect(pm.response.code, 'status should match the unregistered-identifier rejection').to.equal(unregisteredStatus);\n  pm.expect(pm.response.text(), 'body should match the unregistered-identifier rejection').to.equal(unregisteredBody);\n});"
     },
     {
       "requirement": "Return HTTP 401 on rejection",
-      "variant": "missing_password",
+      "variant": "wrong_password",
       "script": "pm.test('a rejected signin returns HTTP 401', function () {\n  pm.expect(pm.response.code).to.equal(401);\n});"
+    },
+    {
+      "requirement": "Never return the password",
+      "variant": "wrong_password",
+      "script": "pm.test('a rejected signin response never contains the submitted password', function () {\n  pm.expect(pm.response.text()).to.not.include('WrongPassw0rd9');\n});"
+    },
+    {
+      "requirement": "Lock an email out after repeated failures",
+      "variant": "lockout_still_locked",
+      "script": "pm.test('after 3 failed attempts, a 4th attempt with the correct password is still rejected', function () {\n  pm.expect(pm.response.code, 'expected the account to still be locked out').to.equal(401);\n});"
+    },
+    {
+      "requirement": "Reset the failure count on success",
+      "variant": "resetcount_success",
+      "script": "pm.test('a signin with the correct password succeeds after only one prior failure (below the lockout threshold)', function () {\n  pm.expect(pm.response.code).to.equal(200);\n});"
     }
   ]
 }

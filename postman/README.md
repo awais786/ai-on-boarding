@@ -92,31 +92,25 @@ is exactly what the Claude evaluation step below is checking for.
 
 Nothing here requires touching `generate_collection.js`, `merge_assertions.js`, or the workflow.
 
-## Known exclusions and known drift
+## Known exclusions
 
 See `assertions/out_of_scope.json` for the full, current list of requirements this pipeline
 deliberately does not check, each with its own rationale (time-based expiry, true concurrency,
-outbound-email inspection, database-only state, or - for the reset-password HTML page - a view
-that is deliberately excluded from the OpenAPI schema and so is structurally outside this
-pipeline's reach; it's covered instead by `sdd_django_demo/api/test_password_reset.py`).
+outbound-email inspection, database-only state, no HTTP endpoint of its own, or - for the
+reset-password HTML page - a view that is deliberately excluded from the OpenAPI schema and so
+is structurally outside this pipeline's reach; it's covered instead by
+`sdd_django_demo/api/test_password_reset.py`).
 
-Separately, building this pipeline surfaced real drift between `../openspec/specs/` and the
-live API that predates this change and is out of its scope to fix (see
-`openspec/changes/add-api-behavior-verification/design.md`, "Risks / Trade-offs"):
-
-- **Signup** requires `username` and `country` in addition to `email`/`password`, and a
-  successful response includes `username` alongside `email` - the canonical spec describes
-  neither. (`country` traces to the unarchived `openspec/changes/add-embargo/` delta;
-  `username` doesn't trace to any spec.)
-- **Signin**'s identifier field is `email_or_username`, not `email` as the canonical spec
-  describes.
-
-Assertions in `assertions/user-signup.json` and `assertions/user-signin.json` are written
-strictly from the canonical specs, so several of them **currently and correctly fail** - test
-names affected by the signin drift are prefixed `KNOWN DRIFT`. This is intentional: it's the
-pipeline doing exactly what it's for. Fixing the drift (by updating the code or by writing and
-archiving specs that describe the current behaviour) is separate follow-up work, not part of this
-change.
+Building this pipeline originally surfaced real drift between `../openspec/specs/` and the live
+API - signup requiring an undocumented `username`, and signin's identifier field being
+`email_or_username` rather than the `email` the specs described. That drift is now closed:
+`openspec/changes/archive/2026-09-01-add-user-signin/` restored and archived the design that
+documents both (recovered from a change that was implemented and reviewed, then accidentally lost
+in a merge - see that archive's `proposal.md`), and `assertions/user-signup.json` /
+`user-signin.json` were rewritten to match and to exercise the newly-documented behaviour
+directly (username validation, signin by either identifier, lockout, the indistinguishable-
+rejection guarantee). A full local run now passes with zero failures - see `traceability.md` in
+`openspec/changes/add-api-behavior-verification/` for what changed and when.
 
 ## Running it locally
 
@@ -151,9 +145,8 @@ cd ../sdd_django_demo
 make ci-stop
 ```
 
-Expect step 6 to report exactly the failures listed under "Known exclusions and known drift"
-above (5 today, each test name tagged `KNOWN DRIFT`) - not zero. Anything beyond that set is
-worth investigating before opening a PR.
+Expect step 6 to pass with zero failures. Anything failing is worth investigating before opening
+a PR.
 
 Then, from `postman/`, the Claude evaluation step:
 
