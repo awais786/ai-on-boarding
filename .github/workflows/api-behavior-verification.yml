@@ -51,6 +51,11 @@ jobs:
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -r ../../sdd_django_demo/requirements.txt -r requirements.txt
 
+      # The tooling decides whether a merge is sound, so it is checked before it
+      # is trusted to check anything else.
+      - name: Test the verification tooling itself
+        run: .venv/bin/python -m pytest -q
+
       - name: Run the checks against a live instance
         run: ./run.sh
 
