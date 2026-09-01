@@ -16,3 +16,7 @@ sdd_django_demo/db.sqlite3
 sdd_django_demo/__pycache__/
 sdd_django_demo/**/__pycache__/
 sdd_django_demo/**/*.pyc
+
+# api-conformance-testing pipeline: ci-serve/ci-stop's runtime state (see postman/README.md)
+sdd_django_demo/server.log
+sdd_django_demo/server.pid

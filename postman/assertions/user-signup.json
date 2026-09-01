@@ -1,0 +1,159 @@
+{
+  "capability": "user-signup",
+  "entries": [
+    {
+      "operationId": "signup_create",
+      "variant": "success",
+      "requirement": "Accept a signup submission",
+      "test": [
+        "pm.test('Accept a signup submission', function () {",
+        "    pm.response.to.have.status(200);",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "success",
+      "requirement": "Create exactly one account on a valid submission",
+      "test": [
+        "pm.test('Create exactly one account on a valid submission', function () {",
+        "    pm.response.to.have.status(200);",
+        "    const body = pm.response.json();",
+        "    pm.expect(body.email).to.eql('conformance-fixture@example.com');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "success",
+      "requirement": "Never return the password",
+      "test": [
+        "pm.test('Never return the password (signup success)', function () {",
+        "    pm.expect(pm.response.text()).to.not.include('Fixture1pw');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "success",
+      "requirement": "Signal success with the created account's email",
+      "test": [
+        "pm.test(\"KNOWN DRIFT: Signal success with the created account's email\", function () {",
+        "    pm.response.to.have.status(200);",
+        "    const body = pm.response.json();",
+        "    pm.expect(Object.keys(body)).to.eql(['email']);",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "missing_email",
+      "requirement": "Reject a missing email",
+      "test": [
+        "pm.test('Reject a missing email', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('email');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "missing_email",
+      "requirement": "Name the offending field on rejection",
+      "test": [
+        "pm.test('Name the offending field on rejection (signup)', function () {",
+        "    const body = pm.response.json();",
+        "    pm.expect(Object.keys(body).length).to.be.above(0);",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "missing_password",
+      "requirement": "Reject a missing password",
+      "test": [
+        "pm.test('Reject a missing password', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('password');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "invalid_email",
+      "requirement": "Reject an invalid email address",
+      "test": [
+        "pm.test('Reject an invalid email address', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('email');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "invalid_email",
+      "requirement": "Never return the password",
+      "test": [
+        "pm.test('Never return the password (signup rejection)', function () {",
+        "    pm.expect(pm.response.text()).to.not.include('InvalidEm1');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "weak_password_short",
+      "requirement": "Enforce a minimum password strength",
+      "test": [
+        "pm.test('Enforce a minimum password strength (too short)', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('password');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "weak_password_no_digit",
+      "requirement": "Enforce a minimum password strength",
+      "test": [
+        "pm.test('Enforce a minimum password strength (missing a digit)', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('password');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "duplicate",
+      "requirement": "Reject a duplicate email",
+      "test": [
+        "pm.test('Reject a duplicate email', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('email');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "duplicate_case",
+      "requirement": "Normalise email to lowercase",
+      "test": [
+        "pm.test('Normalise email to lowercase (case-insensitive duplicate detection)', function () {",
+        "    pm.response.to.have.status(400);",
+        "    pm.expect(pm.response.json()).to.have.property('email');",
+        "});"
+      ]
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "case_success",
+      "requirement": "Normalise email to lowercase",
+      "test": [
+        "pm.test('Normalise email to lowercase (stored and returned email is lowercase)', function () {",
+        "    pm.response.to.have.status(200);",
+        "    const body = pm.response.json();",
+        "    pm.expect(body.email).to.eql('conformance-case@example.com');",
+        "});"
+      ]
+    }
+  ]
+}

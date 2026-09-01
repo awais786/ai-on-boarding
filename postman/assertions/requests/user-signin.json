@@ -1,0 +1,107 @@
+{
+  "capability": "user-signin",
+  "fragments": [
+    {
+      "operationId": "signin_create",
+      "variant": "success",
+      "name": "signin - success with fixture credentials",
+      "body": { "email_or_username": "conformance-fixture@example.com", "password": "Fixture1pw" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "success_repeat",
+      "name": "signin - repeated success with the same credentials",
+      "body": { "email_or_username": "conformance-fixture@example.com", "password": "Fixture1pw" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "case_insensitive",
+      "name": "signin - success with a different email case",
+      "body": { "email_or_username": "CONFORMANCE-FIXTURE@EXAMPLE.COM", "password": "Fixture1pw" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "missing_password",
+      "name": "signin - missing password",
+      "body": { "email_or_username": "conformance-fixture@example.com" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "missing_identifier",
+      "name": "signin - no identifying field submitted at all",
+      "body": { "password": "Fixture1pw" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "unregistered",
+      "name": "signin - unregistered email",
+      "body": { "email_or_username": "conformance-unregistered@example.com", "password": "Whatever123" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "wrong_password",
+      "name": "signin - wrong password",
+      "body": { "email_or_username": "conformance-fixture@example.com", "password": "WrongPassw0rd" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "lockout_fail_1",
+      "name": "signin - lockout fixture, failure 1 of 3",
+      "body": { "email_or_username": "conformance-lockout@example.com", "password": "WrongPassw0rd" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "lockout_fail_2",
+      "name": "signin - lockout fixture, failure 2 of 3",
+      "body": { "email_or_username": "conformance-lockout@example.com", "password": "WrongPassw0rd" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "lockout_fail_3",
+      "name": "signin - lockout fixture, failure 3 of 3 (triggers lockout)",
+      "body": { "email_or_username": "conformance-lockout@example.com", "password": "WrongPassw0rd" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "lockout_correct_password",
+      "name": "signin - lockout fixture, correct password after lockout",
+      "body": { "email_or_username": "conformance-lockout@example.com", "password": "Lockout1pw" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "resetcount_fail_1",
+      "name": "signin - reset-count fixture, failure 1 of 2 (below threshold)",
+      "body": { "email_or_username": "conformance-resetcount@example.com", "password": "WrongPassw0rd" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "resetcount_fail_2",
+      "name": "signin - reset-count fixture, failure 2 of 2 (below threshold)",
+      "body": { "email_or_username": "conformance-resetcount@example.com", "password": "WrongPassw0rd" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "resetcount_success",
+      "name": "signin - reset-count fixture, success (should reset the failure count)",
+      "body": { "email_or_username": "conformance-resetcount@example.com", "password": "Resetcnt1pw" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "resetcount_fail_after_success_1",
+      "name": "signin - reset-count fixture, failure after success, 1 of 2",
+      "body": { "email_or_username": "conformance-resetcount@example.com", "password": "WrongPassw0rd" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "resetcount_fail_after_success_2",
+      "name": "signin - reset-count fixture, failure after success, 2 of 2",
+      "body": { "email_or_username": "conformance-resetcount@example.com", "password": "WrongPassw0rd" }
+    },
+    {
+      "operationId": "signin_create",
+      "variant": "resetcount_verify",
+      "name": "signin - reset-count fixture, correct password (only 2 fails since reset)",
+      "body": { "email_or_username": "conformance-resetcount@example.com", "password": "Resetcnt1pw" }
+    }
+  ]
+}

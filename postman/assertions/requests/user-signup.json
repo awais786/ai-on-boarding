@@ -1,0 +1,124 @@
+{
+  "capability": "user-signup",
+  "fragments": [
+    {
+      "operationId": "signup_create",
+      "variant": "success",
+      "name": "signup - success (creates the shared fixture account)",
+      "body": {
+        "email": "conformance-fixture@example.com",
+        "username": "conformance_fixture",
+        "password": "Fixture1pw",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "missing_email",
+      "name": "signup - missing email",
+      "body": {
+        "username": "conformance_missing_email",
+        "password": "Passw0rd1",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "missing_password",
+      "name": "signup - missing password",
+      "body": {
+        "email": "conformance-missing-password@example.com",
+        "username": "conformance_missing_pw",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "invalid_email",
+      "name": "signup - invalid email format",
+      "body": {
+        "email": "not-an-email",
+        "username": "conformance_invalid_email",
+        "password": "InvalidEm1",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "weak_password_short",
+      "name": "signup - password too short",
+      "body": {
+        "email": "conformance-weak-short@example.com",
+        "username": "conformance_weak_short",
+        "password": "ab1",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "weak_password_no_digit",
+      "name": "signup - password missing a digit",
+      "body": {
+        "email": "conformance-weak-nodigit@example.com",
+        "username": "conformance_weak_nodigit",
+        "password": "abcdefgh",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "duplicate",
+      "name": "signup - duplicate email",
+      "body": {
+        "email": "conformance-fixture@example.com",
+        "username": "conformance_dup_attempt",
+        "password": "Duplicate1pw",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "duplicate_case",
+      "name": "signup - duplicate email, different case",
+      "body": {
+        "email": "CONFORMANCE-FIXTURE@EXAMPLE.COM",
+        "username": "conformance_dup_case",
+        "password": "Duplicate1pw",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "case_success",
+      "name": "signup - success with mixed-case email",
+      "body": {
+        "email": "Conformance-Case@Example.com",
+        "username": "conformance_case_ok",
+        "password": "CaseTest1pw",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "lockout_fixture",
+      "name": "signup - creates the signin-lockout fixture account (no assertion of its own; used by user-signin.json)",
+      "body": {
+        "email": "conformance-lockout@example.com",
+        "username": "conformance_lockout",
+        "password": "Lockout1pw",
+        "country": "US"
+      }
+    },
+    {
+      "operationId": "signup_create",
+      "variant": "resetcount_fixture",
+      "name": "signup - creates the failure-count-reset fixture account (no assertion of its own; used by user-signin.json)",
+      "body": {
+        "email": "conformance-resetcount@example.com",
+        "username": "conformance_resetcount",
+        "password": "Resetcnt1pw",
+        "country": "US"
+      }
+    }
+  ]
+}

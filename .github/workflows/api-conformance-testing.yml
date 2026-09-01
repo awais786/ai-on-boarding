@@ -1,0 +1,83 @@
+name: api-conformance-testing
+
+# Verifies the live API's actual HTTP behaviour against openspec/specs/ on every push
+# to main. See postman/README.md for the full pipeline and the responsibility split
+# between OpenAPI (endpoint coverage), the specs (expected behaviour), Postman/Newman
+# (execution), and this workflow (automatic post-merge trigger and pass/fail gate).
+#
+# The gate is deterministic: Newman running the committed, previously reviewed
+# assertions library. No model call happens in this workflow - see design.md,
+# "Keep the merge-time pass/fail gate deterministic".
+on:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Django project dependencies
+        working-directory: sdd_django_demo
+        run: make setup
+
+      - name: Generate the OpenAPI schema
+        working-directory: sdd_django_demo
+        run: make schema
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Postman/Newman tooling
+        working-directory: postman
+        run: npm ci
+
+      - name: Unit-test the merge script itself
+        working-directory: postman
+        run: npm test
+
+      - name: Derive the Postman collection from the OpenAPI schema
+        working-directory: postman
+        run: npm run generate
+
+      - name: Attach behavioural assertions from the specs
+        working-directory: postman
+        run: npm run merge
+
+      - name: Start the API
+        working-directory: sdd_django_demo
+        run: make ci-serve
+
+      - name: Run the collection with Newman
+        id: newman
+        working-directory: postman
+        run: npm run newman
+
+      - name: Stop the API
+        if: always()
+        working-directory: sdd_django_demo
+        run: make ci-stop
+
+      - name: Check results (fails only on an unexpected assertion failure)
+        working-directory: postman
+        run: npm run check
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-conformance-testing-artifacts
+          path: |
+            postman/schema.json
+            postman/collection.merged.json
+            postman/result.json
+          retention-days: 14
