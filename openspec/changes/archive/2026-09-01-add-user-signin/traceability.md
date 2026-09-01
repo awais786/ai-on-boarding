@@ -21,22 +21,22 @@ already-shipped `user-signup` capability) and [`specs/user-signin/spec.md`](./sp
 | Requirement | Code | Test |
 |---|---|---|
 | Accept a signin submission | `api/serializers.py:SigninSerializer` (`email_or_username`, `password`) | `test_signin_succeeds_by_email` |
-| Reject a missing email or username | `api/serializers.py:SigninSerializer.email_or_username` + `api/views.py:SigninView.post` (field-named 401, not DRF's default 400 - see design.md) | `test_signin_requires_email_or_username` |
+| Reject a missing email | `api/serializers.py:SigninSerializer.email_or_username` + `api/views.py:SigninView.post` (field-named 401, not DRF's default 400 - see design.md) | `test_signin_requires_email_or_username` |
 | Reject a missing password | `api/serializers.py:SigninSerializer.password` + `api/views.py:SigninView.post` | `test_signin_requires_password` |
 | Authenticate against the matching account | `api/views.py:SigninView.post` (`Q(email=email_or_username) \| Q(username=email_or_username)` lookup, then `authenticate()`) | `test_signin_succeeds_by_email`, `test_signin_succeeds_by_username`, `test_signin_email_match_is_case_insensitive`, `test_signin_username_match_is_case_insensitive` |
 | Succeed with correct credentials | `api/views.py:SigninView.post` | `test_signin_succeeds_by_email`, `test_signin_repeated_signin_succeeds_again` |
 | Signal success with an authentication token | `api/views.py:SigninView.post` (`Token.objects.get_or_create`) | `test_signin_response_shape_is_token_only` |
-| Reject an unregistered email or username | `api/views.py:SigninView.post` (`candidate is None` branch) | `test_signin_rejects_unregistered_email_or_username` |
+| Reject an unregistered email | `api/views.py:SigninView.post` (`candidate is None` branch) | `test_signin_rejects_unregistered_email_or_username` |
 | Reject an incorrect password | `api/views.py:SigninView.post` (`authenticate()` returns `None`) | `test_signin_rejects_wrong_password` |
 | Reject all failure modes identically | `api/views.py:SigninView.post` (`REJECTED_RESPONSE` constant shared by lockout, unregistered, and wrong-password branches) | `test_signin_unregistered_email_or_username_and_wrong_password_are_identical`, `test_signin_lockout_matches_wrong_password_response` |
 | Return HTTP 401 on rejection | `api/views.py:SigninView.post` (every rejection branch returns `status=401`) | `test_signin_requires_email_or_username`, `test_signin_rejects_unregistered_email_or_username`, `test_signin_rejects_wrong_password`, `test_signin_locks_out_after_third_failure` |
 | Never return the password | `api/serializers.py:SigninSerializer.password` (`write_only=True`) | `test_signin_response_never_contains_password` |
-| Lock an account out after repeated failures | `api/models.py:SigninAttempt` + `api/views.py:SigninView.post` (`MAX_FAILURES`, `FAILURE_WINDOW`, `LOCKOUT_DURATION`; attempt keyed on the resolved account's canonical email, or the raw submitted value if unresolved - see design.md) | `test_signin_locks_out_after_third_failure`, `test_signin_lockout_expires_after_30_minutes`, `test_signin_lockout_applies_regardless_of_email_or_username_form` |
+| Lock an email out after repeated failures | `api/models.py:SigninAttempt` + `api/views.py:SigninView.post` (`MAX_FAILURES`, `FAILURE_WINDOW`, `LOCKOUT_DURATION`; attempt keyed on the resolved account's canonical email, or the raw submitted value if unresolved - see design.md) | `test_signin_locks_out_after_third_failure`, `test_signin_lockout_expires_after_30_minutes`, `test_signin_lockout_applies_regardless_of_email_or_username_form` |
 | Reset the failure count on success | `api/views.py:SigninView.post` (`attempt.failed_count = 0` on success) | `test_signin_success_resets_failure_count` |
 
 ## Notes
 
-- "Lock an account out after repeated failures" was fixed after `/code-review`'s first pass: the
+- "Lock an email out after repeated failures" was fixed after `/code-review`'s first pass: the
   initial implementation keyed `SigninAttempt` purely on the raw submitted string, which let an
   attacker evade lockout by alternating between an account's email and username (3 failures via
   one form, then 3 more via the other, indefinitely). Fixed by resolving the candidate account
