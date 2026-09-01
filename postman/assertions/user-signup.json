@@ -1,0 +1,112 @@
+{
+  "capability": "user-signup",
+  "specPath": "openspec/specs/user-signup/spec.md",
+  "operationId": "signup_create",
+  "entries": [
+    {
+      "requirement": "Accept a signup submission",
+      "variant": "success",
+      "script": "pm.test('signup accepts a submission with email, username, password, and country', function () {\n  pm.expect(pm.response.code, 'expected HTTP 200 for a valid submission').to.equal(200);\n});"
+    },
+    {
+      "requirement": "Reject a missing email",
+      "variant": "missing_email",
+      "script": "pm.test('signup rejects a submission with no email and names the email field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the offending field').to.have.property('email');\n});"
+    },
+    {
+      "requirement": "Reject a missing password",
+      "variant": "missing_password",
+      "script": "pm.test('signup rejects a submission with no password and names the password field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('password');\n});"
+    },
+    {
+      "requirement": "Reject a missing username",
+      "variant": "missing_username",
+      "script": "pm.test('signup rejects a submission with no username and names the username field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('username');\n});"
+    },
+    {
+      "requirement": "Reject a missing country",
+      "variant": "missing_country",
+      "script": "pm.test('signup rejects a submission with no country and names the country field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the country field').to.have.property('country');\n});"
+    },
+    {
+      "requirement": "Reject a submission from a blocked country",
+      "variant": "blocked_country",
+      "script": "pm.test('signup rejects a submission from a blocked country (India) and names the country field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the country field').to.have.property('country');\n});"
+    },
+    {
+      "requirement": "Reject an invalid email address",
+      "variant": "invalid_email",
+      "script": "pm.test('signup rejects a malformed email and names the email field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('email');\n});"
+    },
+    {
+      "requirement": "Enforce a username format",
+      "variant": "invalid_username_short",
+      "script": "pm.test('signup rejects a username under 3 characters and names the username field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('username');\n});"
+    },
+    {
+      "requirement": "Enforce a username format",
+      "variant": "invalid_username_chars",
+      "script": "pm.test('signup rejects a username with a disallowed character and names the username field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('username');\n});"
+    },
+    {
+      "requirement": "Reject a duplicate email",
+      "variant": "duplicate_email_repeat",
+      "script": "pm.test('signup rejects a second submission for an email that already has an account', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the email field').to.have.property('email');\n});"
+    },
+    {
+      "requirement": "Reject a duplicate username",
+      "variant": "duplicate_username_repeat",
+      "script": "pm.test('signup rejects a second submission for a username that already has an account', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the username field').to.have.property('username');\n});"
+    },
+    {
+      "requirement": "Enforce a minimum password strength",
+      "variant": "weak_password_short",
+      "script": "pm.test('signup rejects a password shorter than 8 characters and names the password field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('password');\n});"
+    },
+    {
+      "requirement": "Enforce a minimum password strength",
+      "variant": "weak_password_nodigit",
+      "script": "pm.test('signup rejects a password with no digit and names the password field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('password');\n});"
+    },
+    {
+      "requirement": "Create exactly one account on a valid submission",
+      "variant": "success",
+      "script": "pm.test('a valid submission creates an account (verified indirectly: the same email and username are then rejected as duplicates by later requests in this run)', function () {\n  pm.expect(pm.response.code, 'expected the account to be created').to.equal(200);\n});"
+    },
+    {
+      "requirement": "Never return the password",
+      "variant": "success",
+      "script": "pm.test('a successful signup response never contains the submitted password', function () {\n  pm.expect(pm.response.text()).to.not.include('Passw0rd1');\n});"
+    },
+    {
+      "requirement": "Name the offending field on rejection",
+      "variant": "missing_email",
+      "script": "pm.test('a rejected signup names at least one offending field', function () {\n  pm.expect(pm.response.code, 'expected the missing-email submission to be rejected').to.equal(400);\n  const body = pm.response.json();\n  pm.expect(Object.keys(body).length, 'expected at least one field named in the error body').to.be.above(0);\n});"
+    },
+    {
+      "requirement": "Signal success with the created account's email",
+      "variant": "success",
+      "script": "pm.test('a successful signup returns HTTP 200 with a body containing only the email and username fields', function () {\n  pm.expect(pm.response.code).to.equal(200);\n  const body = pm.response.json();\n  pm.expect(Object.keys(body).sort(), 'response body should contain only email and username').to.eql(['email', 'username']);\n});"
+    },
+    {
+      "requirement": "Normalise email to lowercase",
+      "variant": "success",
+      "script": "pm.test('the stored/returned email is lowercase even when submitted with mixed case', function () {\n  const body = pm.response.json();\n  const expectedLower = pm.collectionVariables.get('signupEmailLower');\n  pm.expect(body.email).to.eql(expectedLower);\n});"
+    },
+    {
+      "requirement": "Normalise email to lowercase",
+      "variant": "case_email_repeat",
+      "script": "pm.test('a second signup for the same email in different casing is rejected as a duplicate', function () {\n  pm.expect(pm.response.code, 'expected the case-differing duplicate to be rejected').to.equal(400);\n});"
+    },
+    {
+      "requirement": "Normalise username to lowercase",
+      "variant": "success",
+      "script": "pm.test('the stored/returned username is lowercase even when submitted with mixed case', function () {\n  const body = pm.response.json();\n  const expectedLower = pm.collectionVariables.get('signupUsernameLower');\n  pm.expect(body.username).to.eql(expectedLower);\n});"
+    },
+    {
+      "requirement": "Normalise username to lowercase",
+      "variant": "case_username_repeat",
+      "script": "pm.test('a second signup for the same username in different casing is rejected as a duplicate', function () {\n  pm.expect(pm.response.code, 'expected the case-differing duplicate to be rejected').to.equal(400);\n});"
+    }
+  ]
+}

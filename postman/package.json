@@ -1,0 +1,18 @@
+{
+  "name": "api-behavior-verification",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Derives a Postman collection from the Django project's OpenAPI schema, attaches behavioural assertions sourced from the OpenSpec specs, and runs it with Newman. See README.md.",
+  "scripts": {
+    "generate": "node generate_collection.js",
+    "merge": "node merge_assertions.js",
+    "newman": "newman run collection.merged.json -e environment.postman_environment.json --reporters cli,json --reporter-json-export result.json",
+    "review": "python3 review_with_claude.py",
+    "test": "node --test && python3 test/test_review_with_claude.py"
+  },
+  "dependencies": {
+    "openapi-to-postmanv2": "^4.21.0",
+    "newman": "^6.2.1",
+    "postman-collection": "^4.5.0"
+  }
+}

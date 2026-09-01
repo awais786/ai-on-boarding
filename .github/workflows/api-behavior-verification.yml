@@ -1,0 +1,84 @@
+name: api-behavior-verification
+
+# Verifies that the live API's HTTP behaviour matches openspec/specs/, on every push to main.
+# See postman/README.md for the full pipeline and the responsibility split between OpenAPI
+# (endpoint coverage), the specs (expected behaviour), Postman/Newman (execution), and Claude
+# (evaluating whether the checks and the results actually satisfy the specs).
+on:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Django project dependencies
+        run: pip install -r sdd_django_demo/requirements.txt
+
+      - name: Install the Claude review script's dependencies
+        run: pip install -r postman/requirements.txt
+
+      - name: Generate the OpenAPI schema
+        working-directory: sdd_django_demo
+        run: make schema PYTHON=python3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Postman/Newman tooling
+        working-directory: postman
+        run: npm ci
+
+      - name: Unit-test the merge and review scripts themselves
+        working-directory: postman
+        run: npm test
+
+      - name: Derive the Postman collection from the OpenAPI schema
+        working-directory: postman
+        run: npm run generate
+
+      - name: Attach behavioural assertions from the specs
+        working-directory: postman
+        run: npm run merge
+
+      - name: Start the API
+        working-directory: sdd_django_demo
+        run: make ci-serve
+
+      - name: Run the collection with Newman
+        id: newman
+        working-directory: postman
+        run: npm run newman
+
+      - name: Stop the API
+        if: always()
+        working-directory: sdd_django_demo
+        run: make ci-stop
+
+      - name: Claude evaluation - coverage and correctness against the specs
+        if: always() && steps.newman.outcome != 'skipped'
+        working-directory: postman
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python3 review_with_claude.py
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-behavior-verification-artifacts
+          path: |
+            postman/schema.json
+            postman/collection.merged.json
+            postman/result.json
+          retention-days: 14

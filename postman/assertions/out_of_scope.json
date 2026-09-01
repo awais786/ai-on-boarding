@@ -1,0 +1,148 @@
+[
+  {
+    "capability": "user-signup",
+    "requirement": "Reject a duplicate email",
+    "scenario": "Concurrent signups for the same email",
+    "rationale": "Verifying a true race between two simultaneous requests needs client-side parallelism this pipeline's sequential Postman/Newman run doesn't provide. The non-concurrent duplicate-rejection scenario for this requirement is covered (see assertions/user-signup.json)."
+  },
+  {
+    "capability": "user-signup",
+    "requirement": "Reject a duplicate username",
+    "scenario": "Concurrent signups for the same username",
+    "rationale": "Same client-side-parallelism blocker as \"Reject a duplicate email\" - see that entry. The non-concurrent duplicate-username scenario is covered."
+  },
+  {
+    "capability": "user-signup",
+    "requirement": "Store the password unrecoverably",
+    "scenario": "Password is hashed, not stored as plain text",
+    "rationale": "Verifying the stored credential is a one-way hash (and that the original password verifies against it) needs database/model inspection, not something an HTTP client can observe. \"Never return the password\" (covered) verifies the HTTP-observable half of this requirement."
+  },
+  {
+    "capability": "user-signin",
+    "requirement": "Reject signin for an embargoed account",
+    "rationale": "Both of this requirement's scenarios need a country's blocked status to change *after* the account already exists (blocked, then a signin attempt; or blocked-then-unblocked, then a signin attempt). Changing the blocked-countries list has no HTTP endpoint - it's admin/database-only - so this pipeline cannot mutate it between requests to set up either scenario."
+  },
+  {
+    "capability": "embargo",
+    "requirement": "Maintain a configurable list of blocked countries",
+    "rationale": "`embargo` has no endpoint of its own - its check is called internally from signup/signin, not exposed as a route (see sdd_django_demo/embargo/rules.py), so it never appears in the OpenAPI schema this pipeline derives coverage from. The \"listed country is blocked\" half is exercised indirectly by user-signup's \"Reject a submission from a blocked country\" assertion; the \"unlisted country is allowed\" half is exercised indirectly by every other signup assertion, which all submit an unblocked country."
+  },
+  {
+    "capability": "embargo",
+    "requirement": "Match a country case-insensitively",
+    "rationale": "Same no-endpoint blocker as \"Maintain a configurable list of blocked countries\" - not independently exercised through signup/signin's exposed fields either, since the blocked-country probe this pipeline sends uses one fixed casing."
+  },
+  {
+    "capability": "embargo",
+    "requirement": "Evaluate checks against the list's current state",
+    "rationale": "Same no-endpoint blocker as \"Maintain a configurable list of blocked countries\". Verifying a check reflects a list change made after signup also needs an admin/database mutation between two requests, which this pipeline doesn't perform."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Deliver a reset code to a registered address",
+    "rationale": "Verifying mail delivery needs access to the outbound message the app's email backend sends, which isn't exposed over HTTP. \"Answer every reset request identically\" (covered) verifies the HTTP-observable caller-facing half of this guarantee."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Deliver the reset link as an absolute address",
+    "rationale": "Same mail-inspection blocker as \"Deliver a reset code to a registered address\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Deliver nothing to an unregistered address",
+    "rationale": "Same mail-inspection blocker as \"Deliver a reset code to a registered address\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Leave earlier codes usable when delivery fails",
+    "rationale": "Needs a simulated mail-delivery failure plus the ability to test the earlier code's usability, which in turn needs a real code obtained from a delivered message (see \"Deliver a reset code...\")."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "A flood cannot leave an address with no usable code",
+    "scenario": "A flood cannot leave an address with no usable code",
+    "rationale": "Confirming \"the most recently delivered code is still usable\" needs a real code obtained from a delivered message, which this pipeline cannot inspect (see \"Deliver a reset code...\"). The rate-limit mechanics themselves (fixed 429, no retry-time leak) are covered."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Reaching the limit does not reveal whether an account exists",
+    "rationale": "Would require repeating the multi-request rate-limit flood for both a registered and an unregistered address and comparing the final refusals - not implemented in this pass to keep the pipeline's runtime bounded; the underlying fixed-body 429 contract is covered by \"Limit how often a reset may be requested for one address\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Serve a page at the delivered link",
+    "rationale": "This page is served by a plain Django `View`, not a DRF view (see `sdd_django_demo/api/views.py::PasswordResetPageView`), so it is deliberately excluded from the OpenAPI schema drf-spectacular produces. This pipeline's coverage is derived strictly from that schema, so it structurally cannot include a non-DRF page. Covered instead by `sdd_django_demo/api/test_password_reset.py` (pytest)."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Require the two password entries to match",
+    "rationale": "Same no-DRF-endpoint blocker as \"Serve a page at the delivered link\" - the two-entry confirmation form only exists on the plain Django page, not the API."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Report a mismatch before judging the password",
+    "rationale": "Same no-DRF-endpoint blocker as \"Require the two password entries to match\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Decide the link before the password",
+    "rationale": "Same no-DRF-endpoint blocker as \"Require the two password entries to match\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Never retain the confirmation entry",
+    "rationale": "Same no-DRF-endpoint blocker as \"Require the two password entries to match\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Complete a reset through the API with a single password",
+    "rationale": "This one IS about the DRF confirm endpoint, and every request this pipeline sends it already omits a confirmation field without being rejected for it - but confirming the scenario's full claim (\"the request succeeds\") needs a real, unexpired reset code, which needs the mail-inspection this pipeline cannot do (see \"Deliver a reset code...\"/\"Accept a reset completion\")."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Accept a reset completion",
+    "scenario": "Valid completion fields present",
+    "rationale": "Only reachable with a genuine, unexpired reset code, which requires the mail-inspection this pipeline cannot do (see \"Deliver a reset code...\"). The two rejection scenarios for missing fields are covered without a real code."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Complete a reset with a valid code",
+    "rationale": "Needs a real, unexpired reset code - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Hold a new password to the signup strength rules",
+    "rationale": "Needs a real reset code to reach password-strength validation on the completion endpoint - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Expire a reset code after 30 minutes",
+    "rationale": "Needs a real code and a 30-minute wait, which is impractical for a CI run triggered on every push. Left for manual/long-running verification."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Retire a reset code once it is used",
+    "rationale": "Needs a real reset code used once already - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Supersede an earlier unused code",
+    "rationale": "Needs two real reset codes for the same address to compare - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Reject every bad code identically",
+    "scenario": "Used and superseded codes are indistinguishable",
+    "rationale": "The unrecognised-code case is covered without a real code; the expired/used/superseded cases need one - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Invalidate existing authentication tokens on reset",
+    "rationale": "Needs a completed reset (a real code), which needs the mail-inspection this pipeline cannot do - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Store a new password unrecoverably",
+    "rationale": "Same database/model-inspection blocker as user-signup's \"Store the password unrecoverably\"."
+  }
+]

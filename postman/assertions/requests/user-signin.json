@@ -1,0 +1,130 @@
+[
+  {
+    "operationId": "signin_create",
+    "variant": "success_setup",
+    "name": "signin - succeeds by email (seeds the account used by later signin variants)",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\nconst email = 'signin.' + genId + '@example.com';\nconst username = 'signin' + genId;\nconst password = 'Passw0rd1';\npm.collectionVariables.set('signinEmail', email);\npm.collectionVariables.set('signinEmailUpper', email.toUpperCase());\npm.collectionVariables.set('signinUsername', username);\npm.collectionVariables.set('signinUsernameUpper', username.toUpperCase());\npm.collectionVariables.set('signinPassword', password);\npm.sendRequest({\n  url: pm.variables.get('baseUrl') + '/api/signup/',\n  method: 'POST',\n  header: { 'Content-Type': 'application/json' },\n  body: {\n    mode: 'raw',\n    raw: JSON.stringify({ email: email, username: username, password: password, country: 'US' })\n  }\n}, function () {\n  // Nothing to branch on here - the signin request below is what's actually asserted.\n});",
+    "body": {
+      "email_or_username": "{{signinEmail}}",
+      "password": "{{signinPassword}}"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "success_by_username",
+    "name": "signin - succeeds by username (same account as success_setup)",
+    "body": {
+      "email_or_username": "{{signinUsername}}",
+      "password": "{{signinPassword}}"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "success_case_insensitive_email",
+    "name": "signin - succeeds with the email in a different case",
+    "body": {
+      "email_or_username": "{{signinEmailUpper}}",
+      "password": "{{signinPassword}}"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "success_case_insensitive_username",
+    "name": "signin - succeeds with the username in a different case",
+    "body": {
+      "email_or_username": "{{signinUsernameUpper}}",
+      "password": "{{signinPassword}}"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "missing_email_or_username",
+    "name": "signin - missing email_or_username",
+    "body": {
+      "password": "Passw0rd1"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "missing_password",
+    "name": "signin - missing password",
+    "body": {
+      "email_or_username": "someone@example.com"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "unregistered",
+    "name": "signin - unregistered identifier (compared against wrong_password for indistinguishability)",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\npm.collectionVariables.set('unregisteredIdentifier', 'nobody.' + genId + '@example.com');",
+    "body": {
+      "email_or_username": "{{unregisteredIdentifier}}",
+      "password": "Passw0rd1"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "wrong_password",
+    "name": "signin - registered email, wrong password (compared against unregistered for indistinguishability)",
+    "body": {
+      "email_or_username": "{{signinEmail}}",
+      "password": "WrongPassw0rd9"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "lockout_setup_fail1",
+    "name": "signin - lockout account, failed attempt 1/3 (seeds a fresh account)",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\nconst email = 'lockout.' + genId + '@example.com';\nconst username = 'lockout' + genId;\nconst password = 'Passw0rd1';\npm.collectionVariables.set('lockoutEmail', email);\npm.collectionVariables.set('lockoutPassword', password);\npm.sendRequest({\n  url: pm.variables.get('baseUrl') + '/api/signup/',\n  method: 'POST',\n  header: { 'Content-Type': 'application/json' },\n  body: {\n    mode: 'raw',\n    raw: JSON.stringify({ email: email, username: username, password: password, country: 'US' })\n  }\n}, function () {});",
+    "body": {
+      "email_or_username": "{{lockoutEmail}}",
+      "password": "WrongPassw0rd9"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "lockout_fail2",
+    "name": "signin - lockout account, failed attempt 2/3",
+    "body": {
+      "email_or_username": "{{lockoutEmail}}",
+      "password": "WrongPassw0rd9"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "lockout_fail3",
+    "name": "signin - lockout account, failed attempt 3/3 (triggers lockout)",
+    "body": {
+      "email_or_username": "{{lockoutEmail}}",
+      "password": "WrongPassw0rd9"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "lockout_still_locked",
+    "name": "signin - lockout account, correct password still rejected",
+    "body": {
+      "email_or_username": "{{lockoutEmail}}",
+      "password": "{{lockoutPassword}}"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "resetcount_setup_fail1",
+    "name": "signin - reset-count account, one failed attempt (below lockout threshold, seeds a fresh account)",
+    "pre_request_script": "const genId = String(Date.now()) + Math.floor(Math.random() * 100000);\nconst email = 'resetcount.' + genId + '@example.com';\nconst username = 'resetcount' + genId;\nconst password = 'Passw0rd1';\npm.collectionVariables.set('resetCountEmail', email);\npm.collectionVariables.set('resetCountPassword', password);\npm.sendRequest({\n  url: pm.variables.get('baseUrl') + '/api/signup/',\n  method: 'POST',\n  header: { 'Content-Type': 'application/json' },\n  body: {\n    mode: 'raw',\n    raw: JSON.stringify({ email: email, username: username, password: password, country: 'US' })\n  }\n}, function () {});",
+    "body": {
+      "email_or_username": "{{resetCountEmail}}",
+      "password": "WrongPassw0rd9"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "resetcount_success",
+    "name": "signin - reset-count account, correct password succeeds after one failure",
+    "body": {
+      "email_or_username": "{{resetCountEmail}}",
+      "password": "{{resetCountPassword}}"
+    }
+  }
+]

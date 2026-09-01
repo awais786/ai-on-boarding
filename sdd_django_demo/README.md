@@ -29,6 +29,12 @@ each other target is a one-line wrapper around the equivalent `.venv/bin/python 
 - API docs: `http://127.0.0.1:8000/api/docs/`
 - OpenAPI schema: `http://127.0.0.1:8000/api/schema/`
 
+On every push to `main`, [`../postman/`](../postman/README.md) independently verifies that the
+live API's behaviour still matches `../openspec/specs/` - endpoint coverage derived from the
+OpenAPI schema above, behavioural assertions from the specs, executed with Postman/Newman, and
+evaluated for coverage and correctness by Claude. See `../postman/README.md` for the full
+responsibility split and how to add coverage for a new endpoint.
+
 ## Setting up the planning tools
 
 Implementing a change also needs the OpenSpec CLI (Node.js 20.19.0+ required):
@@ -147,6 +153,13 @@ Bound by the contract in `openspec/config.yaml` / `CLAUDE.md` — reads as block
 cites a requirement, a named failing test, or a documented convention; at most two passes; always
 ends in an explicit `Ready to merge: yes` or `Ready to merge: no`. Fix what's blocking, re-run
 once, then open the pull request.
+
+Once merged to `main`, [`../postman/`](../postman/README.md) runs a second, independent check:
+deriving endpoint coverage from the OpenAPI schema, running behavioural assertions sourced from
+the specs against the live API with Postman/Newman, and having Claude evaluate both the result and
+the assertions' own coverage against `openspec/specs/`. `/code-review` checks the diff before
+merge; this checks the deployed behaviour after merge — see `../postman/README.md` for the full
+split.
 
 **9. Archive.**
 
