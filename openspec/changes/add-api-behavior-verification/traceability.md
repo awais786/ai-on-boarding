@@ -48,7 +48,7 @@ does not yet hold and would spend money on every run. The call's surface was ver
 installed SDK (`messages.parse` accepting `output_format`, `thinking`, and `model`).
 
 **What the checks currently report.** The library is written from the promoted specs, so it
-records the API as contradicting four of them today - see
-[`design.md`](./design.md) *Migration Plan* step 3. Those failures are the pipeline working, not
-defects in it: every failing check either exercises signup or signin, and no check fails for a
-reason traceable to this tooling.
+records the API as contradicting one of them today: signup requires a `country` that no promoted
+spec describes - see [`design.md`](./design.md) *Migration Plan* step 3. Those failures are the
+pipeline working, not defects in it: every failing check depends on creating an account first,
+and no check fails for a reason traceable to this tooling.
