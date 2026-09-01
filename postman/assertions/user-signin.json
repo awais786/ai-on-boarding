@@ -1,0 +1,37 @@
+{
+  "capability": "user-signin",
+  "specPath": "openspec/specs/user-signin/spec.md",
+  "operationId": "signin_create",
+  "entries": [
+    {
+      "requirement": "Accept a signin submission",
+      "variant": "spec_minimal",
+      "script": "pm.test('signin accepts a submission with email and password, per the canonical spec (KNOWN DRIFT: the live API requires \\'email_or_username\\', not \\'email\\' - see postman/README.md)', function () {\n  pm.expect(pm.response.code, 'expected the submission to proceed rather than be rejected outright').to.not.equal(401);\n});"
+    },
+    {
+      "requirement": "Signal success with an authentication token",
+      "variant": "spec_minimal",
+      "script": "pm.test('signin succeeds and returns a token for a spec-compliant submission (KNOWN DRIFT: see postman/README.md)', function () {\n  pm.expect(pm.response.code).to.equal(200);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('token');\n});"
+    },
+    {
+      "requirement": "Reject a missing email",
+      "variant": "missing_email",
+      "script": "pm.test('signin rejects a submission with no email and names the email field (KNOWN DRIFT: see postman/README.md)', function () {\n  pm.expect(pm.response.code).to.equal(401);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the email field').to.have.property('email');\n});"
+    },
+    {
+      "requirement": "Reject a missing password",
+      "variant": "missing_password",
+      "script": "pm.test('signin rejects a submission with no password and names the password field', function () {\n  pm.expect(pm.response.code).to.equal(401);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('password');\n});"
+    },
+    {
+      "requirement": "Never return the password",
+      "variant": "spec_minimal",
+      "script": "pm.test('a rejected signin response never contains the submitted password', function () {\n  pm.expect(pm.response.text()).to.not.include('Passw0rd1');\n});"
+    },
+    {
+      "requirement": "Return HTTP 401 on rejection",
+      "variant": "missing_password",
+      "script": "pm.test('a rejected signin returns HTTP 401', function () {\n  pm.expect(pm.response.code).to.equal(401);\n});"
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+[
+  {
+    "capability": "user-signup",
+    "requirement": "Reject a duplicate email",
+    "scenario": "Concurrent signups for the same email",
+    "rationale": "Verifying a true race between two simultaneous requests needs client-side parallelism this pipeline's sequential Postman/Newman run doesn't provide. The non-concurrent duplicate-rejection scenario for this requirement is covered (see assertions/user-signup.json)."
+  },
+  {
+    "capability": "user-signup",
+    "requirement": "Store the password unrecoverably",
+    "scenario": "Password is hashed, not stored as plain text",
+    "rationale": "Verifying the stored credential is a one-way hash (and that the original password verifies against it) needs database/model inspection, not something an HTTP client can observe. \"Never return the password\" (covered) verifies the HTTP-observable half of this requirement."
+  },
+  {
+    "capability": "user-signin",
+    "requirement": "Authenticate against the matching account",
+    "rationale": "The live API's signin field is `email_or_username`, not the `email` field the canonical spec describes (undocumented drift - see design.md \"Risks / Trade-offs\"). A spec-compliant request never reaches the authentication logic this requirement describes, so exercising it faithfully from the spec isn't possible until the contract is reconciled."
+  },
+  {
+    "capability": "user-signin",
+    "requirement": "Succeed with correct credentials",
+    "rationale": "Same field-name blocker as \"Authenticate against the matching account\" - see that entry."
+  },
+  {
+    "capability": "user-signin",
+    "requirement": "Reject an unregistered email",
+    "rationale": "Same field-name blocker as \"Authenticate against the matching account\" - see that entry."
+  },
+  {
+    "capability": "user-signin",
+    "requirement": "Reject an incorrect password",
+    "rationale": "Same field-name blocker as \"Authenticate against the matching account\" - see that entry."
+  },
+  {
+    "capability": "user-signin",
+    "requirement": "Reject all failure modes identically",
+    "rationale": "Every spec-compliant probe is rejected at the same field-validation step regardless of the scenario it's meant to distinguish (unregistered email vs. wrong password vs. lockout), so a comparison between them would test validation determinism, not the anti-enumeration guarantee this requirement actually describes. Same field-name blocker as \"Authenticate against the matching account\"."
+  },
+  {
+    "capability": "user-signin",
+    "requirement": "Lock an email out after repeated failures",
+    "rationale": "Same field-name blocker as \"Authenticate against the matching account\" - the lockout logic is never reached by a spec-compliant request."
+  },
+  {
+    "capability": "user-signin",
+    "requirement": "Reset the failure count on success",
+    "rationale": "Same field-name blocker as \"Authenticate against the matching account\" - success is never reached by a spec-compliant request."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Deliver a reset code to a registered address",
+    "rationale": "Verifying mail delivery needs access to the outbound message the app's email backend sends, which isn't exposed over HTTP. \"Answer every reset request identically\" (covered) verifies the HTTP-observable caller-facing half of this guarantee."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Deliver the reset link as an absolute address",
+    "rationale": "Same mail-inspection blocker as \"Deliver a reset code to a registered address\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Deliver nothing to an unregistered address",
+    "rationale": "Same mail-inspection blocker as \"Deliver a reset code to a registered address\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Leave earlier codes usable when delivery fails",
+    "rationale": "Needs a simulated mail-delivery failure plus the ability to test the earlier code's usability, which in turn needs a real code obtained from a delivered message (see \"Deliver a reset code...\")."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "A flood cannot leave an address with no usable code",
+    "scenario": "A flood cannot leave an address with no usable code",
+    "rationale": "Confirming \"the most recently delivered code is still usable\" needs a real code obtained from a delivered message, which this pipeline cannot inspect (see \"Deliver a reset code...\"). The rate-limit mechanics themselves (fixed 429, no retry-time leak) are covered."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Reaching the limit does not reveal whether an account exists",
+    "rationale": "Would require repeating the multi-request rate-limit flood for both a registered and an unregistered address and comparing the final refusals - not implemented in this pass to keep the pipeline's runtime bounded; the underlying fixed-body 429 contract is covered by \"Limit how often a reset may be requested for one address\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Serve a page at the delivered link",
+    "rationale": "This page is served by a plain Django `View`, not a DRF view (see `sdd_django_demo/api/views.py::PasswordResetPageView`), so it is deliberately excluded from the OpenAPI schema drf-spectacular produces. This pipeline's coverage is derived strictly from that schema, so it structurally cannot include a non-DRF page. Covered instead by `sdd_django_demo/api/test_password_reset.py` (pytest)."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Accept a reset completion",
+    "scenario": "Valid completion fields present",
+    "rationale": "Only reachable with a genuine, unexpired reset code, which requires the mail-inspection this pipeline cannot do (see \"Deliver a reset code...\"). The two rejection scenarios for missing fields are covered without a real code."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Complete a reset with a valid code",
+    "rationale": "Needs a real, unexpired reset code - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Hold a new password to the signup strength rules",
+    "rationale": "Needs a real reset code to reach password-strength validation on the completion endpoint - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Expire a reset code after 30 minutes",
+    "rationale": "Needs a real code and a 30-minute wait, which is impractical for a CI run triggered on every push. Left for manual/long-running verification."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Retire a reset code once it is used",
+    "rationale": "Needs a real reset code used once already - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Supersede an earlier unused code",
+    "rationale": "Needs two real reset codes for the same address to compare - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Reject every bad code identically",
+    "scenario": "Used and superseded codes are indistinguishable",
+    "rationale": "The unrecognised-code case is covered without a real code; the expired/used/superseded cases need one - see \"Accept a reset completion\"."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Invalidate existing authentication tokens on reset",
+    "rationale": "Needs a completed reset (a real code) plus a signin capable of producing a token first - blocked by both the mail-inspection gap here and the signin field-name drift documented above."
+  },
+  {
+    "capability": "user-password-reset",
+    "requirement": "Store a new password unrecoverably",
+    "rationale": "Same database/model-inspection blocker as user-signup's \"Store the password unrecoverably\"."
+  }
+]

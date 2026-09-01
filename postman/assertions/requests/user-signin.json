@@ -1,0 +1,27 @@
+[
+  {
+    "operationId": "signin_create",
+    "variant": "spec_minimal",
+    "name": "signin - spec-minimal (email + password, per canonical spec)",
+    "body": {
+      "email": "someone@example.com",
+      "password": "Passw0rd1"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "missing_email",
+    "name": "signin - missing email",
+    "body": {
+      "password": "Passw0rd1"
+    }
+  },
+  {
+    "operationId": "signin_create",
+    "variant": "missing_password",
+    "name": "signin - missing password",
+    "body": {
+      "email": "someone@example.com"
+    }
+  }
+]

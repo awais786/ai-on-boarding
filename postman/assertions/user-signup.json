@@ -1,0 +1,72 @@
+{
+  "capability": "user-signup",
+  "specPath": "openspec/specs/user-signup/spec.md",
+  "operationId": "signup_create",
+  "entries": [
+    {
+      "requirement": "Accept a signup submission",
+      "variant": "spec_minimal",
+      "script": "pm.test('signup accepts a submission with only email and password, per the canonical spec (KNOWN DRIFT: the live API also requires username and country - see postman/README.md)', function () {\n  pm.expect(pm.response.code, 'expected HTTP 200 for a spec-minimal submission').to.equal(200);\n});"
+    },
+    {
+      "requirement": "Reject a missing email",
+      "variant": "missing_email",
+      "script": "pm.test('signup rejects a submission with no email and names the email field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the offending field').to.have.property('email');\n});"
+    },
+    {
+      "requirement": "Reject a missing password",
+      "variant": "missing_password",
+      "script": "pm.test('signup rejects a submission with no password and names the password field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('password');\n});"
+    },
+    {
+      "requirement": "Reject an invalid email address",
+      "variant": "invalid_email",
+      "script": "pm.test('signup rejects a malformed email and names the email field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('email');\n});"
+    },
+    {
+      "requirement": "Reject a duplicate email",
+      "variant": "duplicate_repeat",
+      "script": "pm.test('signup rejects a second submission for an email that already has an account', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body, 'response should name the email field').to.have.property('email');\n});"
+    },
+    {
+      "requirement": "Enforce a minimum password strength",
+      "variant": "weak_password_short",
+      "script": "pm.test('signup rejects a password shorter than 8 characters and names the password field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('password');\n});"
+    },
+    {
+      "requirement": "Enforce a minimum password strength",
+      "variant": "weak_password_nodigit",
+      "script": "pm.test('signup rejects a password with no digit and names the password field', function () {\n  pm.expect(pm.response.code).to.equal(400);\n  const body = pm.response.json();\n  pm.expect(body).to.have.property('password');\n});"
+    },
+    {
+      "requirement": "Create exactly one account on a valid submission",
+      "variant": "success",
+      "script": "pm.test('a valid submission creates an account (verified indirectly: the same email is then rejected as a duplicate by a later request in this run)', function () {\n  pm.expect(pm.response.code, 'expected the account to be created').to.equal(200);\n});"
+    },
+    {
+      "requirement": "Never return the password",
+      "variant": "success",
+      "script": "pm.test('a successful signup response never contains the submitted password', function () {\n  pm.expect(pm.response.text()).to.not.include('Passw0rd1');\n});"
+    },
+    {
+      "requirement": "Name the offending field on rejection",
+      "variant": "missing_email",
+      "script": "pm.test('a rejected signup names at least one offending field', function () {\n  pm.expect(pm.response.code, 'expected the missing-email submission to be rejected').to.equal(400);\n  const body = pm.response.json();\n  pm.expect(Object.keys(body).length, 'expected at least one field named in the error body').to.be.above(0);\n});"
+    },
+    {
+      "requirement": "Signal success with the created account's email",
+      "variant": "success",
+      "script": "pm.test('a successful signup returns HTTP 200 with a body containing only the email field (KNOWN DRIFT: the live API also returns username - see postman/README.md)', function () {\n  pm.expect(pm.response.code).to.equal(200);\n  const body = pm.response.json();\n  pm.expect(Object.keys(body), 'response body should contain only \\'email\\'').to.eql(['email']);\n});"
+    },
+    {
+      "requirement": "Normalise email to lowercase",
+      "variant": "success",
+      "script": "pm.test('the stored/returned email is lowercase even when submitted with mixed case', function () {\n  const body = pm.response.json();\n  const expectedLower = pm.collectionVariables.get('signupEmailLower');\n  pm.expect(body.email).to.eql(expectedLower);\n});"
+    },
+    {
+      "requirement": "Normalise email to lowercase",
+      "variant": "case_repeat",
+      "script": "pm.test('a second signup for the same email in different casing is rejected as a duplicate', function () {\n  pm.expect(pm.response.code, 'expected the case-differing duplicate to be rejected').to.equal(400);\n});"
+    }
+  ]
+}
