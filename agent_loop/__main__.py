@@ -23,7 +23,14 @@ def _print_event(event):
     if etype == "text":
         print(f'\nClaude:\n"{event["text"]}"')
     elif etype == "tool_use":
-        print(f"\ntool_use:\n{_format_tool_call(event['name'], event['input'])}")
+        call = _format_tool_call(event["name"], event["input"])
+        if event["batch_size"] > 1:
+            print(
+                f"\ntool_use ({event['batch_index']} of {event['batch_size']} requested "
+                f"together):\n{call}"
+            )
+        else:
+            print(f"\ntool_use:\n{call}")
     elif etype == "tool_result":
         print(f'\ntool_result:\n"{event["content"]}"')
     elif etype == "end_turn":

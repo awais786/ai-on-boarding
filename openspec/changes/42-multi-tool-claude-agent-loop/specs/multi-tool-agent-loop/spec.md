@@ -45,6 +45,25 @@ assistant message to the conversation, append a `user` message containing the co
 - **THEN** that tool is executed with the given input, and the next request to Claude includes
   both Claude's assistant message and a user message carrying the `tool_result`
 
+### Requirement: Indicate when multiple tools are requested in a single turn
+When one response from Claude contains more than one `tool_use` block, the system SHALL make
+that fact observable for each of those tool calls, distinguishing it from a tool call that
+arrived alone in its own turn - rather than presenting every tool call identically regardless of
+whether it was requested together with others. This is distinct from the "Support multiple
+sequential tool calls" requirement below, which concerns tool calls spread across separate round
+trips, not multiple `tool_use` blocks within one response.
+
+#### Scenario: Two tools requested in one turn
+- **WHEN** Claude's response has `stop_reason == "tool_use"` and contains two `tool_use` blocks
+- **THEN** the output for each of those two tool calls indicates it was one of two tools
+  requested together in that turn
+
+#### Scenario: Single tool requested
+- **WHEN** Claude's response has `stop_reason == "tool_use"` and contains exactly one `tool_use`
+  block
+- **THEN** the output for that tool call carries no "requested together" indication,
+  distinguishing it from the two-tool case
+
 ### Requirement: Terminate only on end_turn
 The system SHALL terminate the loop and return Claude's final text response only when a
 response's `stop_reason` equals `end_turn`. It SHALL NOT use the content type of the first

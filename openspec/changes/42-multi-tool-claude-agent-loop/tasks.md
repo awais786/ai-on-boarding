@@ -62,3 +62,16 @@
 - [x] 5.2 Run `/code-review` and address any finding that cites a requirement, a named failing
   test, or a documented convention
 - [x] 5.3 Run `/code-review` again (round 2, verify-only) until it returns `Ready to merge: yes`
+
+## 6. Indicate when multiple tools are requested together (post-review addition)
+
+- [x] 6.1 Add the "Indicate when multiple tools are requested in a single turn" requirement to
+  `specs/multi-tool-agent-loop/spec.md` and the corresponding decision to `design.md`
+- [x] 6.2 In `agent_loop/loop.py`, compute `batch_index`/`batch_size` for each `tool_use` block in
+  a response and include them on its `tool_use` on_event event
+- [x] 6.3 In `agent_loop/__main__.py`, render `tool_use (N of M requested together):` when
+  `batch_size > 1`, with unchanged output when `batch_size == 1`
+- [x] 6.4 Write tests from that requirement covering both scenarios (two tools requested
+  together, one tool requested alone), and update `traceability.md`
+- [x] 6.5 Run `/code-review` and address any finding that cites a requirement, a named failing
+  test, or a documented convention

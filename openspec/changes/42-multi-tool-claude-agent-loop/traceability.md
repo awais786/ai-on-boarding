@@ -7,9 +7,10 @@ are relative to `agent_loop/` (repo root); test paths are relative to the repo r
 
 | Requirement | Code | Test |
 |---|---|---|
-| Register a calculator tool | `tools.py:TOOLS` (calculator schema), `tools.py:evaluate_expression`, `tools.py:calculator` | `test_calculator_tool_schema_declares_name_description_and_expression_input`, `test_calculator_evaluates_arithmetic_expression`, `test_calculator_rejects_non_arithmetic_expression_without_raising`, `test_calculator_reports_division_by_zero_as_error_not_exception`, `test_calculator_rejects_expression_that_would_overflow_a_float_conversion`, `test_calculator_rejects_expression_that_would_recurse_too_deeply` |
+| Register a calculator tool | `tools.py:TOOLS` (calculator schema), `tools.py:evaluate_expression`, `tools.py:calculator` | `test_calculator_tool_schema_declares_name_description_and_expression_input`, `test_calculator_evaluates_arithmetic_expression`, `test_calculator_rejects_non_arithmetic_expression_without_raising`, `test_calculator_reports_division_by_zero_as_error_not_exception`, `test_calculator_rejects_expression_over_the_length_cap_before_it_can_overflow`, `test_calculator_rejects_expression_over_the_length_cap_before_it_can_recurse`, `test_calculator_rejects_expression_that_evaluates_to_a_non_finite_result` |
 | Register a web-search tool | `tools.py:TOOLS` (web_search schema), `tools.py:web_search` | `test_web_search_tool_schema_declares_name_description_and_query_input`, `test_web_search_returns_mock_result_for_known_query`, `test_web_search_returns_fallback_for_unmatched_query` |
 | Execute a requested tool and return its result | `loop.py:run_agent_loop` (the `stop_reason == "tool_use"` branch, `tools.dispatch` call, and message threading), `tools.py:dispatch` (never raises on malformed input) | `test_loop_executes_tool_use_and_threads_result_back_to_claude`, `test_dispatch_returns_error_result_for_malformed_input_instead_of_raising` |
+| Indicate when multiple tools are requested in a single turn | `loop.py:run_agent_loop` (`batch_index`/`batch_size` on each `tool_use` event), `__main__.py:_print_event` (renders the batch position) | `test_loop_annotates_tool_use_events_with_batch_position_when_requested_together`, `test_loop_marks_a_solo_tool_use_event_with_batch_size_one`, `test_print_event_labels_a_batched_tool_use_but_not_a_solo_one` |
 | Terminate only on end_turn | `loop.py:run_agent_loop` (checks `response.stop_reason`, never `response.content[0].type` or response text) | `test_loop_terminates_only_on_end_turn_not_on_text_content_type` |
 | Support multiple sequential tool calls | `loop.py:run_agent_loop` (the `for` loop over `max_iterations`) | `test_loop_supports_multiple_sequential_tool_calls`, `test_multi_step_live_france_population_search_then_calculate` |
 | Enforce a maximum iteration safety cap | `loop.py:MAX_ITERATIONS`, `loop.py:run_agent_loop` (post-loop `logger.warning` and `"max_iterations"` return) | `test_loop_enforces_max_iterations_safety_cap_and_logs_warning` |
@@ -51,6 +52,17 @@ are relative to `agent_loop/` (repo root); test paths are relative to the repo r
   `test_loop_emits_terminated_event_for_a_non_end_turn_stop_reason`; `__main__.py`'s
   post-loop check (which duplicated this same warning) was removed since the event stream now
   reports it directly.
+- Requirement "Indicate when multiple tools are requested in a single turn" was added after the
+  fact: Claude's response can contain several `tool_use` blocks at once (Anthropic's parallel
+  tool use), but the loop dispatched them one at a time with no signal in the output that they'd
+  arrived together - indistinguishable from separate turns. Fix: each `tool_use` event now
+  carries `batch_index`/`batch_size`, and the CLI prints `tool_use (N of M requested together):`
+  when `batch_size > 1`. This does not change dispatch order - tools still run sequentially, per
+  the Risks/Trade-offs note in design.md - it only makes the existing grouping observable. A
+  follow-up `/code-review` on this addition found `tasks.md` hadn't been updated to record the
+  new requirement (fixed - see its section 6) and that no test asserted the actual rendered CLI
+  text, only the underlying event data; `test_print_event_labels_a_batched_tool_use_but_not_a_solo_one`
+  closes that gap.
 - `test_multi_step_live_france_population_search_then_calculate` is the only test that calls the
   real Claude API; it is `pytest.mark.skipif`'d when `ANTHROPIC_API_KEY` is not set, per
   design.md's live-API test strategy. Every other row is covered by an offline test using a

@@ -28,6 +28,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent_loop import tools
+from agent_loop.__main__ import _print_event
 from agent_loop.loop import MAX_ITERATIONS, run_agent_loop
 
 
@@ -240,6 +241,86 @@ def test_loop_supports_multiple_sequential_tool_calls():
     assert final_text == "6.8 million"
     assert terminated_via == "end_turn"
     assert len(client.calls) == 3
+
+
+# --- loop: multiple tool_use blocks in one turn are labeled as requested together -----
+
+def test_loop_annotates_tool_use_events_with_batch_position_when_requested_together():
+    client = _ScriptedClient(
+        [
+            SimpleNamespace(
+                stop_reason="tool_use",
+                content=[
+                    _tool_use_block("toolu_1", "web_search", {"query": "France population"}),
+                    _tool_use_block("toolu_2", "calculator", {"expression": "1 + 1"}),
+                ],
+            ),
+            SimpleNamespace(stop_reason="end_turn", content=[_text_block("done")]),
+        ]
+    )
+    events = []
+
+    run_agent_loop(
+        client, [{"role": "user", "content": "do two things"}], on_event=events.append
+    )
+
+    tool_use_events = [e for e in events if e["type"] == "tool_use"]
+    assert [(e["batch_index"], e["batch_size"]) for e in tool_use_events] == [(1, 2), (2, 2)]
+
+
+def test_loop_marks_a_solo_tool_use_event_with_batch_size_one():
+    client = _ScriptedClient(
+        [
+            SimpleNamespace(
+                stop_reason="tool_use",
+                content=[_tool_use_block("toolu_1", "calculator", {"expression": "2 + 2"})],
+            ),
+            SimpleNamespace(stop_reason="end_turn", content=[_text_block("4")]),
+        ]
+    )
+    events = []
+
+    run_agent_loop(
+        client, [{"role": "user", "content": "what is 2 + 2?"}], on_event=events.append
+    )
+
+    tool_use_events = [e for e in events if e["type"] == "tool_use"]
+    assert tool_use_events == [
+        {
+            "type": "tool_use",
+            "name": "calculator",
+            "input": {"expression": "2 + 2"},
+            "batch_index": 1,
+            "batch_size": 1,
+        }
+    ]
+
+
+def test_print_event_labels_a_batched_tool_use_but_not_a_solo_one(capsys):
+    _print_event(
+        {
+            "type": "tool_use",
+            "name": "web_search",
+            "input": {"query": "France population"},
+            "batch_index": 1,
+            "batch_size": 2,
+        }
+    )
+    _print_event(
+        {
+            "type": "tool_use",
+            "name": "calculator",
+            "input": {"expression": "2 + 2"},
+            "batch_index": 1,
+            "batch_size": 1,
+        }
+    )
+
+    out = capsys.readouterr().out
+    assert "tool_use (1 of 2 requested together):" in out
+    assert 'web_search("France population")' in out
+    assert 'tool_use:\ncalculator("2 + 2")' in out
+    assert out.count("requested together") == 1
 
 
 # Regression test for a /code-review finding: on_event previously emitted

@@ -65,6 +65,16 @@ guard runs, so it must be caught after evaluation rather than during it. Both ex
 tool from crashing or returning a non-numeric value, not to defend against a hostile actor - the
 narrower magnitude/depth-defense question below remains genuinely out of scope.
 
+**Multiple `tool_use` blocks in one response are tagged with their position and the group's
+size, not silently dispatched as if unrelated.** Each `tool_use` on_event event gains
+`batch_index` (1-based) and `batch_size` (the total number of `tool_use` blocks in that
+response); `batch_size == 1` means the tool call arrived alone. The CLI renders this directly
+on each `tool_use:` line, e.g. `tool_use (2 of 3 requested together):`, computed per event
+rather than tracked as separate before/after banner state. Execution order is unchanged - still
+sequential, per the earlier decision not to add concurrency for this exercise's near-instant
+stub tools (see the Risks/Trade-offs note on `web_search`/parallel dispatch below). This only
+makes the existing behavior observable; it does not change it.
+
 **`web_search` is a small fixed lookup table with a generic fallback.** It returns a
 deterministic string that includes the number learners need for the two-step example, so the
 same fixture that this repo's acceptance test drives can also be run by hand.
@@ -116,3 +126,9 @@ terminal-with-a-warning rather than silently continuing.
   expression like `9**9**9**9` would need a dedicated guard - this cap would not catch it.
   Documented here as a known gap for that future change, not defended against now, since adding
   one would be design creep beyond what today's requirements ask for.
+- **Multiple `tool_use` blocks in one response are still dispatched sequentially, not
+  concurrently** → each is now labeled with its position in the batch (see the Decisions
+  section above), but execution order stays a plain loop. `calculator`/`web_search` are
+  near-instant stubs, so this costs nothing today; concurrent dispatch was deliberately not
+  added, since it would anticipate a future real network-bound tool this exercise doesn't have -
+  design creep beyond what today's requirements ask for, same reasoning as the guard above.

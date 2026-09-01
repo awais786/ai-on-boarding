@@ -32,7 +32,10 @@ def run_agent_loop(client, messages, max_iterations=MAX_ITERATIONS, on_event=Non
     If given, `on_event(event)` is called for each step as it happens, where
     `event` is one of:
     - `{"type": "text", "text": ...}` - a text block Claude produced
-    - `{"type": "tool_use", "name": ..., "input": ...}`
+    - `{"type": "tool_use", "name": ..., "input": ..., "batch_index": ..., "batch_size": ...}` -
+      `batch_index` (1-based) and `batch_size` are this tool call's position and the total
+      number of `tool_use` blocks in the response it came from; `batch_size == 1` means it
+      arrived alone
     - `{"type": "tool_result", "name": ..., "content": ..., "is_error": ...}`
     - `{"type": "end_turn"}` - normal completion
     - `{"type": "terminated", "stop_reason": ...}` - a terminal response with
@@ -64,12 +67,20 @@ def run_agent_loop(client, messages, max_iterations=MAX_ITERATIONS, on_event=Non
 
         if response.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": response.content})
+            tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+            batch_size = len(tool_use_blocks)
             tool_results = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
+            for batch_index, block in enumerate(tool_use_blocks, start=1):
                 tool_calls.append({"name": block.name, "input": block.input})
-                emit({"type": "tool_use", "name": block.name, "input": block.input})
+                emit(
+                    {
+                        "type": "tool_use",
+                        "name": block.name,
+                        "input": block.input,
+                        "batch_index": batch_index,
+                        "batch_size": batch_size,
+                    }
+                )
                 outcome = tools.dispatch(block.name, block.input)
                 is_error = "error" in outcome
                 content_text = str(outcome["error"] if is_error else outcome["result"])
