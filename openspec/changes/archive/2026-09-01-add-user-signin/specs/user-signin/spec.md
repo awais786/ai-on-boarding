@@ -1,12 +1,4 @@
-# user-signin Specification
-
-## Purpose
-
-Lets a registered person sign in with their email or username and password and receive a token
-they can use on later requests, without ever revealing to a caller whether a failed attempt was
-due to a wrong password or an unregistered email or username.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Accept a signin submission
 The system SHALL accept a signin submission containing an email or username - submitted as a
@@ -23,13 +15,6 @@ empty.
 #### Scenario: Email or username omitted
 - **WHEN** signin is submitted without an `email_or_username` field
 - **THEN** the request is rejected and the response names the `email_or_username` field
-
-### Requirement: Reject a missing password
-The system SHALL reject a signin submission in which the password is absent or empty.
-
-#### Scenario: Password omitted
-- **WHEN** signin is submitted without a password field
-- **THEN** the request is rejected and the response names the password field
 
 ### Requirement: Authenticate against the matching account
 The system SHALL authenticate a signin submission against the stored credentials for the account
@@ -57,14 +42,6 @@ and return an authentication token.
 - **WHEN** the same correct credentials are submitted a second time
 - **THEN** signin succeeds again
 
-### Requirement: Signal success with an authentication token
-A successful signin SHALL return HTTP 200 with a response body containing an opaque
-authentication token, keyed `token`.
-
-#### Scenario: Successful response shape
-- **WHEN** signin succeeds
-- **THEN** the response is HTTP 200 with a body of the form `{"token": "<opaque value>"}`
-
 ### Requirement: Reject an unregistered email
 A signin submission whose `email_or_username` value (an email or a username) matches no account
 SHALL be rejected.
@@ -86,7 +63,7 @@ A rejected signin SHALL return an identical response - same status, same body - 
 email or username was unregistered, the password was wrong, or the account is currently locked
 out. A caller MUST NOT be able to distinguish any of the three from the response alone.
 
-#### Scenario: Unregistered email or username and wrong password are indistinguishable
+#### Scenario: Unregistered email and wrong password are indistinguishable
 - **WHEN** signin is attempted with an unregistered email or username, and separately with a
   registered one and the wrong password
 - **THEN** both responses are identical in status and body
@@ -94,20 +71,6 @@ out. A caller MUST NOT be able to distinguish any of the three from the response
 #### Scenario: Lockout is indistinguishable from a wrong password
 - **WHEN** signin is attempted against an account currently locked out
 - **THEN** the response is identical in status and body to a wrong-password rejection
-
-### Requirement: Return HTTP 401 on rejection
-A rejected signin SHALL return HTTP 401.
-
-#### Scenario: Rejection status code
-- **WHEN** signin is rejected for any reason
-- **THEN** the response status is 401
-
-### Requirement: Never return the password
-The system SHALL NOT include the password, in any form, in any signin response.
-
-#### Scenario: Password absent from every response
-- **WHEN** any signin request is made, successful or not
-- **THEN** the response body does not contain the submitted password in any form
 
 ### Requirement: Lock an email out after repeated failures
 After 3 failed signin attempts against the same account within a 5-minute window, the system
