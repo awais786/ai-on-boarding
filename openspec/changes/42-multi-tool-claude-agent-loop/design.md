@@ -1,0 +1,106 @@
+## Context
+
+See proposal.md - Why. This capability has no relationship to `sdd_django_demo/`: no HTTP
+surface, no ORM, no DRF. It is a new, Django-independent Python package at the repo root that
+talks to the real Claude Messages API. This is also the first place in the repo where a test
+needs a live network call and an API key (`ANTHROPIC_API_KEY`) rather than running fully offline.
+
+## Goals / Non-Goals
+
+**Goals:**
+- A minimal loop that satisfies every requirement in `specs/multi-tool-agent-loop/spec.md`:
+  two schema-valid tools, `stop_reason`-driven termination, correct tool-result threading,
+  multi-step support, and the 20-iteration safety cap with a logged warning.
+- A test that exercises the exact two-tool transcript from issue #42 against the real API.
+
+**Non-Goals:**
+- A real web-search integration - `web_search` stays a stub per the proposal.
+- A general-purpose expression language for `calculator` - just enough arithmetic to satisfy the
+  spec's scenarios.
+- Any Django integration, HTTP endpoint, or persistence.
+
+## Decisions
+
+**Package layout: new top-level `agent_loop/` directory, sibling to `sdd_django_demo/`.**
+Nothing here needs Django, DRF, or the ORM, so nesting it inside `sdd_django_demo/` would add a
+fake dependency in the other direction (a non-Django module living inside a Django project).
+Layout:
+- `agent_loop/tools.py` - the two tool definitions (JSON schema + implementation) and a
+  `TOOLS` list plus a `dispatch(name, input)` function.
+- `agent_loop/loop.py` - `run_agent_loop(client, messages, max_iterations=20)`, the loop itself.
+- `agent_loop/__main__.py` - lets the loop be run by hand (`python -m agent_loop "<prompt>"`)
+  against the live API, to manually reproduce the issue's worked example.
+- `tests/test_agent_loop.py` - the multi-step test.
+
+**Model: `claude-haiku-4-5-20251001`.** Superseded from an initial choice of `claude-sonnet-5`
+during apply: the person running this exercise asked explicitly to keep the live-API calls cheap
+and capped the number of live test runs, since every run against the real API costs money.
+Sonnet would have been the safer choice for reliably picking the right tool in the right order
+(the original rationale still holds in general), but for this repo's two-tool, two-step example
+- with a prompt that explicitly names which tool to use at each step (see the live-API test
+strategy below) - Haiku is expected to follow the instructed sequence just as reliably at a
+fraction of the cost. If a future run shows Haiku picking tools unreliably even with an explicit
+prompt, that is grounds to revisit this decision, not to loosen the prompt.
+
+**Calculator: parse with `ast`, evaluate only a whitelisted node set - no `eval`.** Walk the
+parsed expression and permit only numeric literals, unary +/-, and binary `+ - * /` and `%`, with
+parentheses via normal AST grouping. Reject anything else (names, calls, attributes,
+subscripts, comprehensions) as an invalid expression, per the spec's "not by evaluating it as
+arbitrary code" requirement. Alternative considered: bare `eval()` with a restricted
+`__builtins__` dict - rejected, since that pattern has known sandbox-escape techniques and buys
+nothing over a small AST whitelist for the arithmetic this exercise needs.
+
+**Calculator excludes exponentiation (`**`).** The issue's own example (`68000000 * 0.10`) never
+needs it, and allowing it re-opens a classic safe-eval denial-of-service (`9**9**9**9`). Division
+by zero and any other evaluation error is caught and returned as an error result, per the spec's
+"Expression is not arithmetic" scenario, rather than raising out of the tool call.
+
+**`web_search` is a small fixed lookup table with a generic fallback.** It returns a
+deterministic string that includes the number learners need for the two-step example, so the
+same fixture that this repo's acceptance test drives can also be run by hand.
+
+**Loop control flow:**
+```
+messages = [initial user message]
+for iteration in range(1, MAX_ITERATIONS + 1):
+    response = client.messages.create(model=..., tools=TOOLS, messages=messages)
+    if response.stop_reason == "tool_use":
+        messages.append({"role": "assistant", "content": response.content})
+        tool_results = [execute each tool_use block via tools.dispatch(...)]
+        messages.append({"role": "user", "content": tool_results})
+        continue
+    if response.stop_reason == "end_turn":
+        return text joined from response.content
+    # any other stop_reason (e.g. max_tokens) is treated as terminal too:
+    # log a warning and return whatever text is present, rather than looping
+logger.warning("agent_loop: MAX_ITERATIONS (%d) reached without end_turn", MAX_ITERATIONS)
+return best-effort text from the last response
+```
+Only `tool_use` and `end_turn` are meaningful per the spec; a third `stop_reason` (e.g. the
+model hitting `max_tokens`) is not something a retry loop should paper over, so it is treated as
+terminal-with-a-warning rather than silently continuing.
+
+**Live-API test strategy (per the chosen approach: real API, not a fake client).** The test:
+1. Sends a prompt closely modeled on the issue's transcript, explicitly instructing the model to
+   use `web_search` to look up France's population and `calculator` to compute 10% of it, so the
+   test does not depend on whether the model would otherwise answer from memorized training data.
+2. Asserts on *structure*, not exact wording: that `web_search` was called at least once, that
+   `calculator` was called with an expression that numerically evaluates (via the same safe-eval
+   the tool itself uses) to 10% of the number the stub `web_search` returned, and that the loop
+   terminated via `stop_reason == "end_turn"` rather than the iteration cap.
+3. Is skipped (not failed) when `ANTHROPIC_API_KEY` is not set in the environment, so the rest of
+   the suite stays runnable without credentials, matching the proposal's Impact note that this is
+   the first test in the repo needing a live key.
+
+## Risks / Trade-offs
+
+- **Non-determinism of a live model call** → the test asserts on tool-call structure and computed
+  values rather than exact final-answer phrasing, and the prompt explicitly directs which tools
+  to use in which order, so the assertions stay meaningful without pinning the model's wording.
+- **Live test costs tokens/money and needs network access on every run** → skipped cleanly via
+  `pytest.mark.skipif` when no `ANTHROPIC_API_KEY` is present, rather than failing hard for
+  contributors without a key.
+- **AST-based safe eval still allows attacker-controlled magnitude** (e.g. deeply nested
+  parentheses) → out of scope for a teaching exercise processing the model's own tool-call
+  arguments, not untrusted external input; documented here rather than defended against, since
+  adding recursion/size limits would be design creep beyond what any requirement asks for.
