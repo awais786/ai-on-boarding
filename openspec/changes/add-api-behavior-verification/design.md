@@ -153,6 +153,8 @@ new requirement falls into:
   unrecoverably; a confirmation entry not retained.
 - **`induced-failure`** - needs a fault injected into infrastructure. Earlier codes staying
   usable when delivery fails.
+- **`concurrency`** - needs genuinely simultaneous requests, which a collection runner issuing
+  one request after another cannot produce. Two signups for the same address racing each other.
 
 Entries are recorded at scenario granularity where a requirement is only partly unobservable.
 *Lock an email out after repeated failures* is the case that forces this: its lockout-triggered
@@ -282,9 +284,22 @@ own rather than a detail of this one.
 1. Land the tooling, the check library, the register, and the workflow together.
 2. A maintainer adds the evaluation credential to the repository's secrets. Until it exists, runs
    fail at the evaluation step with a message naming what is missing - by design.
-3. The first run on `main` establishes the baseline. Any requirement it reports as uncovered is
-   either given a check or added to the register with a reason; neither is left implicit.
-4. Rollback is deleting the workflow file. Nothing else in the repository depends on it, and no
+3. **The first run is expected to fail, and the failure is a true finding.** The API as
+   currently served contradicts four promoted requirements, all predating this change: signup
+   refuses a submission carrying only an email and a password, requiring a `username` and a
+   `country` besides - against *Accept a signup submission*, and against `user-signup`'s statement
+   that the email address is the account's only identifier; signup's success body carries
+   `username` alongside `email` - against *Signal success with the created account's email*, which
+   allows only the email field; and signin refuses a submission carrying `email`, requiring
+   `email_or_username` - against *Reject a missing email*. No promoted spec mentions `country` at
+   all; its requirements live in a capability whose spec has not been promoted.
+
+   These are not defects in this tooling and are not suppressed by it. Reconciling them - by
+   changing the API, or by promoting and amending the specs that describe it - is separate work.
+   Until then the workflow reports `main` as failing, which is what it exists to do.
+4. Any requirement a run reports as uncovered is either given a check or added to the register
+   with a reason; neither is left implicit.
+5. Rollback is deleting the workflow file. Nothing else in the repository depends on it, and no
    application behaviour changes when it is absent.
 
 ## Open Questions
