@@ -9,18 +9,20 @@ due to a wrong password or an unregistered email or username.
 ## Requirements
 
 ### Requirement: Accept a signin submission
-The system SHALL accept a signin submission containing an email or username and a password.
+The system SHALL accept a signin submission containing an email or username - submitted as a
+single field, keyed `email_or_username` - and a password.
 
 #### Scenario: Valid fields present
 - **WHEN** a request is submitted with a non-empty email or username and a non-empty password
 - **THEN** the submission proceeds to authentication
 
-### Requirement: Reject a missing email or username
-The system SHALL reject a signin submission in which the email or username is absent or empty.
+### Requirement: Reject a missing email
+The system SHALL reject a signin submission in which the `email_or_username` field is absent or
+empty.
 
 #### Scenario: Email or username omitted
-- **WHEN** signin is submitted without an email or username field
-- **THEN** the request is rejected and the response names the email or username field
+- **WHEN** signin is submitted without an `email_or_username` field
+- **THEN** the request is rejected and the response names the `email_or_username` field
 
 ### Requirement: Reject a missing password
 The system SHALL reject a signin submission in which the password is absent or empty.
@@ -63,8 +65,9 @@ authentication token, keyed `token`.
 - **WHEN** signin succeeds
 - **THEN** the response is HTTP 200 with a body of the form `{"token": "<opaque value>"}`
 
-### Requirement: Reject an unregistered email or username
-A signin submission with an email or username that matches no account SHALL be rejected.
+### Requirement: Reject an unregistered email
+A signin submission whose `email_or_username` value (an email or a username) matches no account
+SHALL be rejected.
 
 #### Scenario: No account for the email or username
 - **WHEN** the submitted value matches neither an email nor a username on any account
@@ -106,7 +109,7 @@ The system SHALL NOT include the password, in any form, in any signin response.
 - **WHEN** any signin request is made, successful or not
 - **THEN** the response body does not contain the submitted password in any form
 
-### Requirement: Lock an account out after repeated failures
+### Requirement: Lock an email out after repeated failures
 After 3 failed signin attempts against the same account within a 5-minute window, the system
 SHALL reject further signin attempts against that account for 30 minutes, even if the correct
 password is supplied during that period, and regardless of whether each attempt used the
