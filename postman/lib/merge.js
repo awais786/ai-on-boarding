@@ -1,0 +1,205 @@
+'use strict';
+
+// Core merge logic for combining a generated Postman collection (endpoint coverage,
+// from generate_collection.js) with the assertions library (behavioural checks, from
+// openspec/specs/ - see assertions/*.json and assertions/requests/*.json) into one
+// collection Newman can run. Kept separate from merge_assertions.js (the CLI/file
+// I/O wrapper) so it can be unit tested directly - see test/merge.test.js.
+
+const DEFAULT_TEST = [
+  "pm.test('default: no server error', function () {",
+  '    pm.expect(pm.response.code).to.be.below(500);',
+  '});',
+];
+
+function cloneItem(item) {
+  return JSON.parse(JSON.stringify(item));
+}
+
+function flattenLeafItems(items, out) {
+  out = out || [];
+  for (const item of items) {
+    if (item.item) {
+      flattenLeafItems(item.item, out);
+    } else {
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+function buildVariantItem(baseItem, fragment) {
+  const item = cloneItem(baseItem);
+  delete item.id; // fresh item; let Postman/Newman assign its own id
+  item.name = fragment.name || `${baseItem.name} (${fragment.variant})`;
+  if (fragment.body !== undefined) {
+    item.request.body = {
+      mode: 'raw',
+      raw: JSON.stringify(fragment.body, null, 2),
+      options: { raw: { language: 'json' } },
+    };
+  } else if (fragment.rawBody !== undefined) {
+    item.request.body = {
+      mode: 'raw',
+      raw: fragment.rawBody,
+      options: { raw: { language: 'json' } },
+    };
+  }
+  item.event = (item.event || []).filter((event) => event.listen !== 'test');
+  return item;
+}
+
+function attachTests(item, testEntries) {
+  const exec = [];
+  for (const entry of testEntries) {
+    exec.push(...entry.test);
+    exec.push('');
+  }
+  if (exec.length === 0) {
+    exec.push(...DEFAULT_TEST);
+  }
+  item.event = [
+    ...(item.event || []).filter((event) => event.listen !== 'test'),
+    { listen: 'test', script: { type: 'text/javascript', exec } },
+  ];
+}
+
+// Combines the generated collection with assertion entries and request fragments.
+// `operationOrder` lists operationIds that must run in that relative order (earlier
+// capabilities' fixtures - e.g. the signup that creates the shared account - have to
+// execute before capabilities that depend on them); any operationId not listed keeps
+// the order it appears in the generated collection, appended after the listed ones.
+// A duplicate id within `operationOrder` is used only at its first occurrence.
+//
+// Returns { collection, orphaned }. `orphaned` lists every problem that would
+// otherwise cause an assertion to be silently dropped or attached to the wrong
+// request - see design.md's noted operationId-drift risk:
+//   - an entry or fragment whose operationId/variant never matched a real request
+//   - two fragments sharing the same (operationId, variant)
+//   - two base items (from the generated collection) sharing the same operationId
+function mergeAssertions({ generatedCollection, entries, fragments, operationOrder }) {
+  const collection = cloneItem(generatedCollection);
+  const baseItems = flattenLeafItems(collection.item);
+
+  // A duplicate operationId across two base items must never silently collapse to
+  // "whichever came last" - that would drop one request from the run entirely and
+  // could attach its assertions to a different endpoint's request instead.
+  const baseByOperationId = {};
+  const duplicateBaseOperationIds = [];
+  for (const item of baseItems) {
+    if (Object.prototype.hasOwnProperty.call(baseByOperationId, item.operationId)) {
+      duplicateBaseOperationIds.push(item.operationId);
+      continue;
+    }
+    baseByOperationId[item.operationId] = item;
+  }
+
+  const fragmentsByOperationId = {};
+  const seenFragmentKeys = new Set();
+  const duplicateFragments = [];
+  for (const fragment of fragments) {
+    const fragmentKey = `${fragment.operationId}\0${fragment.variant}`;
+    if (seenFragmentKeys.has(fragmentKey)) {
+      // Without this check, a second fragment sharing an (operationId, variant) key
+      // is silently dropped below and its assertions-library entries (already
+      // consumed by the first fragment) fall back to the default test with no
+      // orphaned-entry report - exactly the kind of silent gap this pipeline exists
+      // to surface. See design.md's "orphaned entry... surfaces as a gap rather than
+      // passing silently."
+      duplicateFragments.push({ operationId: fragment.operationId, variant: fragment.variant, name: fragment.name });
+      continue;
+    }
+    seenFragmentKeys.add(fragmentKey);
+    if (!fragmentsByOperationId[fragment.operationId]) {
+      fragmentsByOperationId[fragment.operationId] = [];
+    }
+    fragmentsByOperationId[fragment.operationId].push(fragment);
+  }
+
+  // Entries are grouped per operationId with "no variant" (attaches to the base
+  // request) kept structurally separate from a variant literally named "base" -
+  // a flat string key built with a fallback like `variant || 'base'` can't tell
+  // those apart and would silently misattach one to the other.
+  const entriesByOperationId = {};
+  for (const entry of entries) {
+    if (!entriesByOperationId[entry.operationId]) {
+      entriesByOperationId[entry.operationId] = { base: [], variants: new Map() };
+    }
+    const bucket = entriesByOperationId[entry.operationId];
+    if (entry.variant === undefined) {
+      bucket.base.push(entry);
+    } else {
+      if (!bucket.variants.has(entry.variant)) {
+        bucket.variants.set(entry.variant, []);
+      }
+      bucket.variants.get(entry.variant).push(entry);
+    }
+  }
+
+  const consumedEntries = new Set();
+  const finalItemsByOperationId = {};
+
+  for (const [operationId, baseItem] of Object.entries(baseByOperationId)) {
+    const blockItems = [];
+    const bucket = entriesByOperationId[operationId];
+
+    const baseEntries = bucket ? bucket.base : [];
+    baseEntries.forEach((entry) => consumedEntries.add(entry));
+    attachTests(baseItem, baseEntries);
+    blockItems.push(baseItem);
+
+    for (const fragment of fragmentsByOperationId[operationId] || []) {
+      const variantItem = buildVariantItem(baseItem, fragment);
+      const variantEntries = (bucket && bucket.variants.get(fragment.variant)) || [];
+      variantEntries.forEach((entry) => consumedEntries.add(entry));
+      attachTests(variantItem, variantEntries);
+      blockItems.push(variantItem);
+    }
+    finalItemsByOperationId[operationId] = blockItems;
+  }
+
+  const orphaned = [];
+  for (const fragment of duplicateFragments) {
+    orphaned.push({ type: 'duplicate_fragment', operationId: fragment.operationId, variant: fragment.variant, name: fragment.name });
+  }
+  for (const operationId of duplicateBaseOperationIds) {
+    orphaned.push({ type: 'duplicate_base_operation_id', operationId });
+  }
+  for (const entry of entries) {
+    if (!consumedEntries.has(entry)) {
+      orphaned.push({ type: 'entry', operationId: entry.operationId, variant: entry.variant, requirement: entry.requirement });
+    }
+  }
+  for (const [operationId, frags] of Object.entries(fragmentsByOperationId)) {
+    if (!baseByOperationId[operationId]) {
+      for (const fragment of frags) {
+        orphaned.push({ type: 'fragment', operationId, variant: fragment.variant, name: fragment.name });
+      }
+    }
+  }
+
+  const seenOrderIds = new Set();
+  const orderedOperationIds = [];
+  for (const id of operationOrder) {
+    if (!finalItemsByOperationId[id] || seenOrderIds.has(id)) {
+      continue;
+    }
+    seenOrderIds.add(id);
+    orderedOperationIds.push(id);
+  }
+  for (const id of Object.keys(finalItemsByOperationId)) {
+    if (!seenOrderIds.has(id)) {
+      orderedOperationIds.push(id);
+    }
+  }
+
+  const mergedItems = [];
+  for (const operationId of orderedOperationIds) {
+    mergedItems.push(...finalItemsByOperationId[operationId]);
+  }
+  collection.item = mergedItems;
+
+  return { collection, orphaned, operationIds: Object.keys(finalItemsByOperationId) };
+}
+
+module.exports = { mergeAssertions, flattenLeafItems, DEFAULT_TEST };

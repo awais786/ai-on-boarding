@@ -1,0 +1,18 @@
+{
+  "name": "api-conformance-testing",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Derives a Postman collection from the OpenAPI schema, attaches spec-derived behavioural assertions, and runs it with Newman against a live instance of the API.",
+  "scripts": {
+    "generate": "node generate_collection.js",
+    "merge": "node merge_assertions.js",
+    "newman": "newman run collection.merged.json -e environment.postman_environment.json --reporters cli,json --reporter-json-export result.json --suppress-exit-code",
+    "check": "node check_results.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "newman": "6.2.2",
+    "openapi-to-postmanv2": "6.3.3",
+    "postman-collection": "5.3.1"
+  }
+}

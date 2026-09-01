@@ -1,0 +1,101 @@
+{
+  "description": "Requirements (or specific scenarios of an otherwise-covered requirement) that cannot be verified by an HTTP request/response check, each with a one-line reason. See specs/api-conformance-testing/spec.md, 'Document requirements that cannot be checked over HTTP', and design.md's password-reset-code decision. An undocumented gap - a requirement with neither a live assertion nor an entry here - is a defect in the assertions library, not something this file should be used to hide.",
+  "entries": [
+    {
+      "capability": "user-signup",
+      "requirement": "Store the password unrecoverably",
+      "reason": "Requires reading the stored credential from the database and comparing it to the submitted password; not observable from any HTTP response."
+    },
+    {
+      "capability": "user-signup",
+      "requirement": "Reject a duplicate email",
+      "scenario": "Concurrent signups for the same email",
+      "reason": "True concurrency (two requests racing) cannot be reliably triggered by Newman's sequential request execution. The non-concurrent duplicate-email scenario for this same requirement is covered live."
+    },
+    {
+      "capability": "user-signup",
+      "requirement": "Reject a duplicate username",
+      "scenario": "Concurrent signups for the same username",
+      "reason": "True concurrency (two requests racing) cannot be reliably triggered by Newman's sequential request execution. The non-concurrent duplicate-username scenario for this same requirement is covered live."
+    },
+    {
+      "capability": "user-signin",
+      "requirement": "Lock an email out after repeated failures",
+      "scenario": "Lockout expires",
+      "reason": "Requires waiting 30 real minutes inside a CI run. The lockout-triggers scenario for this same requirement is covered live."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Deliver a reset code to a registered address",
+      "reason": "The reset code is delivered only in the body of an outbound email; verifying delivery means inspecting mail content, not an HTTP response."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Deliver the reset link as an absolute address",
+      "reason": "The link is only ever observable inside the outbound email's content, not in any HTTP response."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Deliver nothing to an unregistered address",
+      "reason": "Proving the absence of an email requires inspecting outbound mail (or its absence), not an HTTP response. The observable half of this behaviour - an unregistered address gets the identical response a registered one gets - is covered live under 'Answer every reset request identically'."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Leave earlier codes usable when delivery fails",
+      "reason": "Requires simulating a mail delivery failure and then verifying an earlier code's usability directly (i.e. successfully completing a reset with it) - both need control over mail delivery and knowledge of a real code, neither observable over HTTP alone."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Limit how often a reset may be requested for one address",
+      "scenario": "A flood cannot leave an address with no usable code",
+      "reason": "Confirming the most recently delivered code is still usable requires knowing that code, which is never returned over HTTP. The rate-limiting behaviour itself (429 after the limit, identical body, no account-existence leak) is covered live."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Serve a page at the delivered link",
+      "reason": "PasswordResetPageView is a plain Django view (not a DRF view) and is deliberately excluded from the OpenAPI schema, so it is structurally outside this pipeline's reach. Covered instead by sdd_django_demo/api/test_password_reset.py."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Accept a reset completion",
+      "scenario": "proceeds to validation of the code specifically (as opposed to field validation)",
+      "reason": "Exercising the code-resolution path itself (as opposed to field-level validation, which is covered live) requires a real, valid code."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Complete a reset with a valid code",
+      "reason": "Requires a real reset code, which is delivered only by email and never returned over HTTP by design (see design.md)."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Expire a reset code after 30 minutes",
+      "reason": "Requires a real code and waiting 30 real minutes inside a CI run."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Retire a reset code once it is used",
+      "reason": "Requires a real code to use once and then replay."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Supersede an earlier unused code",
+      "reason": "Requires two real, successively issued codes to compare."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Reject every bad code identically",
+      "scenario": "Used and superseded codes are indistinguishable",
+      "reason": "Manufacturing a used or superseded code requires first completing a real reset, which needs a real code. Two unrecognised-format codes are compared live instead, covering the same requirement's unrecognised-vs-unrecognised case."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Invalidate existing authentication tokens on reset",
+      "reason": "Requires completing a real reset with a real code to then check the pre-existing token is invalidated."
+    },
+    {
+      "capability": "user-password-reset",
+      "requirement": "Store a new password unrecoverably",
+      "reason": "Requires reading the stored credential from the database; not observable from any HTTP response."
+    }
+  ]
+}
