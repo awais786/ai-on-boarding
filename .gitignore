@@ -16,3 +16,7 @@ sdd_django_demo/db.sqlite3
 sdd_django_demo/__pycache__/
 sdd_django_demo/**/__pycache__/
 sdd_django_demo/**/*.pyc
+
+# API verification tooling
+tooling/api-verification/node_modules/
+tooling/api-verification/build/

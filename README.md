@@ -116,6 +116,10 @@ never the subject, it's the material spec-driven development is practised on.
   actually fail
 - A worked example of a feature request landing on a finished feature, propagated from the
   specification outward rather than patched into the code
+- An automated check that the running API's real HTTP behaviour still matches those
+  specifications, run on every push to `main` — see
+  [`tooling/api-verification/README.md`](tooling/api-verification/README.md) for where endpoint
+  coverage comes from and where behavioural expectations come from
 
 See [`sdd_django_demo/README.md`](sdd_django_demo/README.md) for the concrete process each
 feature went through, spec to code, and current status.

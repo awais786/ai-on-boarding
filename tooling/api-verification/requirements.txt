@@ -1,0 +1,7 @@
+# CI-only tooling for the API behaviour verification run. These are NOT runtime
+# dependencies of the Django project - sdd_django_demo/requirements.txt is
+# unchanged by this tooling. The verification environment installs both files.
+anthropic==1.2.0
+PyYAML==6.0.3
+requests==2.33.0
+pytest==9.1.1

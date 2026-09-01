@@ -1,0 +1,273 @@
+# Behavioural checks for the user-signup capability.
+#
+# Written from openspec/specs/user-signup/spec.md, not from the implementation.
+# Each entry names the requirement and scenario it verifies verbatim; the loader
+# refuses a citation that does not appear in the promoted spec.
+capability: user-signup
+
+checks:
+  - requirement: Accept a signup submission
+    scenario: Valid fields present
+    sequence:
+      - name: sign up with a non-empty email, username and password
+        operation: signup_create
+        body:
+          email: "accept-{{runToken}}@example.com"
+          username: "u_accept_{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {status: 200}
+
+  - requirement: Reject a missing email
+    scenario: Email omitted
+    sequence:
+      - name: sign up with no email field
+        operation: signup_create
+        body: {username: "u_noemail_{{runToken}}", password: "abcdef12"}
+        assert:
+          - {status: 400}
+          - {json_has: email}
+
+  - requirement: Reject a missing password
+    scenario: Password omitted
+    sequence:
+      - name: sign up with no password field
+        operation: signup_create
+        body: {email: "nopass-{{runToken}}@example.com", username: "u_nopass_{{runToken}}"}
+        assert:
+          - {status: 400}
+          - {json_has: password}
+
+  - requirement: Reject a missing username
+    scenario: Username omitted
+    sequence:
+      - name: sign up with no username field
+        operation: signup_create
+        body: {email: "nouser-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 400}
+          - {json_has: username}
+
+  - requirement: Reject an invalid email address
+    scenario: Malformed email
+    sequence:
+      - name: sign up with a value that is not a valid email address
+        operation: signup_create
+        body: {email: "not-an-email", username: "u_bad_{{runToken}}", password: "abcdef12"}
+        assert:
+          - {status: 400}
+          - {json_has: email}
+
+  - requirement: Enforce a username format
+    scenario: Username too short or too long
+    sequence:
+      - name: sign up with a username under 3 characters
+        operation: signup_create
+        body: {email: "ushort-{{runToken}}@example.com", username: "ab", password: "abcdef12"}
+        assert:
+          - {status: 400}
+          - {json_has: username}
+      - name: sign up with a username over 30 characters
+        operation: signup_create
+        body:
+          email: "ulong-{{runToken}}@example.com"
+          username: "u_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          password: "abcdef12"
+        assert:
+          - {status: 400}
+          - {json_has: username}
+
+  - requirement: Enforce a username format
+    scenario: Username contains a disallowed character
+    sequence:
+      - name: sign up with a username holding a character that is not a letter, digit or underscore
+        operation: signup_create
+        body:
+          email: "udash-{{runToken}}@example.com"
+          username: "u-dash-{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {status: 400}
+          - {json_has: username}
+
+  - requirement: Reject a duplicate email
+    scenario: Email already registered
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "dup-{{runToken}}@example.com"
+          username: "u_dup_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign up again with the same email
+        operation: signup_create
+        body:
+          email: "dup-{{runToken}}@example.com"
+          username: "u_dup2_{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {status: 400}
+          - {json_has: email}
+
+  - requirement: Reject a duplicate username
+    scenario: Username already registered
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "udup1-{{runToken}}@example.com"
+          username: "u_udup_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign up again with the same username
+        operation: signup_create
+        body:
+          email: "udup2-{{runToken}}@example.com"
+          username: "u_udup_{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {status: 400}
+          - {json_has: username}
+
+  - requirement: Enforce a minimum password strength
+    scenario: Password too short
+    sequence:
+      - name: sign up with a password under 8 characters
+        operation: signup_create
+        body:
+          email: "short-{{runToken}}@example.com"
+          username: "u_short_{{runToken}}"
+          password: "ab1"
+        assert:
+          - {status: 400}
+          - {json_has: password}
+
+  - requirement: Enforce a minimum password strength
+    scenario: Password missing a letter or a digit
+    sequence:
+      - name: sign up with 8 or more characters but no letter
+        operation: signup_create
+        body:
+          email: "noletter-{{runToken}}@example.com"
+          username: "u_nolet_{{runToken}}"
+          password: "12345678"
+        assert:
+          - {status: 400}
+          - {json_has: password}
+      - name: sign up with 8 or more characters but no digit
+        operation: signup_create
+        body:
+          email: "nodigit-{{runToken}}@example.com"
+          username: "u_nodig_{{runToken}}"
+          password: "abcdefgh"
+        assert:
+          - {status: 400}
+          - {json_has: password}
+
+  - requirement: Never return the password
+    scenario: Password absent from every response
+    sequence:
+      - name: a successful signup does not echo the password
+        operation: signup_create
+        body:
+          email: "nopw-ok-{{runToken}}@example.com"
+          username: "u_nopw_{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {body_excludes: "abcdef12"}
+      - name: a rejected signup does not echo the password
+        operation: signup_create
+        body: {email: "not-an-email", username: "u_nopw2_{{runToken}}", password: "abcdef12"}
+        assert:
+          - {body_excludes: "abcdef12"}
+
+  - requirement: Name the offending field on rejection
+    scenario: Rejection names a field
+    sequence:
+      - name: a rejection identifies the field responsible
+        operation: signup_create
+        body: {email: "not-an-email", username: "u_field_{{runToken}}", password: "abcdef12"}
+        assert:
+          - {status: 400}
+          - {json_has: email}
+
+  - requirement: Signal success with the created account's email
+    scenario: Successful response shape
+    sequence:
+      - name: a successful signup returns only the email and username
+        operation: signup_create
+        body:
+          email: "shape-{{runToken}}@example.com"
+          username: "u_shape_{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {status: 200}
+          - {json_equals: {path: email, value: "shape-{{runToken}}@example.com"}}
+          - {json_only_keys: [email, username]}
+
+  - requirement: Normalise email to lowercase
+    scenario: Case-insensitive duplicate detection
+    sequence:
+      - name: create the account with a lowercase address
+        operation: signup_create
+        body:
+          email: "case-{{runToken}}@example.com"
+          username: "u_case_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign up again with different capitalisation of the address
+        operation: signup_create
+        body:
+          email: "CASE-{{runToken}}@EXAMPLE.COM"
+          username: "u_case2_{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {status: 400}
+          - {json_has: email}
+
+  - requirement: Normalise email to lowercase
+    scenario: Stored and returned email is lowercase
+    sequence:
+      - name: sign up with a mixed-case address
+        operation: signup_create
+        body:
+          email: "MiXeD-{{runToken}}@Example.COM"
+          username: "u_mixed_{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {status: 200}
+          - {json_equals: {path: email, value: "mixed-{{runToken}}@example.com"}}
+
+  - requirement: Normalise username to lowercase
+    scenario: Case-insensitive duplicate detection
+    sequence:
+      - name: create the account with a lowercase username
+        operation: signup_create
+        body:
+          email: "ucase1-{{runToken}}@example.com"
+          username: "u_ucase_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign up again with different capitalisation of the username
+        operation: signup_create
+        body:
+          email: "ucase2-{{runToken}}@example.com"
+          username: "U_UCASE_{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {status: 400}
+          - {json_has: username}
+
+  - requirement: Normalise username to lowercase
+    scenario: Stored and returned username is lowercase
+    sequence:
+      - name: sign up with a mixed-case username
+        operation: signup_create
+        body:
+          email: "umixed-{{runToken}}@example.com"
+          username: "U_MiXeD_{{runToken}}"
+          password: "abcdef12"
+        assert:
+          - {status: 200}
+          - {json_equals: {path: username, value: "u_mixed_{{runToken}}"}}
