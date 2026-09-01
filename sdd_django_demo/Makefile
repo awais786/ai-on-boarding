@@ -24,10 +24,15 @@ check:
 schema:
 	$(PYTHON) manage.py spectacular --file ../postman/schema.json --format openapi-json
 
-# Starts a live instance against a fresh migration for the conformance pipeline
+# Starts a live instance against a fresh database for the conformance pipeline
 # to run Newman against, and waits until it answers /api/health/. Paired with
 # ci-stop, which the workflow always runs afterward regardless of outcome.
-ci-serve: migrate
+# The database is reset first so the pipeline's fixture-account assumptions
+# (e.g. conformance-fixture@example.com not existing yet) hold on repeat runs,
+# not just in CI's ephemeral VM.
+ci-serve:
+	rm -f db.sqlite3
+	$(MAKE) migrate
 	$(PYTHON) manage.py runserver --noreload 0.0.0.0:8000 > server.log 2>&1 & echo $$! > server.pid
 	@for i in $$(seq 1 30); do \
 		curl -sf http://127.0.0.1:8000/api/health/ > /dev/null 2>&1 && exit 0; \
