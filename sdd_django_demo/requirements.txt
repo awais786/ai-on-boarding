@@ -1,5 +1,7 @@
 # Resolved 2026-08-19 against Python 3.14 (Django 6.1 requires Python >=3.12; this file works
 # on any 3.12+ interpreter, this is just what was actually installed and tested).
+# psycopg added 2026-09-02, pinned to the current stable release, for Postgres in every
+# environment - see settings.py's Database section.
 asgiref==3.12.1
 attrs==26.1.0
 Django==6.1
@@ -11,6 +13,7 @@ jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 packaging==26.3
 pluggy==1.6.0
+psycopg[binary]==3.3.5
 Pygments==2.21.0
 pytest==9.1.1
 pytest-django==4.14.0
