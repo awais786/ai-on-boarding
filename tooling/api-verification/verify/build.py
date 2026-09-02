@@ -187,6 +187,56 @@ def _script_for(request: library_module.Request, citation: str) -> list[str]:
     return lines
 
 
+def declared_properties(schema: dict, operation: dict) -> set[str] | None:
+    """The fields the description says an operation's request body may carry.
+
+    Returns None when the operation declares no body, so a caller can tell
+    "no constraint recorded" from "constrained to nothing".
+    """
+    path_item = (schema.get("paths") or {}).get(operation["path"]) or {}
+    body = (path_item.get(operation["method"].lower()) or {}).get("requestBody")
+    if not body:
+        return None
+    content = (body.get("content") or {}).get("application/json") or {}
+    ref = (content.get("schema") or {}).get("$ref")
+    if not ref:
+        return None
+    name = ref.rsplit("/", 1)[-1]
+    component = ((schema.get("components") or {}).get("schemas") or {}).get(name) or {}
+    return set(component.get("properties") or {})
+
+
+def check_body_fields(schema: dict, operations: dict, check_citation: str, request) -> None:
+    """Refuse a request body carrying a field the operation does not declare.
+
+    A field the description has never heard of is a mistake in the check, not a
+    finding about the API: the request is rejected for the wrong reason and the
+    requirement it claims to verify is never exercised. Missing fields are NOT
+    checked here - an operation requiring something no promoted spec describes is
+    exactly the divergence a run is meant to report, and refusing to build it
+    would suppress the finding.
+    """
+    if not request.operation:
+        return
+    body = request.body if request.body is not None else request.form
+    if not body:
+        return
+    operation = operations.get(request.operation)
+    if operation is None:
+        return
+    declared = declared_properties(schema, operation)
+    if declared is None:
+        return
+    unknown = set(body) - declared
+    if unknown:
+        raise ValueError(
+            f"{check_citation}: request {request.name!r} sends "
+            f"{sorted(unknown)} to {request.operation}, which the OpenAPI description "
+            f"does not declare. It accepts {sorted(declared)}. The request would be "
+            "rejected for the wrong reason and the requirement never exercised."
+        )
+
+
 def _url_for(raw: str) -> str:
     """Postman parses a plain string; an object carrying only `raw` it does not."""
     return raw
@@ -302,6 +352,7 @@ def build(schema_path: Path, checks_root: Path, surfaces_path: Path, specs_root:
         for request in check.sequence:
             if request.operation:
                 used_operations.add(request.operation)
+                check_body_fields(schema, by_id, check.citation, request)
             if request.surface and request.surface["method"].upper() == "POST" and request.form:
                 path = request.surface["path"]
                 for pname, pvalue in request.path_params.items():

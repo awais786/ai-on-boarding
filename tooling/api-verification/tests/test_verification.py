@@ -691,3 +691,50 @@ def test_the_test_suite_needs_no_artefact_from_a_previous_run():
                  SPECS, WORKFLOW, HERE / "README.md"]
     for path in committed:
         assert path.exists(), path
+
+
+# A body field the description does not declare means the request is rejected
+# for the wrong reason and the requirement is never exercised. These pin that
+# shut: it is the defect that reached review.
+
+
+def test_every_check_sends_only_fields_the_description_declares(checks, generated_schema):
+    schema = openapi.load(generated_schema)
+    by_id = {o["operation_id"]: o for o in openapi.operations(schema)}
+    for check in checks:
+        for request in check.sequence:
+            build.check_body_fields(schema, by_id, check.citation, request)
+
+
+def test_a_body_field_the_operation_does_not_declare_is_refused(capabilities, tmp_path,
+                                                                generated_schema):
+    """Signing in with a `username` field, or signing up with `email_or_username`,
+    reaches the endpoint and is refused for a reason unrelated to the
+    requirement under test."""
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "capability: user-signin\nchecks:\n  - requirement: Return HTTP 401 on rejection\n"
+        "    sequence:\n      - name: x\n        operation: signin_create\n"
+        "        body: {email_or_username: 'a', username: 'b', password: 'c'}\n"
+    )
+    check = library.load_file(path, capabilities)[0]
+    schema = openapi.load(generated_schema)
+    by_id = {o["operation_id"]: o for o in openapi.operations(schema)}
+    with pytest.raises(ValueError, match="does not declare"):
+        build.check_body_fields(schema, by_id, check.citation, check.sequence[0])
+
+
+def test_a_missing_required_field_is_not_refused_at_build(capabilities, tmp_path,
+                                                          generated_schema):
+    """A field the API requires but no promoted spec describes is the divergence
+    a run exists to report. Refusing to build it would suppress the finding."""
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "capability: user-signup\nchecks:\n  - requirement: Accept a signup submission\n"
+        "    sequence:\n      - name: x\n        operation: signup_create\n"
+        "        body: {email: 'a@b.com', username: 'u_x', password: 'abcdef12'}\n"
+    )
+    check = library.load_file(path, capabilities)[0]
+    schema = openapi.load(generated_schema)
+    by_id = {o["operation_id"]: o for o in openapi.operations(schema)}
+    build.check_body_fields(schema, by_id, check.citation, check.sequence[0])  # must not raise

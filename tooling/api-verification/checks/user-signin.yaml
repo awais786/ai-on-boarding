@@ -11,7 +11,10 @@ checks:
     sequence:
       - name: create the account
         operation: signup_create
-        body: {email_or_username: "si-accept-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-accept-{{runToken}}@example.com"
+          username: "u_siaccept_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: sign in with a non-empty email and a non-empty password
         operation: signin_create
@@ -44,7 +47,10 @@ checks:
     sequence:
       - name: create the account with a lowercase address
         operation: signup_create
-        body: {email_or_username: "si-case-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-case-{{runToken}}@example.com"
+          username: "u_sicase_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: sign in with different capitalisation and the correct password
         operation: signin_create
@@ -57,7 +63,10 @@ checks:
     sequence:
       - name: create the account
         operation: signup_create
-        body: {email_or_username: "si-ok-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-ok-{{runToken}}@example.com"
+          username: "u_siok_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: sign in with the registered email and matching password
         operation: signin_create
@@ -70,7 +79,10 @@ checks:
     sequence:
       - name: create the account
         operation: signup_create
-        body: {email_or_username: "si-twice-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-twice-{{runToken}}@example.com"
+          username: "u_sitwice_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: sign in once
         operation: signin_create
@@ -87,7 +99,10 @@ checks:
     sequence:
       - name: create the account
         operation: signup_create
-        body: {email_or_username: "si-token-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-token-{{runToken}}@example.com"
+          username: "u_sitoken_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: a successful signin returns only an opaque token
         operation: signin_create
@@ -111,7 +126,10 @@ checks:
     sequence:
       - name: create the account
         operation: signup_create
-        body: {email_or_username: "si-wrong-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-wrong-{{runToken}}@example.com"
+          username: "u_siwrong_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: sign in with a password that does not match
         operation: signin_create
@@ -124,7 +142,10 @@ checks:
     sequence:
       - name: create the account
         operation: signup_create
-        body: {email_or_username: "si-same-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-same-{{runToken}}@example.com"
+          username: "u_sisame_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: sign in with an unregistered email
         operation: signin_create
@@ -141,11 +162,17 @@ checks:
     sequence:
       - name: create the account to be locked out
         operation: signup_create
-        body: {email_or_username: "si-lock-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-lock-{{runToken}}@example.com"
+          username: "u_silock_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: create a separate account for the wrong-password comparison
         operation: signup_create
-        body: {email_or_username: "si-cmp-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-cmp-{{runToken}}@example.com"
+          username: "u_sicmp_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: a wrong-password rejection, recorded for comparison
         operation: signin_create
@@ -180,7 +207,10 @@ checks:
     sequence:
       - name: create the account
         operation: signup_create
-        body: {email_or_username: "si-nopw-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-nopw-{{runToken}}@example.com"
+          username: "u_sinopw_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: a successful signin does not echo the password
         operation: signin_create
@@ -198,7 +228,10 @@ checks:
     sequence:
       - name: create the account
         operation: signup_create
-        body: {email_or_username: "si-lock3-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-lock3-{{runToken}}@example.com"
+          username: "u_silock3_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: first failure
         operation: signin_create
@@ -223,7 +256,10 @@ checks:
     sequence:
       - name: create the account
         operation: signup_create
-        body: {email_or_username: "si-reset-{{runToken}}@example.com", password: "abcdef12"}
+        body:
+          email: "si-reset-{{runToken}}@example.com"
+          username: "u_sireset_{{runToken}}"
+          password: "abcdef12"
         assert: [{status: 200}]
       - name: first failure, below the threshold
         operation: signin_create
