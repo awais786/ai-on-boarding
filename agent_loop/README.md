@@ -11,18 +11,22 @@ change is archived).
 
 ## Install
 
+`agent_loop/` has its own virtual environment, independent of `sdd_django_demo/`'s:
+
 ```bash
-pip install -r agent_loop/requirements.txt
+python3 -m venv agent_loop/.venv
+agent_loop/.venv/bin/pip install -r agent_loop/requirements.txt
 ```
 
 ## Run the loop
 
 Requires a live `ANTHROPIC_API_KEY` in the environment (only the actual loop run needs
-this — the tests do not):
+this — the tests do not). Put it in a `.env` file at the repo root (gitignored) and load it,
+or export it directly:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-python -m agent_loop.loop "Find France population and calculate 10%."
+export ANTHROPIC_API_KEY=<your key>
+agent_loop/.venv/bin/python -m agent_loop.loop "Find France population and calculate 10%."
 ```
 
 ## Run the tests
@@ -30,5 +34,5 @@ python -m agent_loop.loop "Find France population and calculate 10%."
 The tests mock the Anthropic client, so no API key or network access is needed:
 
 ```bash
-pytest agent_loop/
+agent_loop/.venv/bin/python -m pytest agent_loop/
 ```
