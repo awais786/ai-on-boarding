@@ -1,0 +1,34 @@
+# Which HTTP surfaces this verification is responsible for.
+#
+# The OpenAPI description supplies the endpoint set automatically. This file
+# covers only what the description cannot: surfaces it omits that nonetheless
+# carry promoted requirements, and addresses that carry none. The completeness
+# check fails the run when a routed address appears in neither the description
+# nor this file, so nothing is ever left unverified by accident.
+
+# Routed, carries promoted requirements, absent from the OpenAPI description.
+declared:
+  - path: /reset-password/<str:code>/
+    methods: [GET, POST]
+    capability: user-password-reset
+    reason: >-
+      The page a person reaches by following the link in their reset mail. It
+      answers a browser with HTML rather than being part of the API surface, and
+      is deliberately kept out of the OpenAPI description, but eight promoted
+      requirements in user-password-reset are only observable here.
+
+# Routed, carries no promoted requirement. Every entry states why.
+excluded:
+  - prefix: /admin/
+    reason: >-
+      Django's bundled admin site. No promoted spec states any requirement about
+      it, and it is not part of the API this project specifies.
+  - path: /api/schema/
+    reason: >-
+      Serves the OpenAPI description that supplies this run's endpoint set. It
+      is the input to the verification, not a subject of it, and no promoted
+      spec states a requirement about it.
+  - path: /api/docs/
+    reason: >-
+      Renders the OpenAPI description as browsable documentation. No promoted
+      spec states a requirement about it.

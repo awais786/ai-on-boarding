@@ -203,6 +203,20 @@ and stopped cleanly on "n"). Only proceed past that warning if the change is gen
   is ready to start at step 5 of the process table above, not step 1 — run `/opsx:apply
   add-user-signin` to begin implementing it.
 
+## Verifying the running API against the specs
+
+`pytest` proves this code satisfies its specs from inside the process. A separate check proves the
+*running* API does, from outside it: it derives the endpoints it exercises from the OpenAPI schema
+this project already publishes, takes expected behaviour from `openspec/specs/`, executes the
+checks against a live instance, and fails the run when observed behaviour contradicts a
+requirement. It is triggered by a push to `main`, so it reports on a merge that has already
+landed rather than blocking one — see that README for why there is no pull-request trigger.
+
+If you add an endpoint, read
+[`tooling/api-verification/README.md`](../tooling/api-verification/README.md) — it says where
+endpoint coverage comes from (the schema, automatically) and where behavioural expectations come
+from (the promoted specs, by hand), and what to do when a run fails on a coverage gap.
+
 ## Conventions this project follows
 
 See [`../openspec/config.yaml`](../openspec/config.yaml) for the full list. The ones that shape

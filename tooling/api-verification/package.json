@@ -1,0 +1,9 @@
+{
+  "name": "api-verification",
+  "private": true,
+  "description": "Command-line tools used by the API behaviour verification run. No JavaScript is written here - these packages are invoked as commands with files in and files out.",
+  "dependencies": {
+    "newman": "6.2.2",
+    "openapi-to-postmanv2": "6.3.3"
+  }
+}

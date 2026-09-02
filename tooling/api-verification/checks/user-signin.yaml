@@ -1,0 +1,337 @@
+# Behavioural checks for the user-signin capability.
+#
+# Written from openspec/specs/user-signin/spec.md. Sequences that need an
+# account create it first: signin behaviour is only observable against one, and
+# the spec describes signin against accounts that signup produced.
+capability: user-signin
+
+checks:
+  - requirement: Accept a signin submission
+    scenario: Valid fields present
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-accept-{{runToken}}@example.com"
+          username: "u_siaccept_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign in with a non-empty email and a non-empty password
+        operation: signin_create
+        body: {email_or_username: "si-accept-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 200}
+
+  - requirement: Reject a missing email
+    scenario: Email or username omitted
+    sequence:
+      - name: sign in with no email_or_username field
+        operation: signin_create
+        body: {password: "abcdef12"}
+        assert:
+          - {status: 401}
+          - {json_has: email_or_username}
+
+  - requirement: Reject a missing password
+    scenario: Password omitted
+    sequence:
+      - name: sign in with no password field
+        operation: signin_create
+        body: {email_or_username: "si-nopass-{{runToken}}@example.com"}
+        assert:
+          - {status: 401}
+          - {json_has: password}
+
+  - requirement: Authenticate against the matching account
+    scenario: Case-insensitive email match
+    sequence:
+      - name: create the account with a lowercase address
+        operation: signup_create
+        body:
+          email: "si-case-{{runToken}}@example.com"
+          username: "u_sicase_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign in with different capitalisation and the correct password
+        operation: signin_create
+        body: {email_or_username: "SI-CASE-{{runToken}}@EXAMPLE.COM", password: "abcdef12"}
+        assert:
+          - {status: 200}
+
+  - requirement: Succeed with correct credentials
+    scenario: Correct credentials
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-ok-{{runToken}}@example.com"
+          username: "u_siok_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign in with the registered email and matching password
+        operation: signin_create
+        body: {email_or_username: "si-ok-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 200}
+
+  - requirement: Succeed with correct credentials
+    scenario: Repeated signin with the same credentials
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-twice-{{runToken}}@example.com"
+          username: "u_sitwice_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign in once
+        operation: signin_create
+        body: {email_or_username: "si-twice-{{runToken}}@example.com", password: "abcdef12"}
+        assert: [{status: 200}]
+      - name: sign in a second time with the same credentials
+        operation: signin_create
+        body: {email_or_username: "si-twice-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 200}
+
+  - requirement: Signal success with an authentication token
+    scenario: Successful response shape
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-token-{{runToken}}@example.com"
+          username: "u_sitoken_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: a successful signin returns only an opaque token
+        operation: signin_create
+        body: {email_or_username: "si-token-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 200}
+          - {json_has: token}
+          - {json_only_keys: [token]}
+
+  - requirement: Reject an unregistered email
+    scenario: No account for the email or username
+    sequence:
+      - name: sign in with an email that has no account
+        operation: signin_create
+        body: {email_or_username: "si-nobody-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 401}
+
+  - requirement: Reject an incorrect password
+    scenario: Wrong password
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-wrong-{{runToken}}@example.com"
+          username: "u_siwrong_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign in with a password that does not match
+        operation: signin_create
+        body: {email_or_username: "si-wrong-{{runToken}}@example.com", password: "wrongpw99"}
+        assert:
+          - {status: 401}
+
+  - requirement: Reject all failure modes identically
+    scenario: Unregistered email or username and wrong password are indistinguishable
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-same-{{runToken}}@example.com"
+          username: "u_sisame_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign in with an unregistered email
+        operation: signin_create
+        body: {email_or_username: "si-stranger-{{runToken}}@example.com", password: "abcdef12"}
+        save_as: unregisteredRefusal
+      - name: sign in with a registered email and the wrong password
+        operation: signin_create
+        body: {email_or_username: "si-same-{{runToken}}@example.com", password: "wrongpw99"}
+        assert:
+          - {same_as: unregisteredRefusal}
+
+  - requirement: Reject all failure modes identically
+    scenario: Lockout is indistinguishable from a wrong password
+    sequence:
+      - name: create the account to be locked out
+        operation: signup_create
+        body:
+          email: "si-lock-{{runToken}}@example.com"
+          username: "u_silock_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: create a separate account for the wrong-password comparison
+        operation: signup_create
+        body:
+          email: "si-cmp-{{runToken}}@example.com"
+          username: "u_sicmp_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: a wrong-password rejection, recorded for comparison
+        operation: signin_create
+        body: {email_or_username: "si-cmp-{{runToken}}@example.com", password: "wrongpw99"}
+        save_as: wrongPasswordRefusal
+      - name: first failure against the account to be locked out
+        operation: signin_create
+        body: {email_or_username: "si-lock-{{runToken}}@example.com", password: "wrongpw99"}
+      - name: second failure
+        operation: signin_create
+        body: {email_or_username: "si-lock-{{runToken}}@example.com", password: "wrongpw99"}
+      - name: third failure, reaching the lockout threshold
+        operation: signin_create
+        body: {email_or_username: "si-lock-{{runToken}}@example.com", password: "wrongpw99"}
+      - name: sign in against the locked-out address with the correct password
+        operation: signin_create
+        body: {email_or_username: "si-lock-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {same_as: wrongPasswordRefusal}
+
+  - requirement: Return HTTP 401 on rejection
+    scenario: Rejection status code
+    sequence:
+      - name: a rejected signin returns 401
+        operation: signin_create
+        body: {email_or_username: "si-401-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 401}
+
+  - requirement: Never return the password
+    scenario: Password absent from every response
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-nopw-{{runToken}}@example.com"
+          username: "u_sinopw_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: a successful signin does not echo the password
+        operation: signin_create
+        body: {email_or_username: "si-nopw-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {body_excludes: "abcdef12"}
+      - name: a rejected signin does not echo the password
+        operation: signin_create
+        body: {email_or_username: "si-nopw-{{runToken}}@example.com", password: "wrongpw99"}
+        assert:
+          - {body_excludes: "wrongpw99"}
+
+  - requirement: Lock an email out after repeated failures
+    scenario: Third failure triggers lockout
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-lock3-{{runToken}}@example.com"
+          username: "u_silock3_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: first failure
+        operation: signin_create
+        body: {email_or_username: "si-lock3-{{runToken}}@example.com", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: second failure
+        operation: signin_create
+        body: {email_or_username: "si-lock3-{{runToken}}@example.com", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: third failure
+        operation: signin_create
+        body: {email_or_username: "si-lock3-{{runToken}}@example.com", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: a fourth attempt with the correct password is still rejected
+        operation: signin_create
+        body: {email_or_username: "si-lock3-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 401}
+
+  - requirement: Reset the failure count on success
+    scenario: Success clears prior failures
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-reset-{{runToken}}@example.com"
+          username: "u_sireset_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: first failure, below the threshold
+        operation: signin_create
+        body: {email_or_username: "si-reset-{{runToken}}@example.com", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: second failure, still below the threshold
+        operation: signin_create
+        body: {email_or_username: "si-reset-{{runToken}}@example.com", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: sign in successfully, which resets the count
+        operation: signin_create
+        body: {email_or_username: "si-reset-{{runToken}}@example.com", password: "abcdef12"}
+        assert: [{status: 200}]
+      - name: two further failures, which would reach the threshold had the count not reset
+        operation: signin_create
+        body: {email_or_username: "si-reset-{{runToken}}@example.com", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: the second further failure
+        operation: signin_create
+        body: {email_or_username: "si-reset-{{runToken}}@example.com", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: the correct password still works, so the count had been reset
+        operation: signin_create
+        body: {email_or_username: "si-reset-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 200}
+
+  - requirement: Authenticate against the matching account
+    scenario: Case-insensitive username match
+    sequence:
+      - name: create the account with a lowercase username
+        operation: signup_create
+        body:
+          email: "si-ucase-{{runToken}}@example.com"
+          username: "u_siucase_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: sign in with different capitalisation of the username and the correct password
+        operation: signin_create
+        body: {email_or_username: "U_SIUCASE_{{runToken}}", password: "abcdef12"}
+        assert:
+          - {status: 200}
+
+  - requirement: Lock an email out after repeated failures
+    scenario: Lockout applies across email and username
+    sequence:
+      - name: create the account
+        operation: signup_create
+        body:
+          email: "si-mix-{{runToken}}@example.com"
+          username: "u_simix_{{runToken}}"
+          password: "abcdef12"
+        assert: [{status: 200}]
+      - name: first failure, using the email
+        operation: signin_create
+        body: {email_or_username: "si-mix-{{runToken}}@example.com", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: second failure, using the username
+        operation: signin_create
+        body: {email_or_username: "u_simix_{{runToken}}", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: third failure, using the email again
+        operation: signin_create
+        body: {email_or_username: "si-mix-{{runToken}}@example.com", password: "wrongpw99"}
+        assert: [{status: 401}]
+      - name: a further attempt using the username is still rejected
+        operation: signin_create
+        body: {email_or_username: "u_simix_{{runToken}}", password: "abcdef12"}
+        assert:
+          - {status: 401}
+      - name: a further attempt using the email is also still rejected
+        operation: signin_create
+        body: {email_or_username: "si-mix-{{runToken}}@example.com", password: "abcdef12"}
+        assert:
+          - {status: 401}

@@ -1,0 +1,162 @@
+# Requirements, and individual scenarios, that cannot be judged by observing
+# HTTP behaviour during a run.
+#
+# An entry here does not fail a run and is not reported as missing coverage. It
+# is a division of labour, not a list of things nobody checks: every entry names
+# the test that covers it instead. Entries are added in reviewed pull requests
+# like any other file, so coverage can only be given up deliberately.
+#
+# Categories:
+#   time-bound        needs the clock advanced past the run
+#   storage-internal  asserts on what is stored, not on what is returned
+#   induced-failure   needs a fault injected into infrastructure
+#   concurrency       needs genuinely simultaneous requests, which a collection
+#                     runner issuing one request after another cannot produce
+
+entries:
+  - capability: user-signup
+    requirement: Create exactly one account on a valid submission
+    category: storage-internal
+    reason: >-
+      Counting the accounts that exist is a fact about storage. What is
+      observable over HTTP - that a second signup for the same address is
+      refused - is checked under "Reject a duplicate email".
+    covered_by: sdd_django_demo/api/test_signup.py::test_signup_creates_exactly_one_account
+
+  - capability: user-signup
+    requirement: Store the password unrecoverably
+    category: storage-internal
+    reason: >-
+      The stored representation of a password is never returned, so no response
+      can show whether it is the submitted text or a digest of it.
+    covered_by: >-
+      sdd_django_demo/api/test_signup.py::test_signup_stores_password_hashed_not_plaintext
+
+  - capability: user-signup
+    requirement: Reject a duplicate email
+    scenario: Concurrent signups for the same email
+    category: concurrency
+    reason: >-
+      Two submissions must be in flight at the same moment for either to race
+      the other. A collection runner issues one request after another, so it
+      cannot produce the condition the scenario describes.
+    covered_by: >-
+      sdd_django_demo/api/test_signup.py::test_signup_duplicate_email_race_returns_400_not_500
+
+  - capability: user-signup
+    requirement: Normalise email to lowercase
+    scenario: Stored and returned email is lowercase
+    category: storage-internal
+    partial: true
+    reason: >-
+      The scenario asserts about the stored address as well as the returned one.
+      The returned half is checked in the library; the stored half is not
+      observable, because no response reveals how the address was stored.
+    covered_by: sdd_django_demo/api/test_signup.py::test_signup_normalises_email_to_lowercase
+
+  - capability: user-signin
+    requirement: Lock an email out after repeated failures
+    scenario: Lockout expires
+    category: time-bound
+    reason: >-
+      The scenario begins 30 minutes after the lockout started. A run cannot
+      advance the clock that far, and waiting it out is not a check.
+    covered_by: sdd_django_demo/api/test_signin.py::test_signin_lockout_expires_after_30_minutes
+
+  - capability: user-password-reset
+    requirement: Leave earlier codes usable when delivery fails
+    scenario: A failed delivery does not retire the code already sent
+    category: induced-failure
+    reason: >-
+      Requires delivery of the second message to fail. Nothing a caller can send
+      over HTTP makes delivery fail; the fault has to be injected beneath the
+      application.
+    covered_by: >-
+      sdd_django_demo/api/test_password_reset.py::test_a_failed_delivery_leaves_the_earlier_code_usable
+
+  - capability: user-password-reset
+    requirement: Leave earlier codes usable when delivery fails
+    scenario: A failed delivery is answered like any other request
+    category: induced-failure
+    reason: >-
+      Same injected fault as the scenario above - the response can only be
+      compared once a delivery has been made to fail.
+    covered_by: >-
+      sdd_django_demo/api/test_password_reset.py::test_a_failed_delivery_is_answered_like_a_successful_one
+
+  - capability: user-password-reset
+    requirement: Store a new password unrecoverably
+    category: storage-internal
+    reason: >-
+      As at signup, the stored representation is never returned, so no response
+      can show what form it takes.
+    covered_by: >-
+      sdd_django_demo/api/test_password_reset.py::test_the_new_password_is_not_stored_as_submitted
+
+  - capability: user-password-reset
+    requirement: Invalidate existing authentication tokens on reset
+    category: storage-internal
+    reason: >-
+      A token's validity is only observable by presenting it to an endpoint that
+      authenticates with it, and the API exposes none. The token is issued and
+      then never consumed over HTTP, so its validity is a stored fact this run
+      has no way to read.
+    covered_by: >-
+      sdd_django_demo/api/test_password_reset.py::test_a_token_held_before_the_reset_stops_working
+
+  - capability: user-password-reset
+    requirement: Expire a reset code after 30 minutes
+    scenario: Expired code is refused
+    category: time-bound
+    reason: >-
+      Needs a code issued more than 30 minutes before it is submitted. A run
+      cannot age a code, and the companion scenario - a code inside the window
+      being accepted - is checked in the library.
+    covered_by: >-
+      sdd_django_demo/api/test_password_reset.py::test_a_code_older_than_thirty_minutes_is_refused
+
+  - capability: user-password-reset
+    requirement: Never retain the confirmation entry
+    scenario: The confirmation is not stored
+    category: storage-internal
+    reason: >-
+      Asserts that nothing recorded for the account holds the confirmation
+      entry. What is recorded is not returned, so no response can show it. The
+      companion scenario - the confirmation absent from every response - is
+      checked in the library.
+    covered_by: sdd_django_demo/api/test_password_reset.py::test_the_confirmation_is_not_stored
+
+  - capability: user-password-reset
+    requirement: Reject every bad code identically
+    scenario: Unrecognised and expired codes are indistinguishable
+    category: time-bound
+    reason: >-
+      One of the two responses being compared requires an expired code, which a
+      run cannot produce. The companion scenario - used and superseded codes
+      being indistinguishable - is checked in the library.
+    covered_by: >-
+      sdd_django_demo/api/test_password_reset.py::test_all_four_unusable_codes_are_refused_identically
+
+  - capability: user-signup
+    requirement: Reject a duplicate username
+    scenario: Concurrent signups for the same username
+    category: concurrency
+    reason: >-
+      As with the duplicate-email race, two submissions must be in flight at the
+      same moment for either to race the other. A collection runner issues one
+      request after another, so it cannot produce the condition the scenario
+      describes.
+    covered_by: >-
+      sdd_django_demo/api/test_signup.py::test_signup_duplicate_username_race_returns_400_not_500
+
+  - capability: user-signup
+    requirement: Normalise username to lowercase
+    scenario: Stored and returned username is lowercase
+    category: storage-internal
+    partial: true
+    reason: >-
+      As with the email address, the scenario asserts about the stored username
+      as well as the returned one. The returned half is checked in the library;
+      the stored half is not observable, because no response reveals how the
+      username was stored.
+    covered_by: sdd_django_demo/api/test_signup.py::test_signup_normalises_username_to_lowercase

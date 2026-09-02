@@ -1,0 +1,88 @@
+# Verify the running API's observable behaviour against the promoted specs.
+#
+# Endpoint coverage comes from the API's OpenAPI description and is proven
+# complete against the addresses Django routes. Expected behaviour comes from
+# openspec/specs/. The collection executes the checks; the evaluation judges
+# whether those checks are a faithful reading of the specs; the gate decides.
+#
+# tooling/api-verification/README.md explains the division and the pass/fail
+# conditions. This workflow runs the same run.sh a contributor runs locally, so
+# a failure here reproduces there with one command.
+
+name: API behaviour verification
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tooling/api-verification
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install the mail catcher
+        run: |
+          curl -fsSL -o /tmp/mailpit.tar.gz \
+            https://github.com/axllent/mailpit/releases/download/v1.31.0/mailpit-linux-amd64.tar.gz
+          tar -xzf /tmp/mailpit.tar.gz -C /tmp mailpit
+          sudo install /tmp/mailpit /usr/local/bin/mailpit
+          mailpit version
+
+      - name: Install the collection tooling
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r ../../sdd_django_demo/requirements.txt -r requirements.txt
+
+      # The tooling decides whether a merge is sound, so it is checked before it
+      # is trusted to check anything else.
+      - name: Test the verification tooling itself
+        run: .venv/bin/python -m pytest -q
+
+      - name: Run the checks against a live instance
+        run: ./run.sh
+
+      - name: Evaluate the checks against the specs
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: .venv/bin/python -m verify.evaluate
+
+      # Always speaks, even when an earlier step failed. The evaluation cannot
+      # run without its credential, and letting that stop the job would hide
+      # every deterministic result behind a configuration error - which checks
+      # failed, and which requirements nobody has classified. The run still
+      # fails: the gate finds no findings file and says so.
+      - name: Decide whether the run passes
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python -m verify.gate --skip-completeness
+
+      - name: Publish what the run produced
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-behaviour-verification
+          path: |
+            tooling/api-verification/build/schema.yaml
+            tooling/api-verification/build/collection.json
+            tooling/api-verification/build/report.json
+            tooling/api-verification/build/findings.json
+            tooling/api-verification/build/server.log
+            tooling/api-verification/build/mailpit.log
+          if-no-files-found: warn
