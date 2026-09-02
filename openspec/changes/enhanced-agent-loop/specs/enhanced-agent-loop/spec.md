@@ -59,11 +59,12 @@ user message, on every run.
 
 ### Requirement: Run as a standalone script
 The system SHALL provide a command-line entry point invoked as
-`python enhanced_agent_loop.py "<prompt>"` that drives the loop end-to-end and completes without
-crashing, printing an `[action] web_search(...)` step whenever the search tool is used.
+`python -m agent_loop.enhanced_agent_loop "<prompt>"` that drives the loop end-to-end and
+completes without crashing, printing an `[action] web_search(...)` step whenever the search tool
+is used.
 
 #### Scenario: End-to-end run completes
-- **WHEN** `enhanced_agent_loop.py` is run with a prompt requiring both tools (e.g. "what is
+- **WHEN** `agent_loop/enhanced_agent_loop.py` is run with a prompt requiring both tools (e.g. "what is
   France's population, divided by 1000?")
 - **THEN** it completes without crashing and prints an `[action] web_search(...)` step showing a
   real, non-mocked result

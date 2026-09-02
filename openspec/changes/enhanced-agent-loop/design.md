@@ -1,16 +1,17 @@
 ## Context
 
-See proposal.md - Why. `enhanced_agent_loop.py` is a second, independent worked example
-alongside `agent_loop/` (the `42-multi-tool-claude-agent-loop` capability), not a modification of
-it. Nothing here changes `agent_loop/tools.py`, `loop.py`, `__main__.py`, or their spec.
+See proposal.md - Why. `agent_loop/enhanced_agent_loop.py` is a second, independent worked
+example living alongside `loop.py`/`tools.py` (the `42-multi-tool-claude-agent-loop` capability),
+not a modification of them. Nothing here changes `agent_loop/tools.py`, `loop.py`, `__main__.py`,
+or their spec.
 
 ## Goals / Non-Goals
 
 **Goals:**
 - Satisfy every requirement in `specs/enhanced-agent-loop/spec.md`: a real (non-mocked)
   `web_search` via DuckDuckGo, a `validate_args` guard at the dispatch boundary, a one-pair
-  few-shot example steering tool order, and a runnable `python enhanced_agent_loop.py "<prompt>"`
-  entry point.
+  few-shot example steering tool order, and a runnable
+  `python -m agent_loop.enhanced_agent_loop "<prompt>"` entry point.
 - Read top-to-bottom as a single, self-contained script - the point of this exercise is the
   three added layers (tool / validation / prompting), not a reusable package.
 
@@ -24,8 +25,8 @@ it. Nothing here changes `agent_loop/tools.py`, `loop.py`, `__main__.py`, or the
 
 ## Decisions
 
-**Single self-contained script, not a package - and not built on top of `agent_loop/`.**
-`enhanced_agent_loop.py` defines its own `TOOLS`, `dispatch`, `validate_args`, and loop, including
+**Single self-contained script, not built on top of `agent_loop/loop.py`/`tools.py`.**
+`agent_loop/enhanced_agent_loop.py` defines its own `TOOLS`, `dispatch`, `validate_args`, and loop, including
 its own copy of the `ast`-based safe arithmetic evaluator `agent_loop/tools.py` already has.
 Alternative considered: import `agent_loop.tools.calculator` and adapt `agent_loop.loop`'s
 control flow - rejected, since `agent_loop.loop.run_agent_loop` isn't parameterized for

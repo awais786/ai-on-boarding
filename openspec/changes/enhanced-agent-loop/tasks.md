@@ -1,8 +1,9 @@
 ## 1. Script scaffolding
 
-- [x] 1.1 Create `enhanced_agent_loop.py` at the repo root (sibling to `agent_loop/`, not inside
-  it), importable/runnable standalone, and verify `python enhanced_agent_loop.py` (no args)
-  prints a usage message rather than crashing
+- [x] 1.1 Create `agent_loop/enhanced_agent_loop.py` (a sibling module to `loop.py`/`tools.py`,
+  not an edit to them), importable/runnable standalone, and verify
+  `python -m agent_loop.enhanced_agent_loop` (no args) prints a usage message rather than
+  crashing
 - [x] 1.2 Reuse `agent_loop/requirements.txt`'s `anthropic` pin (or add an equivalent one scoped
   to this script) - no new third-party dependency for `web_search`, since it uses
   `urllib.request`/`json` from the standard library per design.md (no new requirements file
@@ -39,7 +40,7 @@
   `web_search` -> `calculator` ordering for an ambiguous request, prepended before the real user
   message on every run, and verify by inspecting the constructed `messages` list before the first
   API call
-- [x] 3.3 Add the CLI entry point (`python enhanced_agent_loop.py "<prompt>"`) printing the
+- [x] 3.3 Add the CLI entry point (`python -m agent_loop.enhanced_agent_loop "<prompt>"`) printing the
   running transcript, including an `[action] web_search(...)` line whenever `web_search` runs,
   and verify by running it by hand against the live API with the France-population-divided
   prompt from the review comment

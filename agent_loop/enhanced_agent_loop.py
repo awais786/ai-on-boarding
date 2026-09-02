@@ -1,6 +1,6 @@
 """enhanced_agent_loop.py - a second, standalone agent-loop worked example.
 
-Extends the base ask -> dispatch -> observe -> repeat loop (see agent_loop/, a separate
+Extends the base ask -> dispatch -> observe -> repeat loop (see loop.py, a separate
 exercise this script does not import from) with three additions in different layers:
 a real (non-mocked) `web_search` tool backed by DuckDuckGo's free Instant Answer API,
 dispatch-boundary argument validation via `validate_args`, and a few-shot example that
@@ -8,7 +8,7 @@ steers tool-choice ordering for ambiguous requests. See
 openspec/changes/enhanced-agent-loop/ for the full proposal/spec/design.
 
 Run by hand:
-    python enhanced_agent_loop.py "<prompt>"
+    python -m agent_loop.enhanced_agent_loop "<prompt>"
 """
 
 import ast
@@ -338,7 +338,7 @@ def _print_event(event):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 1:
-        print('usage: python enhanced_agent_loop.py "<prompt>"', file=sys.stderr)
+        print('usage: python -m agent_loop.enhanced_agent_loop "<prompt>"', file=sys.stderr)
         raise SystemExit(1)
 
     prompt = argv[0]
