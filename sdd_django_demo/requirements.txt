@@ -2,11 +2,15 @@
 # on any 3.12+ interpreter, this is just what was actually installed and tested).
 # psycopg added 2026-09-02, pinned to the current stable release, for Postgres in every
 # environment - see settings.py's Database section.
+# gunicorn added 2026-09-02, pinned to the current stable release - the WSGI server a real
+# deployment runs behind (manage.py runserver is dev-only and isn't meant for production
+# traffic); unused by local dev or the test suite.
 asgiref==3.12.1
 attrs==26.1.0
 Django==6.1
 djangorestframework==3.18.0
 drf-spectacular==0.30.0
+gunicorn==26.2.0
 inflection==0.5.1
 iniconfig==2.3.0
 jsonschema==4.26.0
