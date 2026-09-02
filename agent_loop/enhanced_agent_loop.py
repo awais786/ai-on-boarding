@@ -8,7 +8,7 @@ steers tool-choice ordering for ambiguous requests. See
 openspec/changes/enhanced-agent-loop/ for the full proposal/spec/design.
 
 Run by hand:
-    python -m enhanced_agent_loop "<prompt>"
+    python agent_loop/enhanced_agent_loop.py "<prompt>"
 """
 
 import ast
@@ -338,7 +338,7 @@ def _print_event(event):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 1:
-        print('usage: python -m enhanced_agent_loop "<prompt>"', file=sys.stderr)
+        print('usage: python agent_loop/enhanced_agent_loop.py "<prompt>"', file=sys.stderr)
         raise SystemExit(1)
 
     prompt = argv[0]

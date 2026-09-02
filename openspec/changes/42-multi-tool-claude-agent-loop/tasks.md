@@ -34,7 +34,7 @@
   cap with a fake client that always returns `tool_use` and confirming the warning is logged and
   the loop stops instead of looping forever
 - [x] 3.3 Add `agent_loop/__main__.py` so the loop can be run by hand as
-  `python -m agent_loop "<prompt>"`, printing the running transcript, and verify by running it
+  `python agent_loop/agent_loop.py "<prompt>"`, printing the running transcript, and verify by running it
   interactively against the live API with the issue's France-population prompt
 
 ## 4. Tests (after implementation, from the spec)
@@ -131,3 +131,17 @@
   `from agent_loop import tools` / `.loop` / `.__main__`) and `design.md`/`traceability.md` to
   match; verified with `pytest tests/test_agent_loop.py tests/test_enhanced_agent_loop.py` (all
   passing) and a manual `python -m agent_loop` run (prints the usage message)
+
+## 11. Group both scripts back into an `agent_loop/` folder
+
+- [x] 11.1 Per repo-owner request: move `agent_loop.py` and its sibling `enhanced_agent_loop.py`
+  into a plain `agent_loop/` folder at the repo root - not a package (no `__init__.py`, no
+  imports between them, each still self-contained per its own design.md); run as
+  `python agent_loop/agent_loop.py "<prompt>"` / `python agent_loop/enhanced_agent_loop.py
+  "<prompt>"` rather than `python -m agent_loop`, since there is no `agent_loop/__main__.py` for
+  `-m` to find
+- [x] 11.2 Add `sys.path.insert(0, .../agent_loop)` to `conftest.py` so `import agent_loop` /
+  `import enhanced_agent_loop` keep resolving during test collection now that the scripts are no
+  longer at the repo root; verified with `pytest tests/test_agent_loop.py
+  tests/test_enhanced_agent_loop.py` (50 passed, 5 skipped) and manual runs of both scripts
+  printing their usage message

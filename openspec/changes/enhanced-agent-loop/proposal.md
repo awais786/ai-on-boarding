@@ -10,8 +10,9 @@ provider-executed server tool, per this same PR's *first* review comment).
 
 ## What Changes
 
-- Add a new, standalone script `enhanced_agent_loop.py` at the repo root (a sibling to
-  `agent_loop.py`, not an edit to it) implementing its own two tools, dispatch-boundary
+- Add a new, standalone script `agent_loop/enhanced_agent_loop.py`, in the same plain
+  `agent_loop/` folder as its sibling `agent_loop.py` (not an edit to it, not a package import -
+  they share a folder for tidiness only), implementing its own two tools, dispatch-boundary
   validation, a few-shot example, and a loop.
 - `web_search(query)` calls DuckDuckGo's free Instant Answer API
   (`https://api.duckduckgo.com/?q=<query>&format=json&no_html=1`) for a real result, returning
@@ -40,8 +41,8 @@ this change)
 
 ## Impact
 
-- New top-level file `enhanced_agent_loop.py`, sibling to `agent_loop.py` - a separate script,
-  not wired into `agent_loop.py`'s tools/dispatch/loop.
+- New file `agent_loop/enhanced_agent_loop.py`, sibling to `agent_loop.py` in the shared
+  `agent_loop/` folder - a separate script, not wired into `agent_loop.py`'s tools/dispatch/loop.
 - New outbound network dependency on a real third-party API (`api.duckduckgo.com`) - the first
   tool in this repo that calls a non-Anthropic external service; unlike the Anthropic API calls
   elsewhere, this needs no API key, but does need network access and is subject to DuckDuckGo's

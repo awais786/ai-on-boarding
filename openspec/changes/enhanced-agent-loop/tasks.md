@@ -2,7 +2,7 @@
 
 - [x] 1.1 Create `enhanced_agent_loop.py` (a sibling script to `agent_loop.py`,
   not an edit to it), importable/runnable standalone, and verify
-  `python -m enhanced_agent_loop` (no args) prints a usage message rather than
+  `python agent_loop/enhanced_agent_loop.py` (no args) prints a usage message rather than
   crashing
 - [x] 1.2 Reuse `requirements-agent-loop.txt`'s `anthropic` pin (or add an equivalent one scoped
   to this script) - no new third-party dependency for `web_search`, since it uses
@@ -40,7 +40,7 @@
   `web_search` -> `calculator` ordering for an ambiguous request, prepended before the real user
   message on every run, and verify by inspecting the constructed `messages` list before the first
   API call
-- [x] 3.3 Add the CLI entry point (`python -m enhanced_agent_loop "<prompt>"`) printing the
+- [x] 3.3 Add the CLI entry point (`python agent_loop/enhanced_agent_loop.py "<prompt>"`) printing the
   running transcript, including an `[action] web_search(...)` line whenever `web_search` runs,
   and verify by running it by hand against the live API with the France-population-divided
   prompt from the review comment
@@ -97,3 +97,14 @@
   concurrent dispatch, DuckDuckGo response caching) was a nit under this repo's review contract
   (no requirement/test/convention citation) and consistent with the sibling change's own
   documented decision against similar speculative complexity - not applied.
+
+## 6. Relocate into a shared `agent_loop/` folder
+
+- [x] 6.1 Per repo-owner request: move `enhanced_agent_loop.py` into the plain `agent_loop/`
+  folder alongside its sibling `agent_loop.py` - not a package (no `__init__.py`, still no
+  import between the two scripts); run as `python agent_loop/enhanced_agent_loop.py "<prompt>"`
+  rather than `python -m enhanced_agent_loop`
+- [x] 6.2 Rely on the sibling change's `conftest.py` update (`sys.path.insert(0, .../agent_loop)`)
+  for `import enhanced_agent_loop` to keep resolving during test collection; verified with
+  `pytest tests/test_agent_loop.py tests/test_enhanced_agent_loop.py` (50 passed, 5 skipped) and
+  a manual `python agent_loop/enhanced_agent_loop.py` run (prints the usage message)

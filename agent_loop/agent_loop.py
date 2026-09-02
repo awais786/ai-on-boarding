@@ -7,7 +7,7 @@ server tool - declared in TOOLS but executed by Anthropic's servers, so there is
 it here. See openspec/changes/42-multi-tool-claude-agent-loop/ for the full proposal/spec/design.
 
 Run by hand:
-    python -m agent_loop "<prompt>"
+    python agent_loop/agent_loop.py "<prompt>"
 """
 
 import ast
@@ -365,7 +365,7 @@ def _print_event(event):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 1:
-        print('usage: python -m agent_loop "<prompt>"', file=sys.stderr)
+        print('usage: python agent_loop/agent_loop.py "<prompt>"', file=sys.stderr)
         raise SystemExit(1)
 
     prompt = argv[0]

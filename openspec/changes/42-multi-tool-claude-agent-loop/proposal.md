@@ -41,9 +41,10 @@ specs)
 
 ## Impact
 
-- New top-level file `agent_loop.py` at the repo root, sibling to `sdd_django_demo/` (not a
-  Django app, no Django/DRF dependency) - this capability has no HTTP surface and nothing for the
-  existing project's URLs, settings, or ORM to know about.
+- New file `agent_loop/agent_loop.py` - a standalone script in a plain `agent_loop/` folder at
+  the repo root, sibling to `sdd_django_demo/` (not a Django app, no Django/DRF dependency) -
+  this capability has no HTTP surface and nothing for the existing project's URLs, settings, or
+  ORM to know about.
 - New dependency: the `anthropic` Python SDK (Messages API, tool use).
 - New environment variable, `ANTHROPIC_API_KEY`, required to run the loop and its test - the
   first place in this repo where running the test suite needs one, since the acceptance test

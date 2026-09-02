@@ -2,11 +2,12 @@
 
 One row per requirement in
 [`specs/multi-tool-agent-loop/spec.md`](./specs/multi-tool-agent-loop/spec.md) (this change's
-delta - to be merged into `openspec/specs/multi-tool-agent-loop/spec.md` on archive). Code and
-test paths are relative to the repo root; all code lives in the single `agent_loop.py` file
-(see the "Package layout" -> "File layout" note in design.md - originally a package of
-`tools.py`/`loop.py`/`__main__.py`, collapsed into one file to match `enhanced_agent_loop.py`'s
-shape).
+delta - to be merged into `openspec/specs/multi-tool-agent-loop/spec.md` on archive). Test paths
+are relative to the repo root; all code lives in the single `agent_loop/agent_loop.py` file
+(referenced below by its bare filename, `agent_loop.py:Symbol`) - see the "File layout" note in
+design.md: originally a package of `tools.py`/`loop.py`/`__main__.py`, collapsed into one file to
+match `enhanced_agent_loop.py`'s shape, then both scripts moved into a shared `agent_loop/`
+folder (not a package - see design.md's Decisions).
 
 | Requirement | Code | Test |
 |---|---|---|

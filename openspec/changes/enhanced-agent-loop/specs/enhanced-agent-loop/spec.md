@@ -59,7 +59,7 @@ user message, on every run.
 
 ### Requirement: Run as a standalone script
 The system SHALL provide a command-line entry point invoked as
-`python -m enhanced_agent_loop "<prompt>"` that drives the loop end-to-end and
+`python agent_loop/enhanced_agent_loop.py "<prompt>"` that drives the loop end-to-end and
 completes without crashing, printing an `[action] web_search(...)` step whenever the search tool
 is used.
 

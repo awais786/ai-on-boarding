@@ -2,10 +2,11 @@
 
 One row per requirement in
 [`specs/enhanced-agent-loop/spec.md`](./specs/enhanced-agent-loop/spec.md) (this change's
-delta - to be merged into `openspec/specs/enhanced-agent-loop/spec.md` on archive). Code and
-test paths are relative to the repo root; both live in a single file each
-(`enhanced_agent_loop.py`, `tests/test_enhanced_agent_loop.py`) since this is a
-standalone script, not wired into `agent_loop.py`.
+delta - to be merged into `openspec/specs/enhanced-agent-loop/spec.md` on archive). Test paths
+are relative to the repo root; the script itself lives at `agent_loop/enhanced_agent_loop.py`
+(referenced below by its bare filename, `enhanced_agent_loop.py:Symbol`) alongside
+`tests/test_enhanced_agent_loop.py`, since this is a standalone script, not wired into
+`agent_loop.py`.
 
 | Requirement | Code | Test |
 |---|---|---|

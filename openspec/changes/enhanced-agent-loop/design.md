@@ -10,7 +10,7 @@ not a modification of it. Nothing here changes `agent_loop.py` or its spec.
 - Satisfy every requirement in `specs/enhanced-agent-loop/spec.md`: a real (non-mocked)
   `web_search` via DuckDuckGo, a `validate_args` guard at the dispatch boundary, a one-pair
   few-shot example steering tool order, and a runnable
-  `python -m enhanced_agent_loop "<prompt>"` entry point.
+  `python agent_loop/enhanced_agent_loop.py "<prompt>"` entry point.
 - Read top-to-bottom as a single, self-contained script - the point of this exercise is the
   three added layers (tool / validation / prompting), not a reusable package.
 
