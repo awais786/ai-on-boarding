@@ -3,12 +3,12 @@ schema: spec-driven
 context: |
   Tech stack: Python 3.12+ (Django 6.1's own minimum; built and tested on 3.14, nothing depends
   on that specific version), Django 6.1, Django REST Framework 3.18.0, drf-spectacular 0.30.0,
-  pytest 9.1.1 with pytest-django. PostgreSQL in every environment (dev, test, and prod alike,
-  not a SQLite fallback for local work) - DATABASE_URL is a required environment variable
-  wherever this project runs or is tested, e.g. `postgres://user:password@localhost:5432/dbname`.
-  Project lives in sdd_django_demo/ (a Django project + `api` app) at the repo root; this
-  ai-on-boarding repo also contains unrelated course/reference material (glossary.md,
-  reference/, starter/) that is not part of the Django project.
+  pytest 9.1.1 with pytest-django. SQLite by default - no environment variables required to run
+  or test, still true for every contributor - with an opt-in switch to PostgreSQL for
+  deployment: setting `DATABASE_URL` (e.g. `postgres://user:password@localhost:5432/dbname`)
+  makes the app use Postgres instead. Project lives in sdd_django_demo/ (a Django project + `api`
+  app) at the repo root; this ai-on-boarding repo also contains unrelated course/reference
+  material (glossary.md, reference/, starter/) that is not part of the Django project.
 
   Domain: a small auth API (signup, signin, and an upcoming embargo/rules feature) built as a
   worked example of spec-driven development. No username field exists anywhere - email is the

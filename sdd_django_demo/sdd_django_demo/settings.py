@@ -96,39 +96,41 @@ WSGI_APPLICATION = 'sdd_django_demo.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 #
-# Postgres in every environment (dev, test, and prod alike) - not just prod with a
-# SQLite fallback for local work - so the database actually exercised by the test suite
-# is the same engine running in production. Read from DATABASE_URL rather than discrete
-# host/port/user/password settings: it's the de facto standard env var name across
-# hosting providers, and just as easy to set by hand on a bare VM as separate variables
-# would be, with one fewer name to keep in sync between them.
+# SQLite by default, so this repo's "no environment variables required to run or test"
+# convention holds for every contributor who hasn't set DATABASE_URL - this is a shared
+# teaching repo, and mandating Postgres locally for everyone would be a real barrier.
+# Setting DATABASE_URL switches to Postgres instead, for deployments that need it: it's
+# the de facto standard env var name across hosting providers, and just as easy to set
+# by hand on a bare VM as separate host/port/user/password variables would be.
 
 _database_url = os.environ.get('DATABASE_URL')
-if not _database_url:
-    raise RuntimeError(
-        'DATABASE_URL is not set. This project requires Postgres in every environment - '
-        'set it to a postgres connection string, e.g. '
-        'postgres://user:password@localhost:5432/dbname.'
-    )
 
-_parsed_database_url = urlparse(_database_url)
+if _database_url:
+    _parsed_database_url = urlparse(_database_url)
 
-if _parsed_database_url.scheme not in ('postgres', 'postgresql'):
-    raise RuntimeError(
-        f"DATABASE_URL has scheme {_parsed_database_url.scheme!r} - only postgres:// and "
-        "postgresql:// are supported."
-    )
+    if _parsed_database_url.scheme not in ('postgres', 'postgresql'):
+        raise RuntimeError(
+            f"DATABASE_URL has scheme {_parsed_database_url.scheme!r} - only postgres:// "
+            "and postgresql:// are supported."
+        )
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': _parsed_database_url.path.lstrip('/'),
-        'USER': _parsed_database_url.username,
-        'PASSWORD': _parsed_database_url.password,
-        'HOST': _parsed_database_url.hostname,
-        'PORT': _parsed_database_url.port or 5432,
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': _parsed_database_url.path.lstrip('/'),
+            'USER': _parsed_database_url.username,
+            'PASSWORD': _parsed_database_url.password,
+            'HOST': _parsed_database_url.hostname,
+            'PORT': _parsed_database_url.port or 5432,
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
