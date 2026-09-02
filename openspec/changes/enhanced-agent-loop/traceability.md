@@ -4,8 +4,8 @@ One row per requirement in
 [`specs/enhanced-agent-loop/spec.md`](./specs/enhanced-agent-loop/spec.md) (this change's
 delta - to be merged into `openspec/specs/enhanced-agent-loop/spec.md` on archive). Code and
 test paths are relative to the repo root; both live in a single file each
-(`agent_loop/enhanced_agent_loop.py`, `tests/test_enhanced_agent_loop.py`) since this is a
-standalone script, not wired into `agent_loop/`'s other modules.
+(`enhanced_agent_loop.py`, `tests/test_enhanced_agent_loop.py`) since this is a
+standalone script, not wired into `agent_loop.py`.
 
 | Requirement | Code | Test |
 |---|---|---|
@@ -23,11 +23,11 @@ standalone script, not wired into `agent_loop/`'s other modules.
   `calculator` - not itself a requirement in this delta spec (the review comment's "reject a
   non-string/empty/oversized expr for calculator" is the "Validate tool arguments" requirement
   above; `calculator`'s own arithmetic behavior is out of scope here, since it is a straight copy
-  of the already-specified and already-tested `agent_loop/tools.py:calculator`). Kept as
+  of the already-specified and already-tested `agent_loop.py:calculator`). Kept as
   lightweight sanity checks that the copy behaves the same, not spec-driven requirement tests.
 - `test_live_france_population_divided_by_1000_completes_with_a_web_search_action` and
   `test_live_ambiguous_request_triggers_web_search_before_calculator` are `pytest.mark.skipif`'d
-  when `ANTHROPIC_API_KEY` is not set, per `agent_loop/`'s existing live-test pattern. **These
+  when `ANTHROPIC_API_KEY` is not set, per `agent_loop.py`'s existing live-test pattern. **These
   were not run in this environment** - no key was available - so the "Provide a real web-search
   tool," "Steer tool ordering," and "Run as a standalone script" rows are verified offline plus
   by hand (direct calls to `web_search`/`calculator`/`dispatch`, a scripted-client run showing
@@ -52,7 +52,7 @@ standalone script, not wired into `agent_loop/`'s other modules.
   by `test_web_search_reports_a_non_utf8_response_body_as_an_error_not_an_exception` and
   `test_web_search_reports_an_unanticipated_exception_as_an_error_not_an_exception`.
 - `dispatch`'s own `except (KeyError, TypeError, AttributeError)` guard (mirroring
-  `agent_loop/tools.py:dispatch`) is defense in depth behind `validate_args`, not itself required
+  `agent_loop.py:dispatch`) is defense in depth behind `validate_args`, not itself required
   by the spec - `validate_args` is what makes every case in
   `test_dispatch_returns_a_validation_error_for_malformed_input_instead_of_crashing` pass, since
   it rejects each one before the real tool function is ever called.

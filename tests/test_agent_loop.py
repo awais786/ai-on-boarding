@@ -10,7 +10,7 @@ replaced the client-side web_search stub with Anthropic's provider-executed serv
   (type/name/max_uses) - no input_schema, no client handler, no dispatch() branch.
 - Surface server-executed web-search activity without dispatching it: a `server_tool_use`
   block naming web_search and its `web_search_tool_result` block are surfaced via on_event,
-  never passed to tools.dispatch and never fed back as a client-constructed tool_result.
+  never passed to agent_loop.dispatch and never fed back as a client-constructed tool_result.
 - Execute a requested tool and return its result: on stop_reason == "tool_use", the loop
   executes the named client tool (calculator), appends Claude's assistant message and a user
   message with the tool_result to the conversation, and sends it back.
@@ -31,9 +31,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_loop import tools
-from agent_loop.__main__ import _print_event
-from agent_loop.loop import MAX_ITERATIONS, run_agent_loop
+import agent_loop
+from agent_loop import MAX_ITERATIONS, _print_event, run_agent_loop
 
 
 def _text_block(text):
@@ -74,7 +73,7 @@ class _ScriptedClient:
 # --- calculator tool ---------------------------------------------------------------
 
 def test_calculator_tool_schema_declares_name_description_and_expression_input():
-    schema = next(t for t in tools.TOOLS if t["name"] == "calculator")
+    schema = next(t for t in agent_loop.TOOLS if t["name"] == "calculator")
     assert schema["name"] == "calculator"
     assert schema["description"]
     assert schema["input_schema"]["required"] == ["expression"]
@@ -82,20 +81,20 @@ def test_calculator_tool_schema_declares_name_description_and_expression_input()
 
 
 def test_calculator_evaluates_arithmetic_expression():
-    assert tools.dispatch("calculator", {"expression": "68000000 * 0.10"}) == {
+    assert agent_loop.dispatch("calculator", {"expression": "68000000 * 0.10"}) == {
         "result": 6800000.0
     }
 
 
 def test_calculator_rejects_non_arithmetic_expression_without_raising():
-    outcome = tools.dispatch(
+    outcome = agent_loop.dispatch(
         "calculator", {"expression": "__import__('os').system('echo hi')"}
     )
     assert "error" in outcome
 
 
 def test_calculator_reports_division_by_zero_as_error_not_exception():
-    assert tools.dispatch("calculator", {"expression": "1 / 0"}) == {
+    assert agent_loop.dispatch("calculator", {"expression": "1 / 0"}) == {
         "error": "division by zero"
     }
 
@@ -109,14 +108,14 @@ def test_calculator_reports_division_by_zero_as_error_not_exception():
 # defense in depth for a shorter expression that still overflows or recurses too deeply).
 
 def test_calculator_rejects_expression_over_the_length_cap_before_it_can_overflow():
-    outcome = tools.dispatch(
+    outcome = agent_loop.dispatch(
         "calculator", {"expression": "1" + "0" * 400 + " * 1.5"}
     )
     assert outcome == {"error": "expression too long (max 200 characters)"}
 
 
 def test_calculator_rejects_expression_over_the_length_cap_before_it_can_recurse():
-    outcome = tools.dispatch("calculator", {"expression": "+".join(["1"] * 5000)})
+    outcome = agent_loop.dispatch("calculator", {"expression": "+".join(["1"] * 5000)})
     assert outcome == {"error": "expression too long (max 200 characters)"}
 
 
@@ -127,7 +126,7 @@ def test_calculator_rejects_expression_over_the_length_cap_before_it_can_recurse
 # raised. Fix: evaluate_expression() rejects a non-finite result after evaluation.
 
 def test_calculator_rejects_expression_that_evaluates_to_a_non_finite_result():
-    outcome = tools.dispatch("calculator", {"expression": "1e400"})
+    outcome = agent_loop.dispatch("calculator", {"expression": "1e400"})
     assert "error" in outcome
 
 
@@ -137,16 +136,16 @@ def test_calculator_rejects_expression_that_evaluates_to_a_non_finite_result():
 # handler, or dispatch() branch for it in this code.
 
 def test_web_search_is_declared_as_a_provider_executed_server_tool():
-    schema = next(t for t in tools.TOOLS if t["name"] == "web_search")
+    schema = next(t for t in agent_loop.TOOLS if t["name"] == "web_search")
     assert schema == {"type": "web_search_20260209", "name": "web_search", "max_uses": 3}
 
 
 def test_web_search_has_no_client_side_dispatch_handler():
-    assert "web_search" not in tools._TOOL_FUNCTIONS
+    assert "web_search" not in agent_loop._TOOL_FUNCTIONS
 
 
 def test_dispatch_reports_web_search_as_unknown_since_it_has_no_client_handler():
-    outcome = tools.dispatch("web_search", {"query": "France population"})
+    outcome = agent_loop.dispatch("web_search", {"query": "France population"})
     assert outcome == {"error": "unknown tool: web_search"}
 
 
@@ -166,7 +165,7 @@ def test_dispatch_reports_web_search_as_unknown_since_it_has_no_client_handler()
 def test_dispatch_returns_error_result_for_malformed_input_instead_of_raising(
     name, tool_input
 ):
-    outcome = tools.dispatch(name, tool_input)
+    outcome = agent_loop.dispatch(name, tool_input)
     assert "error" in outcome
 
 
@@ -622,7 +621,7 @@ def test_multi_step_live_france_population_search_then_calculate():
     # on a call that has nothing to do with the assertion below, contradicting the tolerance
     # for repeat calculator calls established just above.
     computed_values = [
-        tools.evaluate_expression(c["input"]["expression"])
+        agent_loop.evaluate_expression(c["input"]["expression"])
         for c in tool_calls
         if c["name"] == "calculator"
     ]

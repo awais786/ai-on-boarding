@@ -10,10 +10,10 @@ than a completion mechanism they infer from response content.
 
 ## What Changes
 
-- Add a new, Django-independent Python package that defines two tools (`calculator`,
-  `web_search`) with JSON Schema `input_schema` definitions, and a loop that calls Claude, acts
-  on `tool_use` by executing the matching tool and feeding the result back, and terminates only
-  on `stop_reason == "end_turn"`.
+- Add a new, Django-independent standalone script (`agent_loop.py`) that defines two tools
+  (`calculator`, `web_search`) with JSON Schema `input_schema` definitions, and a loop that calls
+  Claude, acts on `tool_use` by executing the matching tool and feeding the result back, and
+  terminates only on `stop_reason == "end_turn"`.
 - `web_search` is registered as Anthropic's provider-executed server tool
   (`web_search_20260209`, `max_uses: 3`); Anthropic's servers perform the real search - this code
   implements no search logic, mock or otherwise. (Supersedes the original stub decision, per the
@@ -41,9 +41,9 @@ specs)
 
 ## Impact
 
-- New top-level directory at the repo root, sibling to `sdd_django_demo/` (not a Django app,
-  no Django/DRF dependency) - this capability has no HTTP surface and nothing for the existing
-  project's URLs, settings, or ORM to know about.
+- New top-level file `agent_loop.py` at the repo root, sibling to `sdd_django_demo/` (not a
+  Django app, no Django/DRF dependency) - this capability has no HTTP surface and nothing for the
+  existing project's URLs, settings, or ORM to know about.
 - New dependency: the `anthropic` Python SDK (Messages API, tool use).
 - New environment variable, `ANTHROPIC_API_KEY`, required to run the loop and its test - the
   first place in this repo where running the test suite needs one, since the acceptance test

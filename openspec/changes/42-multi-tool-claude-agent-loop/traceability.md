@@ -2,24 +2,27 @@
 
 One row per requirement in
 [`specs/multi-tool-agent-loop/spec.md`](./specs/multi-tool-agent-loop/spec.md) (this change's
-delta - to be merged into `openspec/specs/multi-tool-agent-loop/spec.md` on archive). Code paths
-are relative to `agent_loop/` (repo root); test paths are relative to the repo root.
+delta - to be merged into `openspec/specs/multi-tool-agent-loop/spec.md` on archive). Code and
+test paths are relative to the repo root; all code lives in the single `agent_loop.py` file
+(see the "Package layout" -> "File layout" note in design.md - originally a package of
+`tools.py`/`loop.py`/`__main__.py`, collapsed into one file to match `enhanced_agent_loop.py`'s
+shape).
 
 | Requirement | Code | Test |
 |---|---|---|
-| Register a calculator tool | `tools.py:TOOLS` (calculator schema), `tools.py:evaluate_expression`, `tools.py:calculator` | `test_calculator_tool_schema_declares_name_description_and_expression_input`, `test_calculator_evaluates_arithmetic_expression`, `test_calculator_rejects_non_arithmetic_expression_without_raising`, `test_calculator_reports_division_by_zero_as_error_not_exception`, `test_calculator_rejects_expression_over_the_length_cap_before_it_can_overflow`, `test_calculator_rejects_expression_over_the_length_cap_before_it_can_recurse`, `test_calculator_rejects_expression_that_evaluates_to_a_non_finite_result` |
-| Register a web-search tool | `tools.py:TOOLS` (`web_search_20260209` server-tool declaration; no schema, handler, or `dispatch()` branch) | `test_web_search_is_declared_as_a_provider_executed_server_tool`, `test_web_search_has_no_client_side_dispatch_handler`, `test_dispatch_reports_web_search_as_unknown_since_it_has_no_client_handler` |
-| Surface server-executed web-search activity without dispatching it | `loop.py:_emit_server_tool_events`, `loop.py:run_agent_loop` (call site, emitted before text so the search precedes the text reporting on it; also handles `stop_reason == "pause_turn"` in the same branch as `tool_use` so a paused response's `tool_use` blocks are still dispatched rather than dropped - see Notes), `__main__.py:_print_event` (`server_tool_use`/`web_search_result`/`pause_turn` branches) | `test_loop_surfaces_server_tool_use_and_web_search_result_without_dispatching`, `test_loop_surfaces_a_web_search_error_result`, `test_print_event_renders_server_tool_use_and_web_search_result`, `test_loop_resends_on_pause_turn_instead_of_terminating`, `test_loop_dispatches_tool_use_blocks_present_alongside_pause_turn`, `test_print_event_renders_pause_turn`, `test_multi_step_live_france_population_search_then_calculate` |
-| Execute a requested tool and return its result | `loop.py:run_agent_loop` (the `stop_reason == "tool_use"` branch, `tools.dispatch` call, and message threading - client tools only, i.e. `calculator`), `tools.py:dispatch` (never raises on malformed input) | `test_loop_executes_tool_use_and_threads_result_back_to_claude`, `test_dispatch_returns_error_result_for_malformed_input_instead_of_raising` |
-| Indicate when multiple tools are requested in a single turn | `loop.py:run_agent_loop` (`batch_index`/`batch_size` on each `tool_use` event), `__main__.py:_print_event` (renders the batch position) | `test_loop_annotates_tool_use_events_with_batch_position_when_requested_together`, `test_loop_marks_a_solo_tool_use_event_with_batch_size_one`, `test_print_event_labels_a_batched_tool_use_but_not_a_solo_one` |
-| Terminate only on end_turn | `loop.py:run_agent_loop` (checks `response.stop_reason`, never `response.content[0].type` or response text) | `test_loop_terminates_only_on_end_turn_not_on_text_content_type` |
-| Support multiple sequential tool calls | `loop.py:run_agent_loop` (the `for` loop over `max_iterations`) | `test_loop_supports_multiple_sequential_tool_calls`, `test_multi_step_live_france_population_search_then_calculate` |
-| Enforce a maximum iteration safety cap | `loop.py:MAX_ITERATIONS`, `loop.py:run_agent_loop` (post-loop `logger.warning` and `"max_iterations"` return) | `test_loop_enforces_max_iterations_safety_cap_and_logs_warning` |
+| Register a calculator tool | `agent_loop.py:TOOLS` (calculator schema), `agent_loop.py:evaluate_expression`, `agent_loop.py:calculator` | `test_calculator_tool_schema_declares_name_description_and_expression_input`, `test_calculator_evaluates_arithmetic_expression`, `test_calculator_rejects_non_arithmetic_expression_without_raising`, `test_calculator_reports_division_by_zero_as_error_not_exception`, `test_calculator_rejects_expression_over_the_length_cap_before_it_can_overflow`, `test_calculator_rejects_expression_over_the_length_cap_before_it_can_recurse`, `test_calculator_rejects_expression_that_evaluates_to_a_non_finite_result` |
+| Register a web-search tool | `agent_loop.py:TOOLS` (`web_search_20260209` server-tool declaration; no schema, handler, or `dispatch()` branch) | `test_web_search_is_declared_as_a_provider_executed_server_tool`, `test_web_search_has_no_client_side_dispatch_handler`, `test_dispatch_reports_web_search_as_unknown_since_it_has_no_client_handler` |
+| Surface server-executed web-search activity without dispatching it | `agent_loop.py:_emit_server_tool_events`, `agent_loop.py:run_agent_loop` (call site, emitted before text so the search precedes the text reporting on it; also handles `stop_reason == "pause_turn"` in the same branch as `tool_use` so a paused response's `tool_use` blocks are still dispatched rather than dropped - see Notes), `agent_loop.py:_print_event` (`server_tool_use`/`web_search_result`/`pause_turn` branches) | `test_loop_surfaces_server_tool_use_and_web_search_result_without_dispatching`, `test_loop_surfaces_a_web_search_error_result`, `test_print_event_renders_server_tool_use_and_web_search_result`, `test_loop_resends_on_pause_turn_instead_of_terminating`, `test_loop_dispatches_tool_use_blocks_present_alongside_pause_turn`, `test_print_event_renders_pause_turn`, `test_multi_step_live_france_population_search_then_calculate` |
+| Execute a requested tool and return its result | `agent_loop.py:run_agent_loop` (the `stop_reason == "tool_use"` branch, `agent_loop.dispatch` call, and message threading - client tools only, i.e. `calculator`), `agent_loop.py:dispatch` (never raises on malformed input) | `test_loop_executes_tool_use_and_threads_result_back_to_claude`, `test_dispatch_returns_error_result_for_malformed_input_instead_of_raising` |
+| Indicate when multiple tools are requested in a single turn | `agent_loop.py:run_agent_loop` (`batch_index`/`batch_size` on each `tool_use` event), `agent_loop.py:_print_event` (renders the batch position) | `test_loop_annotates_tool_use_events_with_batch_position_when_requested_together`, `test_loop_marks_a_solo_tool_use_event_with_batch_size_one`, `test_print_event_labels_a_batched_tool_use_but_not_a_solo_one` |
+| Terminate only on end_turn | `agent_loop.py:run_agent_loop` (checks `response.stop_reason`, never `response.content[0].type` or response text) | `test_loop_terminates_only_on_end_turn_not_on_text_content_type` |
+| Support multiple sequential tool calls | `agent_loop.py:run_agent_loop` (the `for` loop over `max_iterations`) | `test_loop_supports_multiple_sequential_tool_calls`, `test_multi_step_live_france_population_search_then_calculate` |
+| Enforce a maximum iteration safety cap | `agent_loop.py:MAX_ITERATIONS`, `agent_loop.py:run_agent_loop` (post-loop `logger.warning` and `"max_iterations"` return) | `test_loop_enforces_max_iterations_safety_cap_and_logs_warning` |
 
 ## Notes
 
 - `test_dispatch_returns_error_result_for_malformed_input_instead_of_raising` is a regression
-  test added after `/code-review` round 1 found `tools.dispatch()` calling each tool's handler
+  test added after `/code-review` round 1 found `agent_loop.dispatch()` calling each tool's handler
   unguarded: a `tool_use` block missing a required field, or supplying the wrong type, raised a
   raw `KeyError`/`TypeError`/`AttributeError` and crashed the whole loop, instead of the
   `{"error": ...}` result `dispatch()`'s own docstring and design.md both promise. Fix: `dispatch`
@@ -50,7 +53,7 @@ are relative to `agent_loop/` (repo root); test paths are relative to the repo r
   from normal completion to a caller driving off the event stream, even though the returned
   `terminated_via` value was already correct. Fix: a distinct `{"type": "terminated",
   "stop_reason": ...}` event now carries the real stop_reason, covered by
-  `test_loop_emits_terminated_event_for_a_non_end_turn_stop_reason`; `__main__.py`'s
+  `test_loop_emits_terminated_event_for_a_non_end_turn_stop_reason`; `agent_loop.py`'s
   post-loop check (which duplicated this same warning) was removed since the event stream now
   reports it directly.
 - Requirement "Indicate when multiple tools are requested in a single turn" was added after the
@@ -117,6 +120,6 @@ are relative to `agent_loop/` (repo root); test paths are relative to the repo r
   blocks present, regardless of which of the two stop_reasons triggered it - this also removed a
   duplicated `messages.append({"role": "assistant", ...})` line the two branches used to repeat
   independently (a separate reuse-angle finding). The same review also found
-  `__main__.py:_print_event` had no branch for the `pause_turn` event type `loop.py` emits, so a
+  `agent_loop.py:_print_event` had no branch for the `pause_turn` event type `agent_loop.py` emits, so a
   real pause_turn produced zero CLI transcript output for that step; fixed with a dedicated
   render branch.

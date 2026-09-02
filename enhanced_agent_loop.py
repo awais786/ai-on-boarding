@@ -1,6 +1,6 @@
 """enhanced_agent_loop.py - a second, standalone agent-loop worked example.
 
-Extends the base ask -> dispatch -> observe -> repeat loop (see loop.py, a separate
+Extends the base ask -> dispatch -> observe -> repeat loop (see agent_loop.py, a separate
 exercise this script does not import from) with three additions in different layers:
 a real (non-mocked) `web_search` tool backed by DuckDuckGo's free Instant Answer API,
 dispatch-boundary argument validation via `validate_args`, and a few-shot example that
@@ -8,7 +8,7 @@ steers tool-choice ordering for ambiguous requests. See
 openspec/changes/enhanced-agent-loop/ for the full proposal/spec/design.
 
 Run by hand:
-    python -m agent_loop.enhanced_agent_loop "<prompt>"
+    python -m enhanced_agent_loop "<prompt>"
 """
 
 import ast
@@ -85,7 +85,7 @@ FEW_SHOT_EXAMPLE = [
 ]
 
 
-# --- calculator: same ast-based whitelist approach as agent_loop/tools.py -----------
+# --- calculator: same ast-based whitelist approach as agent_loop.py -----------------
 # (a separate copy, not an import - see design.md's "self-contained script" decision)
 
 _ALLOWED_BINARY_OPERATORS = {
@@ -242,7 +242,7 @@ def run_agent_loop(client, prompt, max_iterations=MAX_ITERATIONS, on_event=None)
 
     The few-shot example (one user/assistant pair demonstrating web_search -> calculator
     ordering) is prepended before `prompt` on every call. Returns `(final_text, tool_calls,
-    terminated_via)`, matching agent_loop/loop.py's `run_agent_loop` contract.
+    terminated_via)`, matching agent_loop.py's `run_agent_loop` contract.
     """
     emit = on_event if on_event is not None else lambda event: None
     messages = list(FEW_SHOT_EXAMPLE) + [{"role": "user", "content": prompt}]
@@ -338,7 +338,7 @@ def _print_event(event):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 1:
-        print('usage: python -m agent_loop.enhanced_agent_loop "<prompt>"', file=sys.stderr)
+        print('usage: python -m enhanced_agent_loop "<prompt>"', file=sys.stderr)
         raise SystemExit(1)
 
     prompt = argv[0]

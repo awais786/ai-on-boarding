@@ -1,19 +1,19 @@
 ## 1. Script scaffolding
 
-- [x] 1.1 Create `agent_loop/enhanced_agent_loop.py` (a sibling module to `loop.py`/`tools.py`,
-  not an edit to them), importable/runnable standalone, and verify
-  `python -m agent_loop.enhanced_agent_loop` (no args) prints a usage message rather than
+- [x] 1.1 Create `enhanced_agent_loop.py` (a sibling script to `agent_loop.py`,
+  not an edit to it), importable/runnable standalone, and verify
+  `python -m enhanced_agent_loop` (no args) prints a usage message rather than
   crashing
-- [x] 1.2 Reuse `agent_loop/requirements.txt`'s `anthropic` pin (or add an equivalent one scoped
+- [x] 1.2 Reuse `requirements-agent-loop.txt`'s `anthropic` pin (or add an equivalent one scoped
   to this script) - no new third-party dependency for `web_search`, since it uses
   `urllib.request`/`json` from the standard library per design.md (no new requirements file
   needed - `anthropic` is the only external dependency and it's already covered by
-  `agent_loop/requirements.txt`)
+  `requirements-agent-loop.txt`)
 
 ## 2. Tools and validation
 
 - [x] 2.1 Implement `calculator(expression)` using the same `ast`-based whitelist evaluator
-  approach as `agent_loop/tools.py` (own copy, not an import - see design.md), and verify it by
+  approach as `agent_loop.py` (own copy, not an import - see design.md), and verify it by
   evaluating a sample expression directly
 - [x] 2.2 Implement `web_search(query)`: GET
   `https://api.duckduckgo.com/?q=<query>&format=json&no_html=1` with a 5s timeout via
@@ -32,7 +32,7 @@
 ## 3. Loop and few-shot prompting
 
 - [x] 3.1 Implement the agent loop (`ask -> dispatch -> observe -> repeat`, structurally matching
-  `agent_loop/loop.py`'s control flow: call the Messages API with both tools registered, execute
+  `agent_loop.py`'s control flow: call the Messages API with both tools registered, execute
   `tool_use` via `dispatch`, feed back `tool_result`, terminate only on `stop_reason == "end_turn"`,
   with a `MAX_ITERATIONS = 20` safety cap), and verify by forcing the cap with a fake client that
   always returns `tool_use`
@@ -40,7 +40,7 @@
   `web_search` -> `calculator` ordering for an ambiguous request, prepended before the real user
   message on every run, and verify by inspecting the constructed `messages` list before the first
   API call
-- [x] 3.3 Add the CLI entry point (`python -m agent_loop.enhanced_agent_loop "<prompt>"`) printing the
+- [x] 3.3 Add the CLI entry point (`python -m enhanced_agent_loop "<prompt>"`) printing the
   running transcript, including an `[action] web_search(...)` line whenever `web_search` runs,
   and verify by running it by hand against the live API with the France-population-divided
   prompt from the review comment
@@ -55,7 +55,7 @@
 - [x] 4.3 Write a test asserting the few-shot message pair is present and precedes the real user
   message in the constructed conversation
 - [x] 4.4 Write the live acceptance test(s) (`pytest.mark.skipif` when `ANTHROPIC_API_KEY` is
-  unset, per `agent_loop/`'s existing pattern): run the France-population-divided-by-1000 prompt
+  unset, per `agent_loop.py`'s existing pattern): run the France-population-divided-by-1000 prompt
   end-to-end and confirm it completes via `end_turn` with a `web_search` step in the transcript;
   run at least 3 differently-worded ambiguous prompts and confirm `web_search` precedes
   `calculator` in each

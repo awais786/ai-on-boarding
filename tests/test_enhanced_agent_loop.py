@@ -25,7 +25,7 @@ from unittest import mock
 
 import pytest
 
-from agent_loop import enhanced_agent_loop as eal
+import enhanced_agent_loop as eal
 
 
 def _text_block(text):

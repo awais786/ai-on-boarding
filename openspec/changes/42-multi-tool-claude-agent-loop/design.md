@@ -1,7 +1,7 @@
 ## Context
 
 See proposal.md - Why. This capability has no relationship to `sdd_django_demo/`: no HTTP
-surface, no ORM, no DRF. It is a new, Django-independent Python package at the repo root that
+surface, no ORM, no DRF. It is a new, Django-independent standalone script at the repo root that
 talks to the real Claude Messages API. This is also the first place in the repo where a test
 needs a live network call and an API key (`ANTHROPIC_API_KEY`) rather than running fully offline.
 
@@ -23,15 +23,17 @@ needs a live network call and an API key (`ANTHROPIC_API_KEY`) rather than runni
 
 ## Decisions
 
-**Package layout: new top-level `agent_loop/` directory, sibling to `sdd_django_demo/`.**
+**File layout: new top-level `agent_loop.py`, sibling to `sdd_django_demo/`.**
 Nothing here needs Django, DRF, or the ORM, so nesting it inside `sdd_django_demo/` would add a
-fake dependency in the other direction (a non-Django module living inside a Django project).
-Layout:
-- `agent_loop/tools.py` - the two tool definitions (JSON schema + implementation) and a
-  `TOOLS` list plus a `dispatch(name, input)` function.
-- `agent_loop/loop.py` - `run_agent_loop(client, messages, max_iterations=20)`, the loop itself.
-- `agent_loop/__main__.py` - lets the loop be run by hand (`python -m agent_loop "<prompt>"`)
-  against the live API, to manually reproduce the issue's worked example.
+fake dependency in the other direction (a non-Django module living inside a Django project). A
+single standalone script, not a package, so the whole worked example reads top-to-bottom in one
+file - the same shape as the sibling `enhanced_agent_loop.py` script (see the
+`enhanced-agent-loop` change). Internally organized into clearly commented sections:
+- calculator (tool definition, JSON schema, and the `ast`-based safe-eval implementation)
+- dispatch (`TOOLS` list plus `dispatch(name, input)`)
+- loop (`run_agent_loop(client, messages, max_iterations=20)`)
+- CLI entry point - lets the loop be run by hand (`python -m agent_loop "<prompt>"`) against the
+  live API, to manually reproduce the issue's worked example.
 - `tests/test_agent_loop.py` - the multi-step test.
 
 **Model: `claude-haiku-4-5-20251001`.** Superseded from an initial choice of `claude-sonnet-5`

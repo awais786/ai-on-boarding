@@ -117,3 +117,17 @@
   belong in their own section after implementation" rule by embedding test tasks inside the
   implementation section - fixed by splitting section 7 into 7 (implementation), 8 (tests), 9
   (traceability/review), as done above
+
+## 10. Collapse the package into a single file
+
+- [x] 10.1 Per repo-owner request while implementing the sibling `enhanced-agent-loop` change:
+  merge `agent_loop/tools.py`, `agent_loop/loop.py`, and `agent_loop/__main__.py` into one
+  top-level `agent_loop.py`, organized into commented sections (calculator / dispatch / loop /
+  CLI entry point) - the same shape as `enhanced_agent_loop.py`, so both worked examples are
+  standalone, single-file scripts rather than one package and one script
+- [x] 10.2 Drop `agent_loop/__init__.py` and the package directory; rename
+  `agent_loop/requirements.txt` to `requirements-agent-loop.txt` at the repo root
+- [x] 10.3 Update `tests/test_agent_loop.py`'s imports (`import agent_loop` in place of
+  `from agent_loop import tools` / `.loop` / `.__main__`) and `design.md`/`traceability.md` to
+  match; verified with `pytest tests/test_agent_loop.py tests/test_enhanced_agent_loop.py` (all
+  passing) and a manual `python -m agent_loop` run (prints the usage message)
