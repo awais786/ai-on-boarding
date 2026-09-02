@@ -20,14 +20,34 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
+#
+# SECRET_KEY, DEBUG, and ALLOWED_HOSTS are all overridable via environment variables,
+# each defaulting to exactly the value below when unset - so every contributor's local
+# setup and the test suite are completely unaffected, and only a deployment that
+# explicitly sets these gets different behaviour.
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-5)e59r^si84)73b(kqi!2-64cbji^ei0tvay_ptqt5djufq%@c'
+# The fallback below is intentionally the well-known Django "insecure" placeholder -
+# fine for local dev/tests, never for a real deployment. Set DJANGO_SECRET_KEY to a
+# real generated value wherever this runs for real.
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-5)e59r^si84)73b(kqi!2-64cbji^ei0tvay_ptqt5djufq%@c',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# '1'/'0' rather than a bare boolean env var, matching this file's existing
+# RESET_SMTP_TLS convention - explicit opt-out, not "any non-empty string is true".
+DEBUG = os.environ.get('DJANGO_DEBUG', '1') != '0'
 
-ALLOWED_HOSTS = []
+# Comma-separated, e.g. DJANGO_ALLOWED_HOSTS=10.10.5.176,example.com - empty by
+# default, matching today's behaviour (DEBUG=True with no ALLOWED_HOSTS auto-allows
+# localhost/127.0.0.1 only, which is all local dev and the test suite ever need).
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',')
+    if host.strip()
+]
 
 
 # Application definition
@@ -169,6 +189,13 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Required for `manage.py collectstatic` to run at all - without it the command
+# refuses outright ("you're using the staticfiles app without having set STATIC_ROOT").
+# Harmless for local dev: `runserver` serves static files itself when DEBUG=True and
+# never touches this directory; only collectstatic (run for a real deployment, so nginx
+# or similar can serve admin/DRF-browsable-API assets directly) writes to it.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
@@ -228,5 +255,9 @@ DEFAULT_FROM_EMAIL = os.environ.get('RESET_SMTP_FROM', 'no-reply@example.com')
 # from the incoming request: the request that asks for a reset is made by whoever
 # wants it, so trusting its Host would let an attacker aim a genuine reset mail at
 # their own server. See the change's design.md for the full reasoning.
+#
+# Overridable via RESET_LINK_BASE_URL so a real deployment's reset emails point at
+# its actual address instead of localhost - defaults to the value below (unchanged
+# from before) when unset, so local dev and the test suite see no difference.
 
-RESET_LINK_BASE_URL = 'http://localhost:8000'
+RESET_LINK_BASE_URL = os.environ.get('RESET_LINK_BASE_URL', 'http://localhost:8000')
