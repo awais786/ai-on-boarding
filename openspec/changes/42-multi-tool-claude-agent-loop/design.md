@@ -14,7 +14,9 @@ needs a live network call and an API key (`ANTHROPIC_API_KEY`) rather than runni
 - A test that exercises the exact two-tool transcript from issue #42 against the real API.
 
 **Non-Goals:**
-- A real web-search integration - `web_search` stays a stub per the proposal.
+- Domain/region filtering for `web_search` (`allowed_domains`, `user_location`) - not added
+  unless a concrete scenario needs it. (Supersedes the original "`web_search` stays a stub"
+  non-goal - see the Decisions section below, per the PR #43 review request.)
 - A general-purpose expression language for `calculator` - just enough arithmetic to satisfy the
   spec's scenarios.
 - Any Django integration, HTTP endpoint, or persistence.
@@ -75,15 +77,24 @@ sequential, per the earlier decision not to add concurrency for this exercise's 
 stub tools (see the Risks/Trade-offs note on `web_search`/parallel dispatch below). This only
 makes the existing behavior observable; it does not change it.
 
-**`web_search` is a small fixed lookup table with a generic fallback.** It returns a
-deterministic string that includes the number learners need for the two-step example, so the
-same fixture that this repo's acceptance test drives can also be run by hand.
+**`web_search` is Anthropic's provider-executed server tool, not a client stub (supersedes the
+original stub decision, per the PR #43 review request from the repo owner).** Registered as
+`{"type": "web_search_20260209", "name": "web_search", "max_uses": 3}` in `TOOLS` - no
+`input_schema`, no handler function, no `dispatch()` branch, since Anthropic's servers execute
+the search and return a `server_tool_use`/`web_search_tool_result` block pair within the same
+response. `max_uses: 3` bounds the number of searches performed for a single request, mirroring
+the loop's own iteration cap in spirit. Domain/region filtering (`allowed_domains`,
+`user_location`) is deliberately left out, per the review comment's stated non-goal, unless a
+concrete scenario needs it.
 
 **Loop control flow:**
 ```
 messages = [initial user message]
 for iteration in range(1, MAX_ITERATIONS + 1):
     response = client.messages.create(model=..., tools=TOOLS, messages=messages)
+    emit any server_tool_use/web_search_tool_result blocks in response.content (observational
+    only - never dispatched, never fed back as a client tool_result) BEFORE emitting text, so a
+    search always appears in the transcript before the text that reports on it
     if response.stop_reason == "tool_use":
         messages.append({"role": "assistant", "content": response.content})
         tool_results = [execute each tool_use block via tools.dispatch(...)]
@@ -128,7 +139,14 @@ terminal-with-a-warning rather than silently continuing.
   one would be design creep beyond what today's requirements ask for.
 - **Multiple `tool_use` blocks in one response are still dispatched sequentially, not
   concurrently** → each is now labeled with its position in the batch (see the Decisions
-  section above), but execution order stays a plain loop. `calculator`/`web_search` are
-  near-instant stubs, so this costs nothing today; concurrent dispatch was deliberately not
-  added, since it would anticipate a future real network-bound tool this exercise doesn't have -
-  design creep beyond what today's requirements ask for, same reasoning as the guard above.
+  section above), but execution order stays a plain loop. `calculator` calls are near-instant, so
+  this costs nothing today; concurrent dispatch was deliberately not added, since it would
+  anticipate a future real network-bound client tool this exercise doesn't have - design creep
+  beyond what today's requirements ask for, same reasoning as the guard above.
+- **`web_search` now makes a real network call with real cost, on every code path that exercises
+  it** → unlike the old fixed lookup table, there is no offline mock to fall back on; unit tests
+  that need to assert on `web_search` behavior without a live API key must script a fake
+  `server_tool_use`/`web_search_tool_result` response rather than calling `tools.dispatch` (there
+  is no `web_search` dispatch branch left to call), and the live acceptance test's assertions
+  about the returned figure may need to loosen now that the result comes from a real search
+  rather than a fixed stub string.

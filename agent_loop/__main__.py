@@ -33,6 +33,16 @@ def _print_event(event):
             print(f"\ntool_use:\n{call}")
     elif etype == "tool_result":
         print(f'\ntool_result:\n"{event["content"]}"')
+    elif etype == "server_tool_use":
+        call = _format_tool_call(event["name"], event["input"])
+        print(f"\nserver_tool_use (executed by Anthropic, not this code):\n{call}")
+    elif etype == "web_search_result":
+        if event["is_error"]:
+            print(f'\nweb_search_result (error):\n{event["content"]}')
+        else:
+            print(f'\nweb_search_result:\n{event["content"]}')
+    elif etype == "pause_turn":
+        print("\n[info] server paused a long-running turn - resending to continue")
     elif etype == "end_turn":
         print("\nend_turn")
     elif etype == "terminated":

@@ -24,24 +24,41 @@ evaluating that expression as a mathematical expression - not by evaluating it a
   continues with that error as the tool result
 
 ### Requirement: Register a web-search tool
-The system SHALL register a tool named `web_search` with a description and an `input_schema`
-requiring a single string property `query`, and it SHALL return a stubbed/mocked search result
-for that query rather than calling any real external search service.
+The system SHALL register `web_search` as Anthropic's provider-executed server tool by including
+`{"type": "web_search_20260209", "name": "web_search", "max_uses": 3}` in the `tools` list sent to
+the Messages API. The system SHALL NOT implement a client-side handler, mock lookup table, or
+`dispatch()` branch for `web_search` - Anthropic's servers perform the search and return results
+within the same API response, so there is nothing left for this code to execute.
 
-#### Scenario: Search query submitted
-- **WHEN** the web_search tool is invoked with a `query`
-- **THEN** it returns a mock result string relevant to that query, with no outbound network call
-  to a search engine
+#### Scenario: web_search is available to Claude
+- **WHEN** the agent loop sends a request to Claude
+- **THEN** the request's `tools` list includes the `web_search` server tool declaration, capped at
+  `max_uses: 3`, and no client-side search implementation or mock data exists anywhere in this code
+
+### Requirement: Surface server-executed web-search activity without dispatching it
+When a response from Claude includes a `server_tool_use` block naming `web_search` and its
+corresponding `web_search_tool_result` block, the system SHALL make both observable to a caller
+(via `on_event`) and SHALL NOT call `tools.dispatch` or construct a `tool_result` message for
+them, since Anthropic's servers already executed the search and returned its result within that
+same response.
+
+#### Scenario: Server executes a web search
+- **WHEN** a response contains a `server_tool_use` block naming `web_search` and a
+  `web_search_tool_result` block
+- **THEN** the loop emits an event describing the search and its result, and does not attempt to
+  execute anything or append a client-constructed `tool_result` for it
 
 ### Requirement: Execute a requested tool and return its result
 When Claude's response has `stop_reason` equal to `tool_use`, the system SHALL extract every
-`tool_use` content block, execute the tool it names with the input it supplies, append Claude's
-assistant message to the conversation, append a `user` message containing the corresponding
-`tool_result` block(s), and send the updated conversation back to Claude.
+`tool_use` content block - client tools only, i.e. `calculator`, since `web_search` is
+server-executed and never appears as a `tool_use` block - execute the tool it names with the
+input it supplies, append Claude's assistant message to the conversation, append a `user` message
+containing the corresponding `tool_result` block(s), and send the updated conversation back to
+Claude.
 
 #### Scenario: Single tool call requested
-- **WHEN** Claude's response has `stop_reason == "tool_use"` and one `tool_use` block naming a
-  registered tool
+- **WHEN** Claude's response has `stop_reason == "tool_use"` and one `tool_use` block naming the
+  `calculator` tool
 - **THEN** that tool is executed with the given input, and the next request to Claude includes
   both Claude's assistant message and a user message carrying the `tool_result`
 
@@ -51,7 +68,9 @@ that fact observable for each of those tool calls, distinguishing it from a tool
 arrived alone in its own turn - rather than presenting every tool call identically regardless of
 whether it was requested together with others. This is distinct from the "Support multiple
 sequential tool calls" requirement below, which concerns tool calls spread across separate round
-trips, not multiple `tool_use` blocks within one response.
+trips, not multiple `tool_use` blocks within one response. This applies to `tool_use` blocks
+(client tools) only; a `server_tool_use` block for `web_search` is a separate block type and is
+not counted toward this batch.
 
 #### Scenario: Two tools requested in one turn
 - **WHEN** Claude's response has `stop_reason == "tool_use"` and contains two `tool_use` blocks
@@ -81,16 +100,18 @@ response text (e.g. "I'm done"), as a signal to terminate.
   presence of text content as completion
 
 ### Requirement: Support multiple sequential tool calls
-The system SHALL support any number of sequential tool-use round trips - each ending in a
-`tool_result` fed back to Claude - before the loop terminates via `end_turn`, without requiring
-that a request use only one tool or be answerable in a single tool call.
+The system SHALL support any number of sequential `tool_use` round trips for client tools - each
+ending in a `tool_result` fed back to Claude - and any number of server-executed `web_search`
+invocations within a single response, before the loop terminates via `end_turn`, without
+requiring that a request use only one tool or complete in a single exchange.
 
-#### Scenario: Two different tools used in sequence
-- **WHEN** a request requires first calling `web_search` to obtain a value and then calling
-  `calculator` using that value
-- **THEN** the loop executes `web_search`, feeds back its result, executes `calculator` with a
-  value derived from that result, feeds back its result, and only then terminates on `end_turn`
-  with a final answer reflecting both steps
+#### Scenario: Server-executed search followed by a client tool call
+- **WHEN** a request requires Claude to look up a value via the server-executed `web_search` tool
+  and then call the client `calculator` tool using that value
+- **THEN** the `web_search` invocation and its result appear within a single response (no client
+  round trip for it), the loop then executes `calculator` in its own `tool_use`/`tool_result`
+  round trip when Claude requests it, and the loop terminates via `end_turn` with a final answer
+  reflecting both steps
 
 ### Requirement: Enforce a maximum iteration safety cap
 The system SHALL stop the loop and log a warning if it completes 20 round trips to Claude

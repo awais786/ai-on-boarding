@@ -14,7 +14,10 @@ than a completion mechanism they infer from response content.
   `web_search`) with JSON Schema `input_schema` definitions, and a loop that calls Claude, acts
   on `tool_use` by executing the matching tool and feeding the result back, and terminates only
   on `stop_reason == "end_turn"`.
-- `web_search` returns a fixed/mock result keyed by query; it does not call a real search API.
+- `web_search` is registered as Anthropic's provider-executed server tool
+  (`web_search_20260209`, `max_uses: 3`); Anthropic's servers perform the real search - this code
+  implements no search logic, mock or otherwise. (Supersedes the original stub decision, per the
+  PR #43 review request from the repo owner.)
 - `calculator` evaluates a numeric expression string and returns the result; it does not use an
   unrestricted `eval`.
 - A hard-coded `MAX_ITERATIONS = 20` guardrail stops the loop and logs a warning if reached; it
@@ -46,3 +49,7 @@ specs)
   first place in this repo where running the test suite needs one, since the acceptance test
   calls the live API rather than a stub.
 - No changes to `sdd_django_demo/`, its specs, or its tests.
+- `web_search` test coverage can no longer run fully offline against a mock the way it
+  originally could; unit tests exercise the new `server_tool_use` event handling via a scripted
+  fake response instead, and the live acceptance test now depends on a real web search result
+  rather than a fixed stub string.

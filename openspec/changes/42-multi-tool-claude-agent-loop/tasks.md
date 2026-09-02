@@ -75,3 +75,45 @@
   together, one tool requested alone), and update `traceability.md`
 - [x] 6.5 Run `/code-review` and address any finding that cites a requirement, a named failing
   test, or a documented convention
+
+## 7. Replace web_search with Anthropic's server-executed tool (PR #43 review change request)
+
+- [x] 7.1 In `agent_loop/tools.py`, remove `_MOCK_SEARCH_RESULTS`, `web_search()`, and its entry
+  in `_TOOL_FUNCTIONS`/`dispatch()`; replace the `web_search` entry in `TOOLS` with the server
+  tool declaration `{"type": "web_search_20260209", "name": "web_search", "max_uses": 3}`
+- [x] 7.2 In `agent_loop/loop.py`, add handling for `server_tool_use` and `web_search_tool_result`
+  content block types in the response, distinct from `tool_use` - surface via a new `on_event`
+  event type, and do not call `tools.dispatch` or append a `tool_result` for them
+- [x] 7.3 Update `agent_loop/__main__.py`'s `_print_event` to render the new
+  `server_tool_use`/`web_search_tool_result` event
+
+## 8. Tests for the web_search migration (after implementation, from the spec)
+
+- [x] 8.1 Update `tests/test_agent_loop.py`: remove the `web_search` schema/mock-result/fallback
+  tests tied to the old client-tool shape; add tests (scripted client) asserting the new event is
+  surfaced without `tools.dispatch` being called for `web_search`
+- [x] 8.2 Update the live acceptance test to reflect that `web_search` is now a real
+  server-executed search rather than the fixed France-population stub - decide whether the
+  existing population/10% assertions still hold against a real result, or need loosening
+
+## 9. Traceability, review, and round-2 fixes
+
+- [x] 9.1 Update `traceability.md` for the requirements touched by sections 7-8
+- [x] 9.2 Run `/code-review` and address any finding that cites a requirement, a named failing
+  test, or a documented convention
+- [x] 9.3 Run `/code-review` again (round 2, verify-only) - this pass ran while implementing the
+  separate `enhanced-agent-loop` change (which reviews the full working-tree diff, so it also
+  covered these uncommitted files) and surfaced a real gap: `run_agent_loop` treated
+  `stop_reason == "pause_turn"` as terminal instead of resumable, plausible now that
+  `web_search` allows up to 3 real, network-bound searches in one turn
+- [x] 9.4 Fix: unify the `pause_turn` and `tool_use` branches in `agent_loop/loop.py` so a
+  paused response's `tool_use` blocks (if any) are still dispatched rather than silently
+  dropped, and `__main__.py`'s `_print_event` gets a `pause_turn` render branch (it previously
+  had none, so a real pause_turn produced no CLI output for that step); covered by
+  `test_loop_resends_on_pause_turn_instead_of_terminating`,
+  `test_loop_dispatches_tool_use_blocks_present_alongside_pause_turn`, and
+  `test_print_event_renders_pause_turn`
+- [x] 9.5 This section (7-9) was also found to violate `openspec/config.yaml`'s "test tasks
+  belong in their own section after implementation" rule by embedding test tasks inside the
+  implementation section - fixed by splitting section 7 into 7 (implementation), 8 (tests), 9
+  (traceability/review), as done above

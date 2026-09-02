@@ -1,19 +1,23 @@
 """Tests for the multi-tool agent loop, derived from
 openspec/changes/42-multi-tool-claude-agent-loop/specs/multi-tool-agent-loop/spec.md.
 
-Requirement -> what a test needs to assert (task 4.1):
+Requirement -> what a test needs to assert (task 4.1, revised for the PR #43 review change that
+replaced the client-side web_search stub with Anthropic's provider-executed server tool):
 - Register a calculator tool: TOOLS declares name/description/input_schema requiring
   `expression` (string); evaluates arithmetic; returns an error result (not a raised
   exception) for non-arithmetic input or division by zero.
-- Register a web-search tool: TOOLS declares name/description/input_schema requiring
-  `query` (string); returns a mock result for a known query and a fallback otherwise.
+- Register a web-search tool: TOOLS declares the `web_search_20260209` server tool
+  (type/name/max_uses) - no input_schema, no client handler, no dispatch() branch.
+- Surface server-executed web-search activity without dispatching it: a `server_tool_use`
+  block naming web_search and its `web_search_tool_result` block are surfaced via on_event,
+  never passed to tools.dispatch and never fed back as a client-constructed tool_result.
 - Execute a requested tool and return its result: on stop_reason == "tool_use", the loop
-  executes the named tool, appends Claude's assistant message and a user message with the
-  tool_result to the conversation, and sends it back.
+  executes the named client tool (calculator), appends Claude's assistant message and a user
+  message with the tool_result to the conversation, and sends it back.
 - Terminate only on end_turn: the loop must not stop on a text content block accompanying
   a tool_use response; it must stop only when stop_reason == "end_turn".
-- Support multiple sequential tool calls: two different tools used back-to-back before
-  end_turn.
+- Support multiple sequential tool calls: a server-executed web_search (no client round trip)
+  followed by a client calculator round trip before end_turn.
 - Enforce a maximum iteration safety cap: stops after `max_iterations` round trips without
   end_turn, logs a warning, and does not make a further request.
 - The France-population example itself is exercised against the live API (see the test at
@@ -38,6 +42,20 @@ def _text_block(text):
 
 def _tool_use_block(block_id, name, tool_input):
     return SimpleNamespace(type="tool_use", id=block_id, name=name, input=tool_input)
+
+
+def _server_tool_use_block(block_id, name, tool_input):
+    return SimpleNamespace(type="server_tool_use", id=block_id, name=name, input=tool_input)
+
+
+def _web_search_tool_result_block(tool_use_id, results):
+    content = [SimpleNamespace(title=r["title"], url=r["url"]) for r in results]
+    return SimpleNamespace(type="web_search_tool_result", tool_use_id=tool_use_id, content=content)
+
+
+def _web_search_tool_result_error_block(tool_use_id, error_code):
+    content = SimpleNamespace(error_code=error_code)
+    return SimpleNamespace(type="web_search_tool_result", tool_use_id=tool_use_id, content=content)
 
 
 class _ScriptedClient:
@@ -113,24 +131,23 @@ def test_calculator_rejects_expression_that_evaluates_to_a_non_finite_result():
     assert "error" in outcome
 
 
-# --- web_search tool ----------------------------------------------------------------
+# --- web_search tool: Anthropic's provider-executed server tool ---------------------
+# Regression tests for the PR #43 review request: web_search is no longer a client-side
+# stub. It is declared as a server tool the API executes directly - there is no schema,
+# handler, or dispatch() branch for it in this code.
 
-def test_web_search_tool_schema_declares_name_description_and_query_input():
+def test_web_search_is_declared_as_a_provider_executed_server_tool():
     schema = next(t for t in tools.TOOLS if t["name"] == "web_search")
-    assert schema["name"] == "web_search"
-    assert schema["description"]
-    assert schema["input_schema"]["required"] == ["query"]
-    assert schema["input_schema"]["properties"]["query"]["type"] == "string"
+    assert schema == {"type": "web_search_20260209", "name": "web_search", "max_uses": 3}
 
 
-def test_web_search_returns_mock_result_for_known_query():
+def test_web_search_has_no_client_side_dispatch_handler():
+    assert "web_search" not in tools._TOOL_FUNCTIONS
+
+
+def test_dispatch_reports_web_search_as_unknown_since_it_has_no_client_handler():
     outcome = tools.dispatch("web_search", {"query": "France population"})
-    assert "68 million" in outcome["result"]
-
-
-def test_web_search_returns_fallback_for_unmatched_query():
-    outcome = tools.dispatch("web_search", {"query": "something nobody asked about"})
-    assert "No mock results" in outcome["result"]
+    assert outcome == {"error": "unknown tool: web_search"}
 
 
 # --- dispatch: malformed tool_input never crashes the loop --------------------------
@@ -144,8 +161,6 @@ def test_web_search_returns_fallback_for_unmatched_query():
     [
         ("calculator", {}),
         ("calculator", {"expression": 42}),
-        ("web_search", {}),
-        ("web_search", {"query": 5}),
     ],
 )
 def test_dispatch_returns_error_result_for_malformed_input_instead_of_raising(
@@ -213,20 +228,24 @@ def test_loop_terminates_only_on_end_turn_not_on_text_content_type():
 
 
 def test_loop_supports_multiple_sequential_tool_calls():
+    # The server-executed web_search costs no client round trip - its server_tool_use/
+    # web_search_tool_result blocks arrive in the same response as the calculator tool_use
+    # block, so only calculator shows up as a client round trip and in `tool_calls`.
     client = _ScriptedClient(
         [
             SimpleNamespace(
                 stop_reason="tool_use",
                 content=[
-                    _tool_use_block("toolu_1", "web_search", {"query": "France population"})
-                ],
-            ),
-            SimpleNamespace(
-                stop_reason="tool_use",
-                content=[
+                    _server_tool_use_block(
+                        "srvtoolu_1", "web_search", {"query": "France population"}
+                    ),
+                    _web_search_tool_result_block(
+                        "srvtoolu_1",
+                        [{"title": "France - Population", "url": "https://example.com/france"}],
+                    ),
                     _tool_use_block(
                         "toolu_2", "calculator", {"expression": "68000000 * 0.10"}
-                    )
+                    ),
                 ],
             ),
             SimpleNamespace(stop_reason="end_turn", content=[_text_block("6.8 million")]),
@@ -237,21 +256,96 @@ def test_loop_supports_multiple_sequential_tool_calls():
         client, [{"role": "user", "content": "Find France population and calculate 10%."}]
     )
 
-    assert [c["name"] for c in tool_calls] == ["web_search", "calculator"]
+    assert [c["name"] for c in tool_calls] == ["calculator"]
     assert final_text == "6.8 million"
     assert terminated_via == "end_turn"
-    assert len(client.calls) == 3
+    assert len(client.calls) == 2
+
+
+# --- loop: server-executed web_search is surfaced but never dispatched --------------
+
+def test_loop_surfaces_server_tool_use_and_web_search_result_without_dispatching():
+    client = _ScriptedClient(
+        [
+            SimpleNamespace(
+                stop_reason="end_turn",
+                content=[
+                    _server_tool_use_block(
+                        "srvtoolu_1", "web_search", {"query": "France population"}
+                    ),
+                    _web_search_tool_result_block(
+                        "srvtoolu_1",
+                        [{"title": "France - Population", "url": "https://example.com/france"}],
+                    ),
+                    _text_block("France's population is about 68 million."),
+                ],
+            ),
+        ]
+    )
+    events = []
+
+    final_text, tool_calls, terminated_via = run_agent_loop(
+        client, [{"role": "user", "content": "What is France's population?"}],
+        on_event=events.append,
+    )
+
+    assert tool_calls == []
+    assert terminated_via == "end_turn"
+    assert len(client.calls) == 1
+
+    event_types = [e["type"] for e in events]
+    assert "server_tool_use" in event_types
+    assert "web_search_result" in event_types
+    assert "tool_use" not in event_types
+    assert "tool_result" not in event_types
+
+    server_tool_use_event = next(e for e in events if e["type"] == "server_tool_use")
+    assert server_tool_use_event["name"] == "web_search"
+    assert server_tool_use_event["input"] == {"query": "France population"}
+
+    web_search_result_event = next(e for e in events if e["type"] == "web_search_result")
+    assert web_search_result_event["is_error"] is False
+    assert web_search_result_event["content"] == [
+        {"title": "France - Population", "url": "https://example.com/france"}
+    ]
+
+
+def test_loop_surfaces_a_web_search_error_result():
+    client = _ScriptedClient(
+        [
+            SimpleNamespace(
+                stop_reason="end_turn",
+                content=[
+                    _server_tool_use_block("srvtoolu_1", "web_search", {"query": "anything"}),
+                    _web_search_tool_result_error_block("srvtoolu_1", "unavailable"),
+                    _text_block("I couldn't search right now."),
+                ],
+            ),
+        ]
+    )
+    events = []
+
+    run_agent_loop(
+        client, [{"role": "user", "content": "search for anything"}], on_event=events.append
+    )
+
+    web_search_result_event = next(e for e in events if e["type"] == "web_search_result")
+    assert web_search_result_event["is_error"] is True
+    assert web_search_result_event["content"] == {"error_code": "unavailable"}
 
 
 # --- loop: multiple tool_use blocks in one turn are labeled as requested together -----
 
 def test_loop_annotates_tool_use_events_with_batch_position_when_requested_together():
+    # "translate" is a fictitious client tool used only to exercise generic batch-labeling
+    # mechanics with two distinct tool_use blocks - web_search is never a valid choice here,
+    # since it is server-executed and never produces a tool_use block.
     client = _ScriptedClient(
         [
             SimpleNamespace(
                 stop_reason="tool_use",
                 content=[
-                    _tool_use_block("toolu_1", "web_search", {"query": "France population"}),
+                    _tool_use_block("toolu_1", "translate", {"text": "bonjour"}),
                     _tool_use_block("toolu_2", "calculator", {"expression": "1 + 1"}),
                 ],
             ),
@@ -297,11 +391,13 @@ def test_loop_marks_a_solo_tool_use_event_with_batch_size_one():
 
 
 def test_print_event_labels_a_batched_tool_use_but_not_a_solo_one(capsys):
+    # "translate" is fictitious, same rationale as above - a client tool_use block never
+    # names web_search.
     _print_event(
         {
             "type": "tool_use",
-            "name": "web_search",
-            "input": {"query": "France population"},
+            "name": "translate",
+            "input": {"text": "bonjour"},
             "batch_index": 1,
             "batch_size": 2,
         }
@@ -318,9 +414,113 @@ def test_print_event_labels_a_batched_tool_use_but_not_a_solo_one(capsys):
 
     out = capsys.readouterr().out
     assert "tool_use (1 of 2 requested together):" in out
-    assert 'web_search("France population")' in out
+    assert 'translate("bonjour")' in out
     assert 'tool_use:\ncalculator("2 + 2")' in out
     assert out.count("requested together") == 1
+
+
+def test_print_event_renders_server_tool_use_and_web_search_result(capsys):
+    _print_event(
+        {"type": "server_tool_use", "name": "web_search", "input": {"query": "France population"}}
+    )
+    _print_event(
+        {
+            "type": "web_search_result",
+            "is_error": False,
+            "content": [{"title": "France - Population", "url": "https://example.com/france"}],
+        }
+    )
+    _print_event({"type": "web_search_result", "is_error": True, "content": {"error_code": "unavailable"}})
+
+    out = capsys.readouterr().out
+    assert "server_tool_use" in out
+    assert 'web_search("France population")' in out
+    assert "web_search_result:" in out
+    assert "France - Population" in out
+    assert "web_search_result (error):" in out
+    assert "unavailable" in out
+
+
+def test_print_event_renders_pause_turn(capsys):
+    _print_event({"type": "pause_turn"})
+
+    out = capsys.readouterr().out
+    assert "server paused" in out
+
+
+# Regression test for a /code-review finding: a "pause_turn" stop_reason (the server pausing a
+# long-running turn - e.g. several server-executed web_search calls in one turn) was falling
+# into the generic "any other stop_reason is terminal" branch, ending the loop and truncating
+# the answer instead of resending the paused response so the server could continue, per
+# Anthropic's own tool-runner handling of this stop_reason.
+
+def test_loop_resends_on_pause_turn_instead_of_terminating():
+    client = _ScriptedClient(
+        [
+            SimpleNamespace(
+                stop_reason="pause_turn",
+                content=[_server_tool_use_block("srvtoolu_1", "web_search", {"query": "a"})],
+            ),
+            SimpleNamespace(stop_reason="end_turn", content=[_text_block("done")]),
+        ]
+    )
+    events = []
+
+    final_text, tool_calls, terminated_via = run_agent_loop(
+        client, [{"role": "user", "content": "search for a lot of things"}],
+        on_event=events.append,
+    )
+
+    assert len(client.calls) == 2
+    assert terminated_via == "end_turn"
+    assert final_text == "done"
+    assert {"type": "pause_turn"} in events
+    assert not any(e["type"] == "terminated" for e in events)
+
+    second_call_messages = client.calls[1]["messages"]
+    assert second_call_messages[-1]["role"] == "assistant"
+
+
+# Regression test for a /code-review finding: a response with stop_reason == "pause_turn" that
+# also carries a client tool_use block would silently drop that tool_use block - never
+# dispatched, no tool_result ever produced for it - since the old pause_turn branch only
+# appended the assistant message and resent, never scanning for tool_use blocks the way the
+# tool_use branch did. Fix: pause_turn and tool_use are handled by the same branch, which always
+# dispatches any tool_use blocks present regardless of which of the two stop_reasons triggered it.
+
+def test_loop_dispatches_tool_use_blocks_present_alongside_pause_turn():
+    client = _ScriptedClient(
+        [
+            SimpleNamespace(
+                stop_reason="pause_turn",
+                content=[
+                    _server_tool_use_block("srvtoolu_1", "web_search", {"query": "a"}),
+                    _tool_use_block("toolu_1", "calculator", {"expression": "2 + 2"}),
+                ],
+            ),
+            SimpleNamespace(stop_reason="end_turn", content=[_text_block("done")]),
+        ]
+    )
+    events = []
+
+    final_text, tool_calls, terminated_via = run_agent_loop(
+        client, [{"role": "user", "content": "search and calculate"}], on_event=events.append
+    )
+
+    assert terminated_via == "end_turn"
+    assert tool_calls == [{"name": "calculator", "input": {"expression": "2 + 2"}}]
+    assert {"type": "pause_turn"} in events
+
+    second_call_messages = client.calls[1]["messages"]
+    assert second_call_messages[-2]["role"] == "assistant"
+    assert second_call_messages[-1]["role"] == "user"
+    tool_result = second_call_messages[-1]["content"][0]
+    assert tool_result == {
+        "type": "tool_result",
+        "tool_use_id": "toolu_1",
+        "content": "4",
+        "is_error": False,
+    }
 
 
 # Regression test for a /code-review finding: on_event previously emitted
@@ -387,19 +587,47 @@ def test_multi_step_live_france_population_search_then_calculate():
             ),
         }
     ]
+    events = []
 
-    final_text, tool_calls, terminated_via = run_agent_loop(client, messages)
+    final_text, tool_calls, terminated_via = run_agent_loop(
+        client, messages, on_event=events.append
+    )
 
     assert terminated_via == "end_turn"
     assert len(tool_calls) < MAX_ITERATIONS
 
-    tool_names = [c["name"] for c in tool_calls]
-    assert "web_search" in tool_names
-    assert "calculator" in tool_names
-    assert tool_names.index("web_search") < tool_names.index("calculator")
+    # web_search is now server-executed: it never appears in tool_calls (which tracks only
+    # client tool_use blocks), only as a server_tool_use/web_search_result event pair.
+    server_tool_use_events = [e for e in events if e["type"] == "server_tool_use"]
+    assert any(e["name"] == "web_search" for e in server_tool_use_events)
+    assert any(e["type"] == "web_search_result" for e in events)
 
-    calculator_call = next(c for c in tool_calls if c["name"] == "calculator")
-    computed = tools.evaluate_expression(calculator_call["input"]["expression"])
-    assert computed == pytest.approx(6_800_000, rel=0.01)
+    # Tolerant of the model calling calculator more than once (non-determinism, per
+    # design.md's Risks note) - the structural invariant that matters is that web_search
+    # never shows up here at all, since it's server-executed and never a tool_use block.
+    tool_names = [c["name"] for c in tool_calls]
+    assert "calculator" in tool_names
+    assert all(name == "calculator" for name in tool_names)
+
+    calculator_tool_use_events = [
+        e for e in events if e["type"] == "tool_use" and e["name"] == "calculator"
+    ]
+    first_search_index = events.index(server_tool_use_events[0])
+    first_calculator_index = events.index(calculator_tool_use_events[0])
+    assert first_search_index < first_calculator_index
+
+    # Check every calculator call, not just the first, since a non-deterministic model may
+    # make an earlier unrelated calculator call (e.g. a sanity check) before the real
+    # population-percentage one - asserting only on tool_calls[0] would make this test fail
+    # on a call that has nothing to do with the assertion below, contradicting the tolerance
+    # for repeat calculator calls established just above.
+    computed_values = [
+        tools.evaluate_expression(c["input"]["expression"])
+        for c in tool_calls
+        if c["name"] == "calculator"
+    ]
+    # France's real population is roughly 65-69 million - a generous band rather than
+    # pinning to the old fixed stub value, since the figure now comes from a real search.
+    assert any(5_500_000 < computed < 7_500_000 for computed in computed_values)
 
     assert final_text.strip()

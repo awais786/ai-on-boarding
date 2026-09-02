@@ -1,7 +1,8 @@
 """Tool definitions and implementations for the multi-tool agent loop.
 
-Two tools are exposed to Claude: `calculator` (safe arithmetic evaluation) and
-`web_search` (a stubbed lookup - no real network search is performed).
+Two tools are exposed to Claude: `calculator`, a client tool implemented and dispatched here
+(safe arithmetic evaluation), and `web_search`, Anthropic's provider-executed server tool -
+declared in `TOOLS` but executed by Anthropic's servers, so there is no handler for it here.
 """
 
 import ast
@@ -29,23 +30,7 @@ TOOLS = [
             "required": ["expression"],
         },
     },
-    {
-        "name": "web_search",
-        "description": (
-            "Searches the web for information relevant to the given query and returns a "
-            "summary of the results."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query.",
-                }
-            },
-            "required": ["query"],
-        },
-    },
+    {"type": "web_search_20260209", "name": "web_search", "max_uses": 3},
 ]
 
 _ALLOWED_BINARY_OPERATORS = {
@@ -131,21 +116,8 @@ def calculator(expression):
     return {"result": result}
 
 
-_MOCK_SEARCH_RESULTS = {
-    "france population": "France's population is approximately 68 million (2023 estimate).",
-}
-
-
-def web_search(query):
-    result = _MOCK_SEARCH_RESULTS.get(query.strip().lower())
-    if result is None:
-        result = f"No mock results available for '{query}'."
-    return {"result": result}
-
-
 _TOOL_FUNCTIONS = {
     "calculator": lambda tool_input: calculator(tool_input["expression"]),
-    "web_search": lambda tool_input: web_search(tool_input["query"]),
 }
 
 
