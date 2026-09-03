@@ -1,0 +1,2 @@
+# Resolved 2026-09-01 against Python 3.14.
+anthropic==1.2.0
