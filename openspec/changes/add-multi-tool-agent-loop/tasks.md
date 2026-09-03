@@ -73,6 +73,6 @@
 - [x] 5.2 Run `/code-review` and fix every blocking finding it cites
 - [x] 5.3 Run `/code-review` a second time, verify-only, and require a `Ready to merge: yes`
   verdict before opening a pull request
-- [ ] 5.4 Post the proposal and the full delta spec to issue #42 so the issue is self-contained -
+- [x] 5.4 Post the proposal and the full delta spec to issue #42 so the issue is self-contained -
   deferred by request until the specs and implementation are final, rather than done at the point
   the artifacts were written
