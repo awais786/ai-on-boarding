@@ -44,7 +44,12 @@ TOOLS = [
             "required": ["expression"],
         },
     },
-    {"type": "web_search_20260209", "name": "web_search", "max_uses": 3},
+    {
+        "type": "web_search_20260209",
+        "name": "web_search",
+        "max_uses": 3,
+        "allowed_callers": ["direct"],
+    },
 ]
 
 

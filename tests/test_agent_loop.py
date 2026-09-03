@@ -7,7 +7,8 @@ replaced the client-side web_search stub with Anthropic's provider-executed serv
   `expression` (string); evaluates arithmetic; returns an error result (not a raised
   exception) for non-arithmetic input or division by zero.
 - Register a web-search tool: TOOLS declares the `web_search_20260209` server tool
-  (type/name/max_uses) - no input_schema, no client handler, no dispatch() branch.
+  (type/name/max_uses/allowed_callers) - no input_schema, no client handler, no dispatch()
+  branch.
 - Surface server-executed web-search activity without dispatching it: a `server_tool_use`
   block naming web_search and its `web_search_tool_result` block are surfaced via on_event,
   never passed to agent_loop.dispatch and never fed back as a client-constructed tool_result.
@@ -137,7 +138,12 @@ def test_calculator_rejects_expression_that_evaluates_to_a_non_finite_result():
 
 def test_web_search_is_declared_as_a_provider_executed_server_tool():
     schema = next(t for t in agent_loop.TOOLS if t["name"] == "web_search")
-    assert schema == {"type": "web_search_20260209", "name": "web_search", "max_uses": 3}
+    assert schema == {
+        "type": "web_search_20260209",
+        "name": "web_search",
+        "max_uses": 3,
+        "allowed_callers": ["direct"],
+    }
 
 
 def test_web_search_has_no_client_side_dispatch_handler():

@@ -84,12 +84,18 @@ makes the existing behavior observable; it does not change it.
 
 **`web_search` is Anthropic's provider-executed server tool, not a client stub (supersedes the
 original stub decision, per the PR #43 review request from the repo owner).** Registered as
-`{"type": "web_search_20260209", "name": "web_search", "max_uses": 3}` in `TOOLS` - no
-`input_schema`, no handler function, no `dispatch()` branch, since Anthropic's servers execute
-the search and return a `server_tool_use`/`web_search_tool_result` block pair within the same
-response. `max_uses: 3` bounds the number of searches performed for a single request, mirroring
-the loop's own iteration cap in spirit. Domain/region filtering (`allowed_domains`,
-`user_location`) is deliberately left out, per the review comment's stated non-goal, unless a
+`{"type": "web_search_20260209", "name": "web_search", "max_uses": 3, "allowed_callers":
+["direct"]}` in `TOOLS` - no `input_schema`, no handler function, no `dispatch()` branch, since
+Anthropic's servers execute the search and return a `server_tool_use`/`web_search_tool_result`
+block pair within the same response. `max_uses: 3` bounds the number of searches performed for a
+single request, mirroring the loop's own iteration cap in spirit. `allowed_callers: ["direct"]`
+was added after a live run against `claude-haiku-4-5-20251001` failed with `400 invalid_request_error:
+'claude-haiku-4-5-20251001' does not support programmatic tool calling` - a newer Anthropic API
+requirement (not present when this tool was first registered) that server tools with
+`allowed_callers` must have it set explicitly for models that don't support the
+"programmatic"/code-execution calling mode; `["direct"]` matches how this loop actually calls it.
+Domain/region filtering (`allowed_domains`, `user_location`) is deliberately left out, per the
+review comment's stated non-goal, unless a
 concrete scenario needs it.
 
 **Loop control flow:**

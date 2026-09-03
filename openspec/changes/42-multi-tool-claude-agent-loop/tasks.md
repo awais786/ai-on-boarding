@@ -145,3 +145,17 @@
   longer at the repo root; verified with `pytest tests/test_agent_loop.py
   tests/test_enhanced_agent_loop.py` (50 passed, 5 skipped) and manual runs of both scripts
   printing their usage message
+
+## 12. Fix: web_search now requires allowed_callers
+
+- [x] 12.1 A live run of `agent_loop/agent_loop.py "Search for France's population, then
+  calculate 10% of it"` (the first time this script was run with a real key since the
+  `web_search_20260209` tool was registered) failed with `400 invalid_request_error:
+  'claude-haiku-4-5-20251001' does not support programmatic tool calling` - a newer Anthropic API
+  requirement, not present when the tool was first added, that server tools with
+  `allowed_callers` must set it explicitly for models without programmatic/code-execution tool
+  calling. Fixed by adding `"allowed_callers": ["direct"]` to the `web_search` tool declaration,
+  matching how this loop actually calls it; updated
+  `test_web_search_is_declared_as_a_provider_executed_server_tool` and
+  `specs/multi-tool-agent-loop/spec.md` to match. Verified: the same live prompt now completes
+  via `end_turn` with a real `web_search` step, and the full offline suite still passes.

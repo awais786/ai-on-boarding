@@ -25,15 +25,18 @@ evaluating that expression as a mathematical expression - not by evaluating it a
 
 ### Requirement: Register a web-search tool
 The system SHALL register `web_search` as Anthropic's provider-executed server tool by including
-`{"type": "web_search_20260209", "name": "web_search", "max_uses": 3}` in the `tools` list sent to
-the Messages API. The system SHALL NOT implement a client-side handler, mock lookup table, or
-`dispatch()` branch for `web_search` - Anthropic's servers perform the search and return results
-within the same API response, so there is nothing left for this code to execute.
+`{"type": "web_search_20260209", "name": "web_search", "max_uses": 3, "allowed_callers":
+["direct"]}` in the `tools` list sent to the Messages API. The system SHALL NOT implement a
+client-side handler, mock lookup table, or `dispatch()` branch for `web_search` - Anthropic's
+servers perform the search and return results within the same API response, so there is nothing
+left for this code to execute.
 
 #### Scenario: web_search is available to Claude
 - **WHEN** the agent loop sends a request to Claude
 - **THEN** the request's `tools` list includes the `web_search` server tool declaration, capped at
-  `max_uses: 3`, and no client-side search implementation or mock data exists anywhere in this code
+  `max_uses: 3`, with `allowed_callers: ["direct"]` so `claude-haiku-4-5-20251001` (which does not
+  support programmatic tool calling) can still invoke it directly, and no client-side search
+  implementation or mock data exists anywhere in this code
 
 ### Requirement: Surface server-executed web-search activity without dispatching it
 When a response from Claude includes a `server_tool_use` block naming `web_search` and its
