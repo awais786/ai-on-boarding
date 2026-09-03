@@ -8,14 +8,16 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Case, F, Q, Value, When
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views import View
-from drf_spectacular.utils import extend_schema, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 from rest_framework import generics
+from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
@@ -24,11 +26,13 @@ from embargo.rules import is_user_embargoed
 from .models import PasswordResetCode, SigninAttempt
 from .serializers import (
     AccountSerializer,
+    AdminChangePasswordSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
     SigninSerializer,
     SignupSerializer,
     TokenSerializer,
+    UserAccountSerializer,
     validate_password_strength,
 )
 
@@ -441,3 +445,54 @@ class SigninView(generics.GenericAPIView):
                 email_or_username=attempt_key,
                 defaults={'failed_count': 1, 'window_started_at': now, 'last_failed_at': now},
             )
+
+
+class UserListView(generics.ListAPIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserAccountSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='country',
+                description='Filter to users whose signup country matches, case-insensitive.',
+                required=False,
+                type=str,
+            ),
+        ],
+        responses={200: OpenApiResponse(response=UserAccountSerializer(many=True))},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        queryset = User.objects.select_related('accountcountry').order_by('pk')
+        country = self.request.query_params.get('country')
+        if country:
+            queryset = queryset.filter(accountcountry__country__iexact=country)
+        return queryset
+
+
+class AdminChangePasswordView(generics.GenericAPIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAdminUser]
+    serializer_class = AdminChangePasswordSerializer
+
+    @extend_schema(
+        request=AdminChangePasswordSerializer,
+        responses={
+            200: OpenApiResponse(description='Password changed.'),
+            400: OpenApiResponse(description='The new password was rejected.'),
+            403: OpenApiResponse(description='Caller is not an admin.'),
+            404: OpenApiResponse(description='No user with that id.'),
+        },
+    )
+    def post(self, request, user_id, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = get_object_or_404(User, pk=user_id)
+        user.set_password(serializer.validated_data['password'])
+        user.save(update_fields=['password'])
+        Token.objects.filter(user=user).delete()
+        return Response({'detail': 'Password changed.'}, status=200)

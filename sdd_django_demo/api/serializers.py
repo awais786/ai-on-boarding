@@ -107,3 +107,21 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 
 class TokenSerializer(serializers.Serializer):
     token = serializers.CharField()
+
+
+class UserAccountSerializer(serializers.ModelSerializer):
+    country = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'country', 'date_joined']
+
+    def get_country(self, obj):
+        account_country = getattr(obj, 'accountcountry', None)
+        return account_country.country if account_country else None
+
+
+class AdminChangePasswordSerializer(serializers.Serializer):
+    password = serializers.CharField(
+        required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
+    )
