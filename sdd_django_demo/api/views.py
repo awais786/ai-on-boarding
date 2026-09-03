@@ -11,7 +11,7 @@ from django.db.models import Case, F, Q, Value, When
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views import View
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import generics
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
@@ -451,20 +451,6 @@ class UserListView(generics.ListAPIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = UserAccountSerializer
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name='country',
-                description='Filter to users whose signup country matches, case-insensitive.',
-                required=False,
-                type=str,
-            ),
-        ],
-        responses={200: OpenApiResponse(response=UserAccountSerializer(many=True))},
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
         queryset = User.objects.select_related('accountcountry').order_by('pk')
