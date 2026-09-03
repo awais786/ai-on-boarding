@@ -1,0 +1,5 @@
+# Dependencies for the multi-tool agent loop. These are NOT runtime dependencies of the Django
+# project - sdd_django_demo/requirements.txt is unchanged by this package, and this package is
+# installed into its own virtual environment (agent_loop/.venv).
+anthropic==1.3.0
+pytest==9.1.1
