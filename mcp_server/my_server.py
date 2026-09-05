@@ -1,5 +1,4 @@
 import asyncio
-import os
 import re
 
 import httpx
@@ -11,32 +10,59 @@ DJANGO_BASE_URL = "http://localhost:8000"
 MAILPIT_BASE_URL = "http://localhost:8025"
 RESET_LINK_PATTERN = re.compile(r"/reset-password/([^/\s]+)/")
 
+# Token from the most recent successful `signin`. Caching it here (rather than
+# handing it back to the caller) means callers never see the raw token, and
+# get_users/password_reset simply forward whatever's cached - Django's own
+# IsAdminUser check is what actually enforces "admin only", not this file.
+_token = None
+
 @mcp.tool
 def greet(name):
     return f"Hello {name}!"
 
 @mcp.tool
+async def signin(email_or_username, password):
+    """Sign in and cache the token for subsequent get_users/password_reset calls."""
+    global _token
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{DJANGO_BASE_URL}/api/signin/",
+            json={"email_or_username": email_or_username, "password": password},
+        )
+    if response.status_code == 401:
+        return {"status": "failed", "detail": "Unable to sign in with the provided credentials."}
+    response.raise_for_status()
+    _token = response.json()["token"]
+    return {"status": "success"}
+
+def _auth_headers():
+    return {"Authorization": f"Token {_token}"}
+
+@mcp.tool
 async def get_users(cursor=None):
-    """List users. Pass `cursor` (from a previous response's `next`/`previous`) to fetch that page."""
-    token = os.environ["MCP_API_TOKEN"]
-    headers = {"Authorization": f"Token {token}"}
+    """List users. Pass `cursor` (from a previous response's `next`/`previous`) to fetch that page.
+
+    Requires a prior `signin` as a staff/admin account.
+    """
+    if _token is None:
+        return {"status": "error", "detail": "Sign in first."}
     params = {"cursor": cursor} if cursor else None
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{DJANGO_BASE_URL}/api/users/", headers=headers, params=params
+            f"{DJANGO_BASE_URL}/api/users/", headers=_auth_headers(), params=params
         )
-        response.raise_for_status()
-        return response.json()
+    if response.status_code == 403:
+        return {"status": "error", "detail": "Signed-in account is not staff."}
+    response.raise_for_status()
+    return response.json()
 
 async def _user_exists(client, email):
     """Page through /api/users/ looking for `email` (case-insensitive)."""
-    token = os.environ["MCP_API_TOKEN"]
-    headers = {"Authorization": f"Token {token}"}
     cursor = None
     while True:
         params = {"cursor": cursor} if cursor else None
         response = await client.get(
-            f"{DJANGO_BASE_URL}/api/users/", headers=headers, params=params
+            f"{DJANGO_BASE_URL}/api/users/", headers=_auth_headers(), params=params
         )
         response.raise_for_status()
         payload = response.json()
@@ -70,9 +96,12 @@ async def _find_reset_code(client, email):
 async def password_reset(email, new_password):
     """Request a password reset for `email` and complete it with the code Mailpit received.
 
+    Requires a prior `signin` as a staff/admin account (used to check the address exists).
     Local-testing automation only: assumes Django is reachable at localhost:8000
     and reset emails land in a Mailpit instance at localhost:8025.
     """
+    if _token is None:
+        return {"status": "error", "detail": "Sign in first."}
     async with httpx.AsyncClient() as client:
         if not await _user_exists(client, email):
             return {"status": "skipped", "detail": "No account exists for that email."}
