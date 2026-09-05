@@ -8,7 +8,7 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Case, F, Q, Value, When
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views import View
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
@@ -18,7 +18,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.pagination import CursorPagination
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
@@ -29,6 +29,7 @@ from .serializers import (
     AccountSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
+    PasswordUpdateSerializer,
     SigninSerializer,
     SignupSerializer,
     TokenSerializer,
@@ -61,6 +62,11 @@ RESET_REQUESTED_BODY = {
 RESET_REFUSED_BODY = {'detail': 'That reset link is not valid.'}
 
 RESET_COMPLETED_BODY = {'detail': 'Your password has been changed.'}
+
+PASSWORD_UPDATE_COMPLETED_BODY = {'detail': 'Password updated.'}
+
+# Returned when a non-staff caller targets an account other than their own.
+PASSWORD_UPDATE_FORBIDDEN_BODY = {'detail': 'You may only update your own password.'}
 
 # Returned when the per-address limit refuses a request. Fixed on purpose: DRF's
 # default appends the wait remaining, rounded up ("Expected available in 3595
@@ -483,3 +489,64 @@ class SigninView(generics.GenericAPIView):
                 email_or_username=attempt_key,
                 defaults={'failed_count': 1, 'window_started_at': now, 'last_failed_at': now},
             )
+
+
+class PasswordUpdateView(generics.GenericAPIView):
+    """Change a password while authenticated: the caller's own, or - if staff - any account's.
+
+    One view branching on `target == request.user` rather than two, since every requirement
+    this serves ("self needs current password", "staff can target others", "non-staff can't")
+    is a rule about the relationship between caller and target. See design.md - Decisions.
+    """
+
+    serializer_class = PasswordUpdateSerializer
+    authentication_classes = [TokenAuthentication, SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=PasswordUpdateSerializer,
+        responses={
+            200: OpenApiResponse(description='Password updated.'),
+            400: OpenApiResponse(
+                description='Validation failed, or - for a self-update - the current password '
+                'was missing or incorrect; the response names the offending field.'
+            ),
+            401: OpenApiResponse(description='No valid authentication credential was provided.'),
+            403: OpenApiResponse(
+                description='Caller is not staff and the target account is not their own.'
+            ),
+            404: OpenApiResponse(description='No account exists with the given username.'),
+        },
+    )
+    def patch(self, request, *args, **kwargs):
+        # `iexact`, not `exact`: signup lowercases what it stores, but accounts made outside
+        # signup do not, and SigninView's `email_or_username` lookup already treats username
+        # case-insensitively for the same reason.
+        target = get_object_or_404(User, username__iexact=kwargs['username'])
+        is_self = target.pk == request.user.pk
+
+        # Checked before the body is validated, so a non-staff caller targeting someone
+        # else always gets 403 regardless of what else was submitted (design.md).
+        if not is_self and not request.user.is_staff:
+            return Response(dict(PASSWORD_UPDATE_FORBIDDEN_BODY), status=403)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if is_self:
+            current_password = serializer.validated_data.get('current_password')
+            if not current_password:
+                raise ValidationError({'current_password': ['This field is required.']})
+            if not target.check_password(current_password):
+                raise ValidationError(
+                    {'current_password': ['Does not match your current password.']}
+                )
+
+        # One transaction: a failure part-way must not leave the password changed while an
+        # old token stays valid, mirroring complete_reset's token-invalidation shape.
+        with transaction.atomic():
+            target.set_password(serializer.validated_data['new_password'])
+            target.save(update_fields=['password'])
+            Token.objects.filter(user=target).delete()
+
+        return Response(dict(PASSWORD_UPDATE_COMPLETED_BODY), status=200)

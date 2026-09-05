@@ -122,5 +122,15 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     )
 
 
+class PasswordUpdateSerializer(serializers.Serializer):
+    # `required=False`: whether a current password must be supplied at all depends on the
+    # target account versus the caller, which this serializer has no access to - that check
+    # belongs to the view (see design.md - Decisions).
+    current_password = serializers.CharField(required=False, allow_blank=False, write_only=True)
+    new_password = serializers.CharField(
+        required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
+    )
+
+
 class TokenSerializer(serializers.Serializer):
     token = serializers.CharField()

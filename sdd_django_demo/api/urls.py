@@ -9,6 +9,11 @@ urlpatterns = [
     path('signin/', views.SigninView.as_view(), name='signin'),
     path('users/', views.UserListView.as_view(), name='user-list'),
     path(
+        'users/<str:username>/update-password/',
+        views.PasswordUpdateView.as_view(),
+        name='user-password-update',
+    ),
+    path(
         'password-reset/',
         views.PasswordResetRequestView.as_view(),
         name='password-reset',

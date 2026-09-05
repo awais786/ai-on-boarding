@@ -172,5 +172,36 @@ async def password_reset(email, new_password):
         return {"status": "success"}
 
 
+@mcp.tool
+async def update_password(username, new_password, current_password=None):
+    """Update the account at `username`'s password via PATCH /api/users/<username>/update-password/.
+
+    Pass `current_password` when `username` is the signed-in caller's own account - the API
+    requires it to confirm identity and rejects the request without it. Omit it when the
+    signed-in caller is staff updating a *different* account's password; a non-staff caller
+    doing the same is rejected.
+
+    Requires a prior `signin`. A non-staff caller may only target their own username;
+    a staff/admin caller may target any username.
+    """
+    if _token is None:
+        return {"status": "error", "detail": "Sign in first."}
+    update_payload = {"new_password": new_password}
+    if current_password is not None:
+        update_payload["current_password"] = current_password
+    async with httpx.AsyncClient() as client:
+        response = await client.patch(
+            f"{DJANGO_BASE_URL}/api/users/{username}/update-password/",
+            headers=_auth_headers(),
+            json=update_payload,
+        )
+    if response.status_code == 403:
+        return {"status": "error", "detail": "You may only update your own password."}
+    if response.status_code in (400, 404):
+        return {"status": "failed", "detail": response.json()}
+    response.raise_for_status()
+    return {"status": "success", **response.json()}
+
+
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8080)
