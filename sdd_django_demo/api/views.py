@@ -11,11 +11,14 @@ from django.db.models import Case, F, Q, Value, When
 from django.shortcuts import render
 from django.utils import timezone
 from django.views import View
-from drf_spectacular.utils import extend_schema, OpenApiResponse
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 from rest_framework import generics
+from rest_framework.authentication import SessionAuthentication, TokenAuthentication
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.pagination import CursorPagination
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
@@ -29,6 +32,7 @@ from .serializers import (
     SigninSerializer,
     SignupSerializer,
     TokenSerializer,
+    UserListSerializer,
     validate_password_strength,
 )
 
@@ -99,6 +103,42 @@ class SignupView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         return Response(AccountSerializer(user).data, status=200)
+
+
+class UserListPagination(CursorPagination):
+    # Cursor, not offset/page-number: a page-number scheme identifies a page by
+    # position, so a user inserted or deleted between two page fetches shifts every
+    # later offset - a row already seen can reappear, or one never seen can be
+    # skipped, on the very next page. That breaks "List reflects all signed-up
+    # accounts" - each account exactly once across the combined pages. A cursor
+    # anchors each page to the last row actually returned (by `ordering`) instead
+    # of a position, so it survives concurrent inserts/deletes. See design.md.
+    page_size = 20
+    ordering = 'id'
+
+
+@extend_schema_view(
+    get=extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=UserListSerializer, description='A page of signed-up users.'
+            ),
+            401: OpenApiResponse(description='No valid authentication token was provided.'),
+            403: OpenApiResponse(description='Authenticated caller is not staff.'),
+        },
+    )
+)
+class UserListView(generics.ListAPIView):
+    queryset = User.objects.order_by('id')
+    serializer_class = UserListSerializer
+    # Both TokenAuthentication (the intended API caller mechanism) and
+    # SessionAuthentication (so a browser session from /admin/login/ also works,
+    # e.g. when browsing this endpoint via drf-spectacular's Swagger UI) -
+    # declaring only TokenAuthentication here would silently drop DRF's
+    # project-wide SessionAuthentication default for this view alone.
+    authentication_classes = [TokenAuthentication, SessionAuthentication]
+    permission_classes = [IsAdminUser]
+    pagination_class = UserListPagination
 
 
 def flatten_messages(detail):

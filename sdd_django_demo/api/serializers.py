@@ -89,6 +89,12 @@ class AccountSerializer(serializers.ModelSerializer):
         fields = ['email', 'username']
 
 
+class UserListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'date_joined']
+
+
 class SigninSerializer(serializers.Serializer):
     email_or_username = serializers.CharField(required=True, allow_blank=False, max_length=255)
     password = serializers.CharField(required=True, allow_blank=False, write_only=True)
