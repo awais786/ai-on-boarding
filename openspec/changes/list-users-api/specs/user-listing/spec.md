@@ -23,12 +23,13 @@ staff or superuser account.
 - **THEN** the request proceeds and returns user data
 
 ### Requirement: Return minimal user fields
-A successful response SHALL include, for each user, only the `id`, `email`, and `date_joined`
-fields - no password data or other account internals.
+A successful response SHALL include, for each user, only the `id`, `email`, `date_joined`, and
+`country` fields - no password data or other account internals.
 
 #### Scenario: Response shape
 - **WHEN** a staff caller lists users
-- **THEN** each entry in the response body contains only `id`, `email`, and `date_joined`
+- **THEN** each entry in the response body contains only `id`, `email`, `date_joined`, and
+  `country`
 
 ### Requirement: Paginate the user list
 The system SHALL return the user list in fixed-size pages rather than as a single unbounded
@@ -42,6 +43,18 @@ response, and SHALL provide a way for the caller to retrieve subsequent pages.
 #### Scenario: Empty user set
 - **WHEN** no users other than the caller exist
 - **THEN** the response is a successful empty (or single-entry) page, not an error
+
+### Requirement: Include the signup country per account
+Each account in the returned list SHALL include the country recorded for that account at
+signup.
+
+#### Scenario: Account entry includes country
+- **WHEN** an account appears in the user list
+- **THEN** its entry includes the country that was recorded for that account at signup
+
+#### Scenario: Account has no recorded country
+- **WHEN** an account appears in the user list but has no country recorded for it
+- **THEN** its entry's country is empty rather than causing the request to fail
 
 ### Requirement: List reflects all signed-up accounts
 The system SHALL include every account that exists at request time in the overall list, subject

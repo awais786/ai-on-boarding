@@ -29,8 +29,19 @@
 - [x] 4.2 Run `/code-review` and address any blocking findings
 - [x] 4.3 Re-run `/code-review` (verify-only) until `Ready to merge: yes`
 
-## 5. GitHub issue
+## 5. Country field
 
-- [ ] 5.1 Confirm with the user before creating/commenting on the GitHub issue for this change,
+- [x] 5.1 Add `country` to `UserListSerializer` sourced from the `AccountCountry` relation,
+  defaulting to empty when no relation exists
+- [x] 5.2 Add `select_related('accountcountry')` to `UserListView`'s queryset
+- [x] 5.3 Add a test for the new "Include the signup country per account" requirement, covering
+  both an account with a recorded country and one without, and confirm it can fail (temporarily
+  break the change, see it fail, restore it)
+- [x] 5.4 Update `traceability.md` for the new requirement, then re-run `/code-review` until
+  `Ready to merge: yes`
+
+## 6. GitHub issue
+
+- [ ] 6.1 Confirm with the user before creating/commenting on the GitHub issue for this change,
   then create it via `gh issue create` if one does not already exist, and post the proposal and
   full delta spec via `gh issue comment`

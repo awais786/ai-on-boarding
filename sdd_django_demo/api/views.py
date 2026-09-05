@@ -129,7 +129,9 @@ class UserListPagination(CursorPagination):
     )
 )
 class UserListView(generics.ListAPIView):
-    queryset = User.objects.order_by('id')
+    # select_related avoids one extra query per row for UserListSerializer's
+    # `country` field, which follows the reverse one-to-one to AccountCountry.
+    queryset = User.objects.select_related('accountcountry').order_by('id')
     serializer_class = UserListSerializer
     # Both TokenAuthentication (the intended API caller mechanism) and
     # SessionAuthentication (so a browser session from /admin/login/ also works,

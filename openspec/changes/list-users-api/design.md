@@ -41,6 +41,15 @@ staff status is set via `createsuperuser` or the Django admin, both out of scope
   anchors each page to the last row actually returned rather than a position, so it is immune to
   concurrent inserts/deletes at other points in the ordering.
 
+- **`country` via a `SerializerMethodField` reading `accountcountry.country`.** Country lives on
+  a separate one-to-one model (`embargo.AccountCountry`), not on `User` itself, and not every
+  account is guaranteed to have a row there. A plain `CharField(source='accountcountry.country',
+  default='')` was tried first, but DRF's attribute-traversal helper returns `None` - not the
+  field's `default` - when the reverse relation is missing, so that approach serialized a missing
+  country as `None` rather than `''`. A `SerializerMethodField` using
+  `getattr(obj, 'accountcountry', None)` handles the missing-relation case directly. Add
+  `select_related('accountcountry')` to the view's queryset to avoid an extra query per row.
+
 ## Risks / Trade-offs
 
 - [No existing account has `is_staff=True` outside a manually-created superuser] → acceptable:
@@ -48,3 +57,5 @@ staff status is set via `createsuperuser` or the Django admin, both out of scope
   provisioning path.
 - [`CursorPagination`'s default `cursor` query param could collide with a future filter param of
   the same name] → low risk given no filtering is planned; revisit if filtering is added later.
+- [Some existing accounts may have no `AccountCountry` row] → the new requirement explicitly
+  covers this: serialize as empty rather than erroring.

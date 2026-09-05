@@ -90,9 +90,20 @@ class AccountSerializer(serializers.ModelSerializer):
 
 
 class UserListSerializer(serializers.ModelSerializer):
+    country = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'email', 'date_joined']
+        fields = ['id', 'email', 'date_joined', 'country']
+
+    def get_country(self, obj) -> str:
+        # A plain `getattr(..., default)` on the reverse one-to-one to
+        # embargo.AccountCountry: Django's related-object-missing exception is
+        # deliberately an AttributeError subclass, so this returns None (not a
+        # raise) for an account with no such row (e.g. created before that model
+        # existed) instead of erroring.
+        account_country = getattr(obj, 'accountcountry', None)
+        return account_country.country if account_country else ''
 
 
 class SigninSerializer(serializers.Serializer):

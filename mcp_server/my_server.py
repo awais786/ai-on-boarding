@@ -61,22 +61,48 @@ def _auth_headers():
     return {"Authorization": f"Token {_token}"}
 
 @mcp.tool
-async def get_users(cursor=None):
+async def get_users(cursor=None, country=None):
     """List users. Pass `cursor` (from a previous response's `next`/`previous`) to fetch that page.
+
+    Pass `country` to instead walk every page and return every user whose `country` matches
+    (case-insensitively) in one flat list - `cursor` is ignored in that mode, since a full walk
+    is required to find every match regardless of where it starts.
 
     Requires a prior `signin` as a staff/admin account.
     """
     if _token is None:
         return {"status": "error", "detail": "Sign in first."}
-    params = {"cursor": cursor} if cursor else None
     async with httpx.AsyncClient() as client:
+        if country is not None:
+            matches = []
+            page_cursor = None
+            while True:
+                params = {"cursor": page_cursor} if page_cursor else None
+                response = await client.get(
+                    f"{DJANGO_BASE_URL}/api/users/", headers=_auth_headers(), params=params
+                )
+                if response.status_code == 403:
+                    return {"status": "error", "detail": "Signed-in account is not staff."}
+                response.raise_for_status()
+                payload = response.json()
+                matches.extend(
+                    user for user in payload["results"]
+                    if user["country"].lower() == country.lower()
+                )
+                next_url = payload.get("next")
+                if not next_url:
+                    break
+                page_cursor = httpx.URL(next_url).params["cursor"]
+            return {"status": "success", "country": country, "count": len(matches), "results": matches}
+
+        params = {"cursor": cursor} if cursor else None
         response = await client.get(
             f"{DJANGO_BASE_URL}/api/users/", headers=_auth_headers(), params=params
         )
-    if response.status_code == 403:
-        return {"status": "error", "detail": "Signed-in account is not staff."}
-    response.raise_for_status()
-    return response.json()
+        if response.status_code == 403:
+            return {"status": "error", "detail": "Signed-in account is not staff."}
+        response.raise_for_status()
+        return response.json()
 
 async def _user_exists(client, email):
     """Page through /api/users/ looking for `email` (case-insensitive)."""

@@ -2,6 +2,8 @@ import pytest
 from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
 
+from embargo.rules import record_account_country
+
 
 def create_staff(email='admin@example.com', password='adminpass1'):
     return User.objects.create_user(
@@ -67,7 +69,33 @@ def test_list_users_response_contains_only_expected_fields(client):
 
     assert response.status_code == 200
     for entry in response.data['results']:
-        assert set(entry.keys()) == {'id', 'email', 'date_joined'}
+        assert set(entry.keys()) == {'id', 'email', 'date_joined', 'country'}
+
+
+@pytest.mark.django_db
+def test_list_users_entry_includes_recorded_country(client):
+    staff = create_staff()
+    regular = create_regular()
+    record_account_country(regular, 'Wonderland')
+    auth(client, staff)
+
+    response = client.get('/api/users/')
+
+    assert response.status_code == 200
+    entry = next(e for e in response.data['results'] if e['id'] == regular.id)
+    assert entry['country'] == 'wonderland'
+
+
+@pytest.mark.django_db
+def test_list_users_entry_with_no_recorded_country_is_empty(client):
+    staff = create_staff()
+    auth(client, staff)
+
+    response = client.get('/api/users/')
+
+    assert response.status_code == 200
+    entry = next(e for e in response.data['results'] if e['id'] == staff.id)
+    assert entry['country'] == ''
 
 
 @pytest.mark.django_db
