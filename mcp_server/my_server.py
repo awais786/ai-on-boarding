@@ -21,6 +21,28 @@ def greet(name):
     return f"Hello {name}!"
 
 @mcp.tool
+async def signup(email, username, password, country):
+    """Create an account and return its (normalised) email and username.
+
+    On rejection (bad format, weak password, duplicate email/username, or an
+    embargoed country) returns the field-keyed validation errors from the API.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{DJANGO_BASE_URL}/api/signup/",
+            json={
+                "email": email,
+                "username": username,
+                "password": password,
+                "country": country,
+            },
+        )
+    if response.status_code == 400:
+        return {"status": "failed", "detail": response.json()}
+    response.raise_for_status()
+    return {"status": "success", **response.json()}
+
+@mcp.tool
 async def signin(email_or_username, password):
     """Sign in and cache the token for subsequent get_users/password_reset calls."""
     global _token
