@@ -7,11 +7,18 @@ remember.
 """
 
 import os
+import re
 
 import httpx2
 
 DJANGO_API_BASE = os.environ.get('DJANGO_API_BASE', 'http://localhost:8000/api')
 REQUEST_TIMEOUT = 10
+
+# Mirrors sdd_django_demo/api/serializers.py::validate_password_strength - keep the two
+# in sync. Both sides run the same case list (password_strength_cases.json, next to
+# that function) so a drift between them fails a test instead of surfacing as a
+# confusing round trip to Django for a password this layer could have rejected at once.
+PASSWORD_MIN_LENGTH = 8
 
 django_client = httpx2.AsyncClient(base_url=DJANGO_API_BASE, timeout=REQUEST_TIMEOUT)
 
@@ -45,6 +52,18 @@ class NoDjangoAccountError(DjangoAuthError):
     credential rather than refusing them outright, so a caller with no account can still
     reach the signup tool.
     """
+
+
+def validate_password_strength(password):
+    """Reject a password Django would reject too, before spending a round trip on it."""
+    if (
+        len(password) < PASSWORD_MIN_LENGTH
+        or not re.search(r'[A-Za-z]', password)
+        or not re.search(r'\d', password)
+    ):
+        raise DjangoAPIError(
+            f'Must be at least {PASSWORD_MIN_LENGTH} characters and contain a letter and a digit.'
+        )
 
 
 async def send_request(method, path, **kwargs):
@@ -102,6 +121,7 @@ async def list_users(django_token, country=None):
 
 async def change_password(django_token, username, new_password):
     """Set a user's password by username, so no internal id ever reaches the LLM."""
+    validate_password_strength(new_password)
     response = await send_request(
         'POST',
         f'/users/{username}/change-password/',
@@ -118,6 +138,7 @@ async def change_password(django_token, username, new_password):
 
 async def signup(email, username, password, country):
     """Create an account. No credential is sent - a caller with none is exactly who calls this."""
+    validate_password_strength(password)
     response = await send_request(
         'POST',
         '/signup/',
@@ -141,6 +162,7 @@ async def request_password_reset(email):
 
 async def confirm_password_reset(code, new_password):
     """Spend a reset code and set the new password."""
+    validate_password_strength(new_password)
     response = await send_request(
         'POST', '/password-reset/confirm/', json={'code': code, 'password': new_password}
     )
@@ -152,6 +174,7 @@ async def confirm_password_reset(code, new_password):
 
 async def change_own_password(django_token, current_password, new_password):
     """Change the caller's own password, current password verified by Django first."""
+    validate_password_strength(new_password)
     response = await send_request(
         'POST',
         '/users/me/change-password/',
