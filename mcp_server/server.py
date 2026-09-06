@@ -31,6 +31,7 @@ CACHE_CLEANUP_INTERVAL_SECONDS = 60
 
 GOOGLE_CLAIMS_TO_KEEP = ('sub', 'email')  # the rest (name, picture, ...) is unused
 SIGN_IN_AGAIN = 'Your session is no longer valid. Please sign in again.'  # never hints at a token
+NEED_TO_SIGN_UP = 'No account found for this Google identity. Use the signup tool to create one.'
 DJANGO_TOKEN_CLAIM = 'django_token'  # where the Django token rides on a tool's AccessToken
 
 auth = GoogleProvider(
@@ -134,15 +135,17 @@ class CredentialVerifier:
         if verified is None:
             return None
 
-        try:
-            django_token = await django_client.exchange_google_token(token)
-        except django_client.DjangoAPIError:
-            return None  # no account, or Django unreachable - never cached, so it can't stick
-
         verified.claims = {
             key: value for key, value in verified.claims.items() if key in GOOGLE_CLAIMS_TO_KEEP
         }
-        verified.claims[DJANGO_TOKEN_CLAIM] = django_token
+
+        try:
+            verified.claims[DJANGO_TOKEN_CLAIM] = await django_client.exchange_google_token(token)
+        except django_client.NoDjangoAccountError:
+            pass  # identity is fine, no account yet - admit the session with no credential
+        except django_client.DjangoAPIError:
+            return None  # Google itself refused the token, or Django is unreachable
+
         self._cache.set(token, verified)
         return verified
 
@@ -154,6 +157,12 @@ mcp = FastMCP('django-user-reporting', auth=auth)
 
 mcp.add_middleware(ToolCallLogger())  # outermost, so it also logs a rate-limit rejection
 mcp.add_middleware(ToolCallRateLimiter())
+
+
+def _require_django_token():
+    """Raise a clear refusal if the caller's session has no Django credential yet."""
+    if DJANGO_TOKEN_CLAIM not in get_access_token().claims:
+        raise django_client.DjangoAPIError(NEED_TO_SIGN_UP)
 
 
 async def _call_django(django_call, *args, **kwargs):
@@ -181,19 +190,60 @@ async def _call_django(django_call, *args, **kwargs):
 @mcp.tool()
 async def list_signup_users():
     """List every signed-up user (username, country, signup date)."""
+    _require_django_token()
     return await _call_django(django_client.list_users)
 
 
 @mcp.tool()
 async def list_users_by_country(country: str):
     """List signed-up users from a specific country."""
+    _require_django_token()
     return await _call_django(django_client.list_users, country=country)
 
 
 @mcp.tool()
 async def change_user_password(username: str, new_password: str):
     """Change a user's password. Only works if the caller is an admin."""
+    _require_django_token()
     return await _call_django(django_client.change_password, username, new_password)
+
+
+@mcp.tool()
+async def signup(email: str, username: str, password: str, country: str):
+    """Create an account. Works even if you don't have one yet - that's the point.
+
+    On success, this session can immediately use the other tools without reconnecting.
+    """
+    result = await django_client.signup(email, username, password, country)
+
+    access_token = get_access_token()
+    try:
+        django_token = await django_client.exchange_google_token(access_token.token)
+    except django_client.DjangoAPIError:
+        return result  # account exists; the next call resolves a credential the normal way
+
+    _credentials.replace_django_token(access_token.token, django_token)
+    return result
+
+
+@mcp.tool()
+async def request_password_reset(email: str):
+    """Request a password-reset code by email. The reply is the same whether or not that
+    address has an account - it never reveals who is signed up."""
+    return await django_client.request_password_reset(email)
+
+
+@mcp.tool()
+async def reset_password(code: str, new_password: str):
+    """Complete a password reset using the code emailed by request_password_reset."""
+    return await django_client.confirm_password_reset(code, new_password)
+
+
+@mcp.tool()
+async def change_my_password(current_password: str, new_password: str):
+    """Change your own password. Requires an account - use signup first if you don't have one."""
+    _require_django_token()
+    return await _call_django(django_client.change_own_password, current_password, new_password)
 
 
 if __name__ == '__main__':

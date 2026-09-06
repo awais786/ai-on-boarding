@@ -4,9 +4,15 @@ Each requirement and what a test has to observe to protect it:
 
 - Establish a session credential at login -> count the exchanges made across a
   session's first call, and check the credential is kept rather than re-derived.
-- Refuse a caller this project will not sign in -> a caller the project declines
-  gets no usable session at all, for both the no-account and the embargoed case.
-- Refuse a caller Google does not recognise -> same, when the refusal is Google's.
+- Admit a caller with no matching account, without a session credential -> a
+  caller Django won't issue a credential to (no account, or embargoed - Django's
+  own response cannot tell the two apart) still gets a usable session, just with
+  no credential.
+- Refuse a tool call made without a session credential -> a tool other than
+  signup refuses such a caller and tells them to sign up; signup itself grants a
+  credential without a new session.
+- Refuse a caller Google does not recognise -> Google's own refusal still blocks
+  the session outright.
 - Reuse the session credential for every tool call -> later calls, and calls to a
   different tool, add no exchanges and carry the same token to Django.
 - Keep Google out of the request path after login -> serving a later request adds
@@ -54,29 +60,67 @@ async def test_the_exchanged_token_is_retained_as_the_session_credential(sign_in
     assert cache.get(GOOGLE_A) is not None
 
 
-# --- Refuse a caller this project will not sign in ---------------------------
+# --- Admit a caller with no matching account, without a session credential ---
 
 
-async def test_a_caller_with_no_account_here_reaches_no_tool(sign_in, django):
-    django.exchange_error = django_client.DjangoAuthError('No account.')
+async def test_a_caller_with_no_account_here_is_admitted_with_no_credential(sign_in, django):
+    django.exchange_error = django_client.NoDjangoAccountError('No account.')
 
-    assert await sign_in(GOOGLE_A) is None
+    verified = await sign_in(GOOGLE_A)
 
-
-async def test_an_embargoed_caller_reaches_no_tool(sign_in, django):
-    django.exchange_error = django_client.DjangoAuthError('Account is embargoed.')
-
-    assert await sign_in(GOOGLE_A) is None
+    assert verified is not None
+    assert server.DJANGO_TOKEN_CLAIM not in verified.claims
 
 
-async def test_a_refused_caller_is_not_cached_and_is_asked_again(sign_in, django, cache):
-    django.exchange_error = django_client.DjangoAuthError('No account.')
+async def test_an_embargoed_caller_is_admitted_with_no_credential(sign_in, django):
+    django.exchange_error = django_client.NoDjangoAccountError('That Google account cannot sign in here.')
+
+    verified = await sign_in(GOOGLE_A)
+
+    assert verified is not None
+    assert server.DJANGO_TOKEN_CLAIM not in verified.claims
+
+
+async def test_a_no_credential_session_is_cached_and_not_re_exchanged(sign_in, django, cache):
+    django.exchange_error = django_client.NoDjangoAccountError('No account.')
     await sign_in(GOOGLE_A)
 
-    assert cache.get(GOOGLE_A) is None
+    assert cache.get(GOOGLE_A) is not None
+    exchanges_so_far = django.exchange_count
 
+    await server.auth._token_validator.verify_token(GOOGLE_A)
+
+    assert django.exchange_count == exchanges_so_far
+
+
+# --- Refuse a tool call made without a session credential ---------------------
+
+
+async def test_a_tool_requiring_a_credential_refuses_a_credential_less_caller(sign_in, django):
+    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    await sign_in(GOOGLE_A)
+
+    with pytest.raises(django_client.DjangoAPIError) as failure:
+        await server.list_signup_users()
+
+    assert 'signup' in str(failure.value).lower()
+
+
+async def test_signing_up_grants_a_credential_without_a_new_session(
+    sign_in, django, as_caller
+):
+    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    await sign_in(GOOGLE_A)
     django.exchange_error = None
-    assert await sign_in(GOOGLE_A) is not None
+
+    await server.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+
+    # A later request re-reads the session from the cache, as FastMCP would.
+    verified = await server.auth._token_validator.verify_token(GOOGLE_A)
+    as_caller(verified)
+    result = await server.list_signup_users()
+
+    assert result == [{'username': 'ada', 'country': 'GB', 'date_joined': '2026-01-01'}]
 
 
 # --- Refuse a caller Google does not recognise -------------------------------

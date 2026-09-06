@@ -111,12 +111,25 @@ async def test_a_403_listing_users_is_not_a_credential_problem(responds):
 
 async def test_a_403_exchanging_means_no_account_here_not_a_stale_credential(responds):
     # /api/auth/google/ answers 403 when Google verified the person but this
-    # project has no account it will sign in. Exchanging again cannot help, so it
-    # must not be reported as a retryable credential failure at the tool layer.
+    # project has no account it will sign in - same body for "no account" and
+    # "embargoed", so this can't and doesn't try to tell them apart. Exchanging
+    # again cannot help, so it must not be reported as a retryable credential
+    # failure at the tool layer, but it also isn't Google itself refusing the
+    # token - it gets its own type so CredentialVerifier can admit the caller
+    # with no credential instead of refusing them outright.
     responds(FakeResponse(403, {'detail': 'No account here.'}))
 
-    with pytest.raises(django_client.DjangoAuthError):
+    with pytest.raises(django_client.NoDjangoAccountError):
         await django_client.exchange_google_token('google-token-a')
+
+
+async def test_a_401_exchanging_is_not_a_no_account_error(responds):
+    responds(FakeResponse(401, {'detail': 'Google refused that token.'}))
+
+    with pytest.raises(django_client.DjangoAuthError) as failure:
+        await django_client.exchange_google_token('google-token-a')
+
+    assert not isinstance(failure.value, django_client.NoDjangoAccountError)
 
 
 # --- Other failures ----------------------------------------------------------
@@ -226,5 +239,103 @@ async def test_change_password_rejects_no_match(responds):
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
         await django_client.change_password('good-token', 'nobody', 'new-password-1')
+
+    assert not isinstance(failure.value, django_client.DjangoAuthError)
+
+
+# --- signup --------------------------------------------------------------------
+
+
+async def test_signup_succeeds(responds):
+    responds(FakeResponse(200, {'email': 'ada@example.com', 'username': 'ada'}))
+
+    result = await django_client.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+
+    assert result == {'detail': 'Account created.'}
+
+
+async def test_signup_rejects_a_duplicate_email(responds):
+    responds(FakeResponse(400, {'email': ['An account with this email already exists.']}))
+
+    with pytest.raises(django_client.DjangoAPIError):
+        await django_client.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+
+
+async def test_signup_never_returns_the_password(responds):
+    responds(FakeResponse(200, {'email': 'ada@example.com', 'username': 'ada'}))
+
+    result = await django_client.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+
+    assert 'lovelace1' not in str(result)
+
+
+# --- request_password_reset -----------------------------------------------------
+
+
+async def test_request_password_reset_returns_djangos_response_unchanged(responds):
+    body = {'detail': 'If that email address has an account, a reset link has been sent to it.'}
+    responds(FakeResponse(200, body))
+
+    result = await django_client.request_password_reset('ada@example.com')
+
+    assert result == body
+
+
+async def test_request_password_reset_reports_a_non_200(responds):
+    responds(FakeResponse(429, {'detail': 'Too many reset requests for that address.'}))
+
+    with pytest.raises(django_client.DjangoAPIError):
+        await django_client.request_password_reset('ada@example.com')
+
+
+# --- confirm_password_reset ------------------------------------------------------
+
+
+async def test_confirm_password_reset_succeeds(responds):
+    responds(FakeResponse(200, {'detail': 'Your password has been changed.'}))
+
+    result = await django_client.confirm_password_reset('a-code', 'new-password-1')
+
+    assert result == {'detail': 'Password changed.'}
+
+
+async def test_confirm_password_reset_rejects_an_invalid_code(responds):
+    responds(FakeResponse(400, {'detail': 'That reset link is not valid.'}))
+
+    with pytest.raises(django_client.DjangoAPIError):
+        await django_client.confirm_password_reset('bad-code', 'new-password-1')
+
+
+async def test_confirm_password_reset_never_returns_the_new_password(responds):
+    responds(FakeResponse(200, {'detail': 'Your password has been changed.'}))
+
+    result = await django_client.confirm_password_reset('a-code', 'new-password-1')
+
+    assert 'new-password-1' not in str(result)
+
+
+# --- change_own_password ---------------------------------------------------------
+
+
+async def test_change_own_password_succeeds(responds):
+    responds(FakeResponse(200, {'detail': 'Password changed.'}))
+
+    result = await django_client.change_own_password('good-token', 'old-password-1', 'new-password-1')
+
+    assert result == {'detail': 'Password changed.'}
+
+
+async def test_change_own_password_401_is_a_credential_problem(responds):
+    responds(FakeResponse(401, {'detail': 'Invalid token.'}))
+
+    with pytest.raises(django_client.DjangoAuthError):
+        await django_client.change_own_password('stale-token', 'old-password-1', 'new-password-1')
+
+
+async def test_change_own_password_rejects_a_wrong_current_password(responds):
+    responds(FakeResponse(400, {'detail': 'Current password is incorrect.'}))
+
+    with pytest.raises(django_client.DjangoAPIError) as failure:
+        await django_client.change_own_password('good-token', 'wrong-password', 'new-password-1')
 
     assert not isinstance(failure.value, django_client.DjangoAuthError)

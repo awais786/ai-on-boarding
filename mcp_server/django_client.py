@@ -37,6 +37,16 @@ class DjangoAuthError(DjangoAPIError):
     """
 
 
+class NoDjangoAccountError(DjangoAuthError):
+    """Google recognises the caller, but this project has no credential to issue them -
+
+    no matching account, or an embargoed one. Unlike DjangoAuthError's other case (Google
+    itself refusing the token), this one lets the caller's session through with no
+    credential rather than refusing them outright, so a caller with no account can still
+    reach the signup tool.
+    """
+
+
 async def send_request(method, path, **kwargs):
     try:
         return await django_client.request(method, path, **kwargs)
@@ -50,11 +60,14 @@ async def exchange_google_token(google_access_token):
         'POST', '/auth/google/', json={'access_token': google_access_token}
     )
 
-    # 401 is Google refusing the token, 403 is this project having no account it
-    # will sign in. Neither is transient, and both mean the same thing to a
-    # caller: there is no credential to be had here.
-    if response.status_code in (401, 403):
+    # 401 is Google refusing the token itself - not transient, and there is no
+    # credential to be had here no matter what the caller does next. 403 is Django
+    # having no account for this identity (or an embargoed one) - the identity
+    # itself is fine, so this is kept distinct: it lets a caller through to sign up.
+    if response.status_code == 401:
         raise DjangoAuthError(extract_error_detail(response))
+    if response.status_code == 403:
+        raise NoDjangoAccountError(extract_error_detail(response))
     if response.status_code != 200:
         raise DjangoAPIError(extract_error_detail(response))
 
@@ -93,6 +106,56 @@ async def change_password(django_token, username, new_password):
         'POST',
         f'/users/{username}/change-password/',
         json={'password': new_password},
+        headers={'Authorization': f'Token {django_token}'},
+    )
+    if response.status_code == 401:
+        raise DjangoAuthError(extract_error_detail(response))
+    if response.status_code != 200:
+        raise DjangoAPIError(extract_error_detail(response))
+
+    return {'detail': 'Password changed.'}
+
+
+async def signup(email, username, password, country):
+    """Create an account. No credential is sent - a caller with none is exactly who calls this."""
+    response = await send_request(
+        'POST',
+        '/signup/',
+        json={'email': email, 'username': username, 'password': password, 'country': country},
+    )
+    if response.status_code != 200:
+        raise DjangoAPIError(extract_error_detail(response))
+
+    return {'detail': 'Account created.'}
+
+
+async def request_password_reset(email):
+    """Ask Django to email a reset code. The response is identical whether or not the
+    address has an account - returned as-is, so that stays true here too."""
+    response = await send_request('POST', '/password-reset/', json={'email': email})
+    if response.status_code != 200:
+        raise DjangoAPIError(extract_error_detail(response))
+
+    return response.json()
+
+
+async def confirm_password_reset(code, new_password):
+    """Spend a reset code and set the new password."""
+    response = await send_request(
+        'POST', '/password-reset/confirm/', json={'code': code, 'password': new_password}
+    )
+    if response.status_code != 200:
+        raise DjangoAPIError(extract_error_detail(response))
+
+    return {'detail': 'Password changed.'}
+
+
+async def change_own_password(django_token, current_password, new_password):
+    """Change the caller's own password, current password verified by Django first."""
+    response = await send_request(
+        'POST',
+        '/users/me/change-password/',
+        json={'current_password': current_password, 'new_password': new_password},
         headers={'Authorization': f'Token {django_token}'},
     )
     if response.status_code == 401:

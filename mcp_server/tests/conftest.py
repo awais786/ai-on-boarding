@@ -67,6 +67,9 @@ class FakeDjango:
         self.exchange_error = None
         self.rejects = set()
         self.error = None
+        self.signup_error = None
+        self.reset_error = None
+        self.change_own_password_error = None
 
     async def exchange_google_token(self, google_token):
         self.exchanges.append(google_token)
@@ -83,6 +86,28 @@ class FakeDjango:
 
     async def change_password(self, django_token, username, new_password):
         self._check(django_token, ('change_password', django_token, username))
+        return {'detail': 'Password changed.'}
+
+    async def signup(self, email, username, password, country):
+        self.calls.append(('signup', email, username, country))
+        if self.signup_error is not None:
+            raise self.signup_error
+        return {'detail': 'Account created.'}
+
+    async def request_password_reset(self, email):
+        self.calls.append(('request_password_reset', email))
+        return {'detail': 'If that email address has an account, a reset link has been sent to it.'}
+
+    async def confirm_password_reset(self, code, new_password):
+        self.calls.append(('confirm_password_reset', code))
+        if self.reset_error is not None:
+            raise self.reset_error
+        return {'detail': 'Password changed.'}
+
+    async def change_own_password(self, django_token, current_password, new_password):
+        self._check(django_token, ('change_own_password', django_token))
+        if self.change_own_password_error is not None:
+            raise self.change_own_password_error
         return {'detail': 'Password changed.'}
 
     def _check(self, django_token, record):
@@ -107,7 +132,15 @@ def google(monkeypatch):
 @pytest.fixture
 def django(monkeypatch):
     fake = FakeDjango()
-    for name in ('exchange_google_token', 'list_users', 'change_password'):
+    for name in (
+        'exchange_google_token',
+        'list_users',
+        'change_password',
+        'signup',
+        'request_password_reset',
+        'confirm_password_reset',
+        'change_own_password',
+    ):
         monkeypatch.setattr(django_client, name, getattr(fake, name))
     return fake
 
