@@ -59,3 +59,71 @@ minted for it.
 ```bash
 python server.py
 ```
+
+This starts the server on `http://localhost:8100`, serving MCP over HTTP at
+`http://localhost:8100/mcp`. The Django app (`../sdd_django_demo/`) needs to be
+running too - see its own README - since every tool but `signup`,
+`request_password_reset`, and `reset_password` calls it.
+
+## Connect and test
+
+### From an MCP client (Claude Desktop, Claude Code, etc.)
+
+Point the client at `http://localhost:8100/mcp` as a remote/HTTP MCP server. The
+client will prompt you through the Google sign-in on first use; there is nothing
+else to configure. Consult your client's own docs for the exact "add a remote MCP
+server" step - it varies by client.
+
+### From a script, with FastMCP's own client
+
+Useful for trying tools out or writing a quick check without a full MCP-aware
+client. `auth='oauth'` drives the same Google sign-in flow through a browser
+window the first time; the resulting session is then reused for later calls.
+
+```python
+import asyncio
+from fastmcp import Client
+
+async def main():
+    async with Client('http://localhost:8100/mcp', auth='oauth') as client:
+        # New account - works even before signing in with a Django account
+        # already on record, since signup is the one tool that doesn't need one.
+        result = await client.call_tool('signup', {
+            'email': 'ada@example.com',
+            'username': 'ada',
+            'password': 'lovelace1',
+            'country': 'GB',
+        })
+        print(result.data)  # {'detail': 'Account created.'}
+
+        # Self-service: change the password just set, given the current one.
+        result = await client.call_tool('change_my_password', {
+            'current_password': 'lovelace1',
+            'new_password': 'lovelace2',
+        })
+        print(result.data)  # {'detail': 'Password changed.'}
+
+        # Forgot-password flow doesn't need a session credential at all.
+        result = await client.call_tool('request_password_reset', {
+            'email': 'ada@example.com',
+        })
+        print(result.data)  # the generic "if that address has an account..." message
+
+asyncio.run(main())
+```
+
+`list_signup_users`, `list_users_by_country`, and `change_user_password` work the
+same way, but need an admin account signed in - a non-admin caller gets a clear
+refusal rather than any user data.
+
+### Trying a refusal
+
+Calling a credentialed tool (anything but `signup`, `request_password_reset`, or
+`reset_password`) before signing up returns a clear refusal rather than partial
+data:
+
+```python
+result = await client.call_tool('list_signup_users', {}, raise_on_error=False)
+print(result.is_error)  # True
+print(result.content[0].text)  # "No account found for this Google identity. Use the signup tool to create one."
+```
