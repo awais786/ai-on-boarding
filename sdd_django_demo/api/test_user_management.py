@@ -2,11 +2,12 @@
 
 Each requirement and what a test needs to observe to protect it:
 
-- List signed-up users -> an authenticated caller gets every user's username,
-  country, and signup date.
+- List signed-up users -> an admin caller gets every user's username, country,
+  and signup date.
 - Filter the user list by country -> only matching users come back, matched
   case-insensitively.
-- Require authentication to list users -> an unauthenticated request is rejected.
+- Require admin privileges to list users -> an unauthenticated request is
+  rejected, and so is an authenticated non-admin's.
 - Never expose an email address in the user list -> asserted directly, filtered
   and unfiltered, not only inferred from the fields a success test happens to
   check.
@@ -67,11 +68,11 @@ def change_password(client, username, password):
 
 
 @pytest.mark.django_db
-def test_an_authenticated_caller_can_list_users():
+def test_an_admin_caller_can_list_users():
     account = create_account('ada', country='gb')
-    caller = authed_client(create_account('caller'))
+    admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = list_users(caller)
+    response = list_users(admin_client)
 
     assert response.status_code == 200
     row = next(r for r in response.data if r['username'] == 'ada')
@@ -86,9 +87,9 @@ def test_an_authenticated_caller_can_list_users():
 def test_filtering_by_country_returns_only_matching_users():
     create_account('ada', country='gb')
     create_account('grace', country='us')
-    caller = authed_client(create_account('caller'))
+    admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = list_users(caller, country='gb')
+    response = list_users(admin_client, country='gb')
 
     usernames = {row['username'] for row in response.data}
     assert 'ada' in usernames
@@ -98,9 +99,9 @@ def test_filtering_by_country_returns_only_matching_users():
 @pytest.mark.django_db
 def test_country_filter_is_case_insensitive():
     create_account('ada', country='gb')
-    caller = authed_client(create_account('caller'))
+    admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = list_users(caller, country='GB')
+    response = list_users(admin_client, country='GB')
 
     usernames = {row['username'] for row in response.data}
     assert 'ada' in usernames
@@ -113,9 +114,9 @@ def test_country_filter_is_case_insensitive():
 def test_filtering_by_username_returns_only_that_user():
     create_account('ada', country='gb')
     create_account('grace', country='us')
-    caller = authed_client(create_account('caller'))
+    admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = list_users(caller, username='ada')
+    response = list_users(admin_client, username='ada')
 
     usernames = {row['username'] for row in response.data}
     assert usernames == {'ada'}
@@ -124,15 +125,15 @@ def test_filtering_by_username_returns_only_that_user():
 @pytest.mark.django_db
 def test_username_filter_is_case_insensitive():
     create_account('ada', country='gb')
-    caller = authed_client(create_account('caller'))
+    admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = list_users(caller, username='ADA')
+    response = list_users(admin_client, username='ADA')
 
     usernames = {row['username'] for row in response.data}
     assert 'ada' in usernames
 
 
-# --- Require authentication to list users ---------------------------------------
+# --- Require admin privileges to list users -------------------------------------
 
 
 @pytest.mark.django_db
@@ -142,15 +143,24 @@ def test_listing_without_authentication_is_rejected():
     assert response.status_code in (401, 403)
 
 
+@pytest.mark.django_db
+def test_listing_by_an_authenticated_non_admin_is_rejected():
+    non_admin_client = authed_client(create_account('regular', is_staff=False))
+
+    response = list_users(non_admin_client)
+
+    assert response.status_code == 403
+
+
 # --- Never expose an email address in the user list ------------------------------
 
 
 @pytest.mark.django_db
 def test_unfiltered_listing_contains_no_email_address():
     create_account('ada', email='ada@example.com', country='gb')
-    caller = authed_client(create_account('caller'))
+    admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = list_users(caller)
+    response = list_users(admin_client)
 
     assert all('email' not in row for row in response.data)
 
@@ -158,9 +168,9 @@ def test_unfiltered_listing_contains_no_email_address():
 @pytest.mark.django_db
 def test_filtered_listing_contains_no_email_address():
     create_account('ada', email='ada@example.com', country='gb')
-    caller = authed_client(create_account('caller'))
+    admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = list_users(caller, country='gb')
+    response = list_users(admin_client, country='gb')
 
     assert all('email' not in row for row in response.data)
 

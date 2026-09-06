@@ -1,27 +1,27 @@
 ## Purpose
 
-Lets an authenticated caller list the signed-up users on record, and lets an admin reset a
-user's password, without exposing any user's internal id or email address to a caller who only
-needs to see who has signed up and from where.
+Lets an admin list the signed-up users on record, and reset a user's password, without exposing
+any user's internal id or email address to a caller who only needs to see who has signed up and
+from where.
 
 ## ADDED Requirements
 
 ### Requirement: List signed-up users
-The system SHALL let an authenticated caller retrieve the list of registered users, each
-represented by username, country, and signup date.
+The system SHALL let an admin caller retrieve the list of registered users, each represented by
+username, country, and signup date.
 
-#### Scenario: Listing succeeds for an authenticated caller
-- **WHEN** an authenticated caller requests the user list
+#### Scenario: Listing succeeds for an admin caller
+- **WHEN** an admin caller requests the user list
 - **THEN** the request succeeds and returns every registered user's username, country, and
   signup date
 
 ### Requirement: Filter the user list by country
-The system SHALL let an authenticated caller filter the user list to a single country, matched
+The system SHALL let an admin caller filter the user list to a single country, matched
 case-insensitively.
 
 #### Scenario: Filtering to a country with matching users
-- **WHEN** an authenticated caller requests the user list filtered to a country in which some
-  registered users are located
+- **WHEN** an admin caller requests the user list filtered to a country in which some registered
+  users are located
 - **THEN** the request succeeds and returns only users located in that country
 
 #### Scenario: Country filter differs in case only
@@ -29,11 +29,16 @@ case-insensitively.
   recorded
 - **THEN** that user is included in the filtered result
 
-### Requirement: Require authentication to list users
-The system SHALL reject a request for the user list from a caller who has not authenticated.
+### Requirement: Require admin privileges to list users
+The system SHALL reject a request for the user list from a caller who has not authenticated, and
+SHALL reject one from a caller who has authenticated but is not an admin.
 
 #### Scenario: Unauthenticated request
 - **WHEN** the user list is requested without authentication
+- **THEN** the request is rejected
+
+#### Scenario: Authenticated but non-admin request
+- **WHEN** the user list is requested by a caller who has authenticated but is not an admin
 - **THEN** the request is rejected
 
 ### Requirement: Never expose an email address in the user list
@@ -41,11 +46,11 @@ The system SHALL NOT include any user's email address in the user list response,
 unfiltered form.
 
 #### Scenario: Unfiltered listing
-- **WHEN** an authenticated caller requests the user list
+- **WHEN** an admin caller requests the user list
 - **THEN** no entry in the response contains an email address
 
 #### Scenario: Filtered listing
-- **WHEN** an authenticated caller requests the user list filtered by country
+- **WHEN** an admin caller requests the user list filtered by country
 - **THEN** no entry in the response contains an email address
 
 ### Requirement: Let an admin reset a user's password

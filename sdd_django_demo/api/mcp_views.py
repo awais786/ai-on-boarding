@@ -38,7 +38,7 @@ GOOGLE_NO_ACCOUNT_BODY = {'detail': 'That Google account cannot sign in here.'}
 
 class UserListView(generics.ListAPIView):
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     serializer_class = UserAccountSerializer
 
     def get_queryset(self):
