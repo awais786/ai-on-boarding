@@ -20,6 +20,11 @@ urlpatterns = [
     path('auth/google/', views.GoogleAuthView.as_view(), name='google-auth'),
     path('users/', views.UserListView.as_view(), name='user-list'),
     path(
+        'users/me/change-password/',
+        views.SelfChangePasswordView.as_view(),
+        name='self-change-password',
+    ),
+    path(
         'users/<str:username>/change-password/',
         views.AdminChangePasswordView.as_view(),
         name='admin-change-password',

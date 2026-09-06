@@ -31,6 +31,7 @@ from .serializers import (
     GoogleAuthSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
+    SelfChangePasswordSerializer,
     SigninSerializer,
     SignupSerializer,
     TokenSerializer,
@@ -495,6 +496,32 @@ class AdminChangePasswordView(generics.GenericAPIView):
         user.set_password(serializer.validated_data['password'])
         user.save(update_fields=['password'])
         Token.objects.filter(user=user).delete()
+        return Response({'detail': 'Password changed.'}, status=200)
+
+
+class SelfChangePasswordView(generics.GenericAPIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = SelfChangePasswordSerializer
+
+    @extend_schema(
+        request=SelfChangePasswordSerializer,
+        responses={
+            200: OpenApiResponse(description='Password changed.'),
+            400: OpenApiResponse(
+                description='The current password was wrong, or the new password was rejected.'
+            ),
+            401: OpenApiResponse(description='No valid authentication credential.'),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not request.user.check_password(serializer.validated_data['current_password']):
+            return Response({'detail': 'Current password is incorrect.'}, status=400)
+        request.user.set_password(serializer.validated_data['new_password'])
+        request.user.save(update_fields=['password'])
+        Token.objects.filter(user=request.user).delete()
         return Response({'detail': 'Password changed.'}, status=200)
 
 
