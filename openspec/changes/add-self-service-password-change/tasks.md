@@ -31,6 +31,6 @@
 - [x] 3.2 Ensure a GitHub issue exists for this change (comment on issue #46, which already
   tracks the MCP authentication-tools work this endpoint unblocks, rather than opening a
   duplicate) and post the proposal and the full delta spec to it via `gh issue comment`
-- [ ] 3.3 Run `/code-review` and record the verdict
-- [ ] 3.4 Fix every blocking finding, then run `/code-review` once more (verify-only) for a final
-  `Ready to merge:` verdict
+- [x] 3.3 Run `/code-review` and record the verdict - clean, no findings
+- [x] 3.4 Fix every blocking finding, then run `/code-review` once more (verify-only) for a final
+  `Ready to merge:` verdict - none to fix; `Ready to merge: yes`
