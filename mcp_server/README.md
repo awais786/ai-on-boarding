@@ -1,7 +1,14 @@
 # MCP server
 
-Exposes three tools backed by the Django API in `../sdd_django_demo/`: list signup
-users, list users by country, and change a user's password (admin only).
+Exposes tools backed by the Django API in `../sdd_django_demo/`:
+
+- `signup` - create an account. Works even without a Django account yet.
+- `request_password_reset` / `reset_password` - forgot-password flow, by email code.
+- `change_my_password` - change your own password (needs an account).
+- `change_user_password`, `list_signup_users`, `list_users_by_country` - admin only.
+
+There is no signin tool: signing in with Google, below, already establishes the
+credential every other tool uses.
 
 Auth is Google login at the MCP layer, and only at the front door. A caller signs
 in with Google to reach any tool; the first request of that session trades the
@@ -10,10 +17,11 @@ request reuses that Django token without contacting Google again. Tools call the
 Django API with the caller's own token, so Django's own permission checks apply to
 the real caller.
 
-A caller Google accepts but this project will not sign in - no account here, or an
-embargoed one - reaches no tool at all. If Django later stops accepting the Django
-token, the Google token is exchanged once more and the call retried; a second
-refusal asks the caller to sign in again.
+A caller Google accepts but this project issues no credential to - no account here,
+or an embargoed one, indistinguishable from each other - still reaches a session,
+but with no credential: every tool but `signup` refuses and tells them to sign up.
+If Django later stops accepting the Django token, the Google token is exchanged
+once more and the call retried; a second refusal asks the caller to sign in again.
 
 One consequence worth knowing: because Google is not consulted mid-session,
 revoking this app's Google access does not lock a caller out immediately. It takes

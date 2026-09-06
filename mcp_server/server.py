@@ -189,14 +189,14 @@ async def _call_django(django_call, *args, **kwargs):
 
 @mcp.tool()
 async def list_signup_users():
-    """List every signed-up user (username, country, signup date)."""
+    """List every signed-up user (username, country, signup date). Admin only."""
     _require_django_token()
     return await _call_django(django_client.list_users)
 
 
 @mcp.tool()
 async def list_users_by_country(country: str):
-    """List signed-up users from a specific country."""
+    """List signed-up users from a specific country. Admin only."""
     _require_django_token()
     return await _call_django(django_client.list_users, country=country)
 
