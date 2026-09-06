@@ -120,8 +120,11 @@ async def list_users(django_token, country=None):
 
 
 async def change_password(django_token, username, new_password):
-    """Set a user's password by username, so no internal id ever reaches the LLM."""
-    validate_password_strength(new_password)
+    """Set a user's password by username, so no internal id ever reaches the LLM.
+
+    Password strength is checked by mcp_middleware.PasswordStrengthMiddleware before
+    a tool call reaches here, not by this function itself.
+    """
     response = await send_request(
         'POST',
         f'/users/{username}/change-password/',
@@ -137,8 +140,11 @@ async def change_password(django_token, username, new_password):
 
 
 async def signup(email, username, password, country):
-    """Create an account. No credential is sent - a caller with none is exactly who calls this."""
-    validate_password_strength(password)
+    """Create an account. No credential is sent - a caller with none is exactly who calls this.
+
+    Password strength is checked by mcp_middleware.PasswordStrengthMiddleware before
+    a tool call reaches here, not by this function itself.
+    """
     response = await send_request(
         'POST',
         '/signup/',
@@ -161,8 +167,11 @@ async def request_password_reset(email):
 
 
 async def confirm_password_reset(code, new_password):
-    """Spend a reset code and set the new password."""
-    validate_password_strength(new_password)
+    """Spend a reset code and set the new password.
+
+    Password strength is checked by mcp_middleware.PasswordStrengthMiddleware before
+    a tool call reaches here, not by this function itself.
+    """
     response = await send_request(
         'POST', '/password-reset/confirm/', json={'code': code, 'password': new_password}
     )
@@ -173,8 +182,11 @@ async def confirm_password_reset(code, new_password):
 
 
 async def change_own_password(django_token, current_password, new_password):
-    """Change the caller's own password, current password verified by Django first."""
-    validate_password_strength(new_password)
+    """Change the caller's own password, current password verified by Django first.
+
+    Password strength is checked by mcp_middleware.PasswordStrengthMiddleware before
+    a tool call reaches here, not by this function itself.
+    """
     response = await send_request(
         'POST',
         '/users/me/change-password/',
