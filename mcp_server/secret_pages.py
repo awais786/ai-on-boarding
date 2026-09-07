@@ -1,15 +1,9 @@
-"""Collects a password directly from a human's browser - never through the MCP
-protocol, the connecting client, or the calling assistant. This is the whole
-point of URL-mode elicitation (SEP-1036): a tool that needs a password hands the
-caller a URL pointing at this module's own page instead of asking for the value
-as a tool argument or a form-mode elicitation (the MCP spec forbids form mode for
-secrets - see server.py).
+"""Collects a password directly from a human's browser via URL-mode elicitation
+(SEP-1036) - never through the MCP protocol, client, or model (see server.py).
 
-A pending request's `on_submit` closure does the real work - the Django call the
-password was needed for - the moment the page is submitted. Nothing collected
-here is ever placed back into an MCP message: the waiting tool call only ever
-learns whether the request resolved, and to what result, never the password
-itself.
+A pending request's `on_submit` closure does the real Django call the moment
+the page is submitted. The waiting tool call only ever learns whether it
+resolved, and to what result - never the password itself.
 """
 
 import html
@@ -21,11 +15,9 @@ PENDING_TTL_SECONDS = 15 * 60  # a human might take a while to open the link
 
 
 class PendingSecretRequest:
-    """One outstanding "collect a password" request, waiting for its own page.
-
-    `fields` is an ordered list of (name, label) pairs - one for most
-    operations, two for change_my_password (current, then new).
-    """
+    """One outstanding "collect a password" request. `fields` is an ordered
+    [(name, label), ...] list - one entry for most operations, two for
+    change_my_password (current, then new)."""
 
     def __init__(self, fields, on_submit):
         self.fields = fields
@@ -43,9 +35,8 @@ class PendingSecretRequest:
         return self.result is not None or self.error is not None
 
     async def submit(self, values):
-        """Run the real operation with the submitted values. Only ever called
-        from this module's own POST handler - the values never leave this
-        process, let alone reach the MCP client or the model."""
+        """Runs the real operation. Only ever called from this module's own POST
+        handler - values never leave this process."""
         try:
             self.result = await self._on_submit(values)
         except Exception as exc:  # noqa: BLE001 - surfaced to the waiting tool call
@@ -131,10 +122,8 @@ def render_gone():
 
 
 def render_error(message):
-    """A submission that reached Django and failed (weak password, wrong current
-    password, ...). No retry on this same link - once submitted, a request is
-    resolved either way, so the waiting tool call and this page can't race over
-    whether it's still open. Ask your assistant to try again for a fresh link."""
+    """A submission Django rejected. No retry on this link - a submitted request
+    is resolved either way, avoiding a race with the polling tool call."""
     return f"""<!doctype html>
 <html>
 <head><title>Could not complete</title></head>

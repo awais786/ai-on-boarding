@@ -1,14 +1,9 @@
 """The only place this server talks to the Django API.
 
-Field allowlists live here, not in the tools: whatever a tool function returns is
-what the LLM sees, so stripping ids, emails, and other fields the tools don't need
-happens once, in this one layer, rather than being left to every tool author to
-remember.
-
-None of the password-setting functions here (change_password, signup,
-confirm_password_reset, change_own_password) validate password strength
-themselves - each tool's own secret_pages on_submit closure (server.py) does
-that before a call ever reaches here.
+Field allowlists live here, not in the tools: whatever a tool returns is what the
+LLM sees, so stripping ids, emails, etc. happens once, here, rather than being
+left to every tool author to remember. Password strength isn't checked here
+either - each tool's own secret_pages on_submit closure (server.py) does that.
 """
 
 import os
@@ -19,10 +14,8 @@ import httpx2
 DJANGO_API_BASE = os.environ.get('DJANGO_API_BASE', 'http://localhost:8000/api')
 REQUEST_TIMEOUT = 10
 
-# Mirrors sdd_django_demo/api/serializers.py::validate_password_strength - keep the two
-# in sync. Both sides run the same case list (password_strength_cases.json, next to
-# that function) so a drift between them fails a test instead of surfacing as a
-# confusing round trip to Django for a password this layer could have rejected at once.
+# Mirrors sdd_django_demo/api/serializers.py::validate_password_strength - both
+# run password_strength_cases.json so a drift between them fails a test.
 PASSWORD_MIN_LENGTH = 8
 
 django_client = httpx2.AsyncClient(base_url=DJANGO_API_BASE, timeout=REQUEST_TIMEOUT)
@@ -30,9 +23,8 @@ django_client = httpx2.AsyncClient(base_url=DJANGO_API_BASE, timeout=REQUEST_TIM
 # id and email are deliberately left out - internal identifiers and PII the tools don't need.
 USER_FIELDS = ('username', 'country', 'date_joined')
 
-# username is real on the way in, masked on the way out (see list_users) - a caller
-# lists users to see who's signed up from where, not to learn anyone's exact
-# username; a masked row still shows that an account exists.
+# Real on the way in, masked on the way out (see list_users) - a listing shows who
+# signed up from where, not any exact username.
 MASKED_USERNAME = '***'
 
 # Bounds the fallback used when Django doesn't send a JSON `detail` - an unhandled
@@ -45,23 +37,15 @@ class DjangoAPIError(Exception):
 
 
 class DjangoAuthError(DjangoAPIError):
-    """The credential this call was made with is not one Django will accept.
-
-    Kept apart from its parent because only this case is worth retrying with a
-    fresh credential. A 403 from list_users/change_password - a non-admin calling
-    an admin-only endpoint, an embargoed account - is Django answering correctly,
-    and re-exchanging would turn a clear refusal into a retry that refuses again.
-    """
+    """The credential is stale - worth retrying with a fresh one. Kept apart from
+    a plain 403 (non-admin, embargoed, ...), which is Django answering correctly
+    and would just refuse again on retry."""
 
 
 class NoDjangoAccountError(DjangoAuthError):
-    """Google recognises the caller, but this project has no credential to issue them -
-
-    no matching account, or an embargoed one. Unlike DjangoAuthError's other case (Google
-    itself refusing the token), this one lets the caller's session through with no
-    credential rather than refusing them outright, so a caller with no account can still
-    reach the signup tool.
-    """
+    """Google recognises the caller, but no account (or an embargoed one) matches -
+    the identity is fine, so this lets the session through with no credential
+    instead of refusing outright, so signup is still reachable."""
 
 
 def validate_password_strength(password):
@@ -84,9 +68,8 @@ async def send_request(method, path, **kwargs):
 
 
 def _raise_for_failure(response):
-    """A 401 is always a stale/missing credential; anything else non-200 is an
-    ordinary failure. NoDjangoAccountError's 403 case is exchange_google_token's
-    own concern, not shared here - it's the only call this doesn't apply to."""
+    """401 -> stale credential; other non-200 -> ordinary failure. Not used by
+    exchange_google_token, which also handles a 403 (NoDjangoAccountError)."""
     if response.status_code == 401:
         raise DjangoAuthError(extract_error_detail(response))
     if response.status_code != 200:
@@ -99,10 +82,8 @@ async def exchange_google_token(google_access_token):
         'POST', '/auth/google/', json={'access_token': google_access_token}
     )
 
-    # 401 is Google refusing the token itself - not transient, and there is no
-    # credential to be had here no matter what the caller does next. 403 is Django
-    # having no account for this identity (or an embargoed one) - the identity
-    # itself is fine, so this is kept distinct: it lets a caller through to sign up.
+    # 401: Google refused the token. 403: no account for this identity - kept
+    # distinct so the caller can still be let through to sign up.
     if response.status_code == 401:
         raise DjangoAuthError(extract_error_detail(response))
     if response.status_code == 403:
@@ -140,11 +121,7 @@ async def list_users(django_token, country=None):
 
 
 async def change_password(django_token, username, new_password):
-    """Set a user's password by username, so no internal id ever reaches the LLM.
-
-    Password strength is checked by the tool's own secret_pages on_submit closure
-    (server.py) before a call reaches here, not by this function itself.
-    """
+    """Set a user's password by username, so no internal id ever reaches the LLM."""
     response = await send_request(
         'POST',
         f'/users/{username}/change-password/',

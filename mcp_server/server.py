@@ -1,9 +1,8 @@
 """MCP server exposing signup-reporting tools backed by the Django API.
 
-Google authenticates a caller once; FastMCP keeps the Google token server-side and
-the first request of a session trades it for this project's own Django token, which
-later requests reuse. Tools call Django with the caller's own token, so Django's own
-permission checks apply to the real caller, not a blanket service credential.
+Google authenticates a caller once; the first request of a session trades that
+for this project's own Django token, reused for later requests. Tools call
+Django with the caller's own token, not a blanket service credential.
 """
 
 import asyncio
@@ -28,12 +27,10 @@ load_dotenv()
 
 MCP_BASE_URL = os.environ.get('MCP_BASE_URL', 'http://localhost:8100')
 
-# How often a handshake-era call re-checks whether its page has been submitted,
-# while blocked inside session.elicit_url() - see _await_secret.
+# Poll interval for a handshake-era call re-checking its page - see _await_secret.
 HANDSHAKE_ERA_POLL_SECONDS = 1
 
-# A revoked Google token still expires the cache entry sooner than this, so raising
-# this value never extends a revoked account's life.
+# A ceiling only: a revoked Google token expires the cache entry sooner regardless.
 CREDENTIAL_CACHE_TTL_SECONDS = int(os.environ.get('MCP_CREDENTIAL_CACHE_TTL_SECONDS', '86400'))
 CREDENTIAL_CACHE_MAX_SIZE = 1_000
 CREDENTIAL_CACHE_FALLBACK_TTL_SECONDS = 3600  # used if a token carries no expiry of its own
@@ -170,15 +167,9 @@ mcp.add_middleware(ToolCallRateLimiter())
 
 
 def _ask_for_secret(token, message):
-    """An InputRequiredResult pointing the caller's own MCP client at a page this
-    server itself hosts (secret_pages.py) - a browser-facing URL, never a
-    form-mode elicitation. The MCP spec forbids form mode for sensitive data
-    (passwords, tokens, ...): form mode keeps the exchange inside the client, so
-    nothing stops it reaching the model too, which is exactly what happened when
-    this server used it. URL mode's whole point is that the value never enters
-    the MCP protocol, the client, or the model - only this process and the
-    human's own browser ever see it.
-    """
+    """Points the client at a page this server hosts, via URL-mode elicitation -
+    not form mode, which the MCP spec forbids for secrets (it stays inside the
+    client, with nothing stopping it reaching the model too)."""
     return InputRequiredResult(
         input_requests={
             'secret': ElicitRequest(
@@ -195,13 +186,9 @@ def _ask_for_secret(token, message):
 
 
 def _is_modern_protocol(ctx):
-    """Whether this call negotiated the 2026-07-28 MCP protocol (multi-round-trip,
-    SEP-2322) rather than an earlier "handshake-era" one (2024-11-05 through
-    2025-11-25, where a server-initiated request like elicitation blocks on a
-    direct back-channel call instead). Defaults to modern when the era can't be
-    read from the context, matching every existing tool call in this codebase,
-    which never needed to know the era before URL mode made it matter.
-    """
+    """2026-07-28 (multi-round-trip, SEP-2322) vs an earlier "handshake-era"
+    protocol, where elicitation blocks on a direct call instead. Defaults to
+    modern when the era can't be read from the context."""
     rc = getattr(ctx, 'request_context', None)
     if rc is None:
         return True
@@ -209,21 +196,12 @@ def _is_modern_protocol(ctx):
 
 
 async def _await_secret(fields, message, on_submit):
-    """Collect one or more passwords via `secret_pages`, never via a tool argument.
-    `fields` is an ordered `[(name, label), ...]` list; `on_submit` is the closure
-    that does the real work once the human has submitted the page.
-
-    On a handshake-era connection, delegates to _await_secret_handshake_era
-    instead - that era's URL-mode elicitation is a single blocking call, not the
-    stateless round-trip below (see _is_modern_protocol).
-
-    Modern (2026-07-28) protocol, stateless multi-round-trip: round 1 (no prior
-    answer) registers the pending request and returns an InputRequiredResult
-    pointing at its page. A later round re-checks the same request (found via
-    `request_state`, the token FastMCP seals and echoes back unmodified):
-    re-sends the same link if the human hasn't finished yet, or reports the
-    outcome and retires the token once resolved.
-    """
+    """Collects one or more passwords via `secret_pages`, never a tool argument.
+    `fields` is an ordered `[(name, label), ...]` list; `on_submit` does the real
+    work once the human submits the page. Delegates to the handshake-era variant
+    below on an older protocol (see _is_modern_protocol); otherwise this is a
+    stateless multi-round-trip: register + ask, then re-check via `request_state`
+    (the token FastMCP echoes back unmodified) until the page resolves."""
     ctx = get_context()
 
     if not _is_modern_protocol(ctx):
@@ -283,14 +261,10 @@ def _require_django_token():
 
 
 async def _call_django(django_call, *args, access_token=None, **kwargs):
-    """Call django_call(django_token, ...), refreshing a refused token once before giving up.
-
-    Uses the current live session by default. A secret page's `on_submit`
-    closure runs from an ordinary HTTP POST handler, outside any MCP request -
-    `get_access_token()` has nothing to read there - so it captures the caller's
-    `AccessToken` while the tool call that registered it is still live, and
-    passes it here explicitly.
-    """
+    """Call django_call(django_token, ...), refreshing a refused token once before
+    giving up. Pass `access_token` explicitly when calling from outside a live
+    MCP request (a secret page's `on_submit`), where get_access_token() has
+    nothing to read - default is the current session's."""
     if access_token is None:
         access_token = get_access_token()
     try:

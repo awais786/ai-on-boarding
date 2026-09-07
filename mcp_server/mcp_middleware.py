@@ -16,10 +16,8 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     logger.addHandler(handler)
 
-# Defensive only: no tool currently takes a password as a plain argument (every
-# password is elicited from the caller's own MCP client instead - see server.py),
-# so none of these should ever actually appear in `arguments`. Kept so a future
-# tool that regresses to a plain password argument is still never logged in full.
+# Defensive only: no tool takes a password as a plain argument today (each is
+# elicited instead - see server.py), but a future regression still won't be logged.
 REDACTED_ARGS = ('password', 'current_password', 'new_password')
 
 
