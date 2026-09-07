@@ -191,7 +191,25 @@ async def test_a_tool_result_field_allowlist_strips_ids_and_emails(responds):
 
     rows = await django_client.list_users('good-token')
 
-    assert rows == [{'username': 'ada', 'country': 'GB', 'date_joined': '2026-01-01'}]
+    assert rows == [{'username': '***', 'country': 'GB', 'date_joined': '2026-01-01'}]
+
+
+async def test_list_users_masks_the_real_username(responds):
+    responds(
+        FakeResponse(
+            200,
+            [
+                {'id': 1, 'username': 'ada', 'email': 'a@example.com', 'country': 'GB', 'date_joined': '2026-01-01'},
+                {'id': 2, 'username': 'grace', 'email': 'g@example.com', 'country': 'US', 'date_joined': '2026-01-02'},
+            ],
+        )
+    )
+
+    rows = await django_client.list_users('good-token')
+
+    assert [row['username'] for row in rows] == [django_client.MASKED_USERNAME] * 2
+    assert 'ada' not in str(rows)
+    assert 'grace' not in str(rows)
 
 
 # --- _detail truncates a non-JSON fallback ------------------------------------

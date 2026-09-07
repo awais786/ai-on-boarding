@@ -25,6 +25,11 @@ django_client = httpx2.AsyncClient(base_url=DJANGO_API_BASE, timeout=REQUEST_TIM
 # id and email are deliberately left out - internal identifiers and PII the tools don't need.
 USER_FIELDS = ('username', 'country', 'date_joined')
 
+# username is real on the way in, masked on the way out (see list_users) - a caller
+# lists users to see who's signed up from where, not to learn anyone's exact
+# username; a masked row still shows that an account exists.
+MASKED_USERNAME = '***'
+
 # Bounds the fallback used when Django doesn't send a JSON `detail` - an unhandled
 # Django error can be a full HTML debug page, which has no business in an LLM's context.
 DETAIL_FALLBACK_MAX_LENGTH = 200
@@ -114,16 +119,20 @@ async def _get_users(django_token, country=None, username=None):
 
 
 async def list_users(django_token, country=None):
-    """Signup users, optionally filtered by country. Stripped to USER_FIELDS."""
+    """Signup users, optionally filtered by country. Stripped to USER_FIELDS, with
+    the real username replaced by MASKED_USERNAME in every row."""
     rows = await _get_users(django_token, country=country)
-    return [{field: row[field] for field in USER_FIELDS} for row in rows]
+    return [
+        {field: (MASKED_USERNAME if field == 'username' else row[field]) for field in USER_FIELDS}
+        for row in rows
+    ]
 
 
 async def change_password(django_token, username, new_password):
     """Set a user's password by username, so no internal id ever reaches the LLM.
 
-    Password strength is checked by mcp_middleware.PasswordStrengthMiddleware before
-    a tool call reaches here, not by this function itself.
+    Password strength is checked by the tool's own secret_pages on_submit closure
+    (server.py) before a call reaches here, not by this function itself.
     """
     response = await send_request(
         'POST',
@@ -142,8 +151,8 @@ async def change_password(django_token, username, new_password):
 async def signup(email, username, password, country):
     """Create an account. No credential is sent - a caller with none is exactly who calls this.
 
-    Password strength is checked by mcp_middleware.PasswordStrengthMiddleware before
-    a tool call reaches here, not by this function itself.
+    Password strength is checked by the tool's own secret_pages on_submit closure
+    (server.py) before a call reaches here, not by this function itself.
     """
     response = await send_request(
         'POST',
@@ -169,8 +178,8 @@ async def request_password_reset(email):
 async def confirm_password_reset(code, new_password):
     """Spend a reset code and set the new password.
 
-    Password strength is checked by mcp_middleware.PasswordStrengthMiddleware before
-    a tool call reaches here, not by this function itself.
+    Password strength is checked by the tool's own secret_pages on_submit closure
+    (server.py) before a call reaches here, not by this function itself.
     """
     response = await send_request(
         'POST', '/password-reset/confirm/', json={'code': code, 'password': new_password}
@@ -184,8 +193,8 @@ async def confirm_password_reset(code, new_password):
 async def change_own_password(django_token, current_password, new_password):
     """Change the caller's own password, current password verified by Django first.
 
-    Password strength is checked by mcp_middleware.PasswordStrengthMiddleware before
-    a tool call reaches here, not by this function itself.
+    Password strength is checked by the tool's own secret_pages on_submit closure
+    (server.py) before a call reaches here, not by this function itself.
     """
     response = await send_request(
         'POST',
