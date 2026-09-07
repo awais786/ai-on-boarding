@@ -210,28 +210,19 @@ def _is_modern_protocol(ctx):
 
 async def _await_secret(fields, message, on_submit):
     """Collect one or more passwords via `secret_pages`, never via a tool argument.
+    `fields` is an ordered `[(name, label), ...]` list; `on_submit` is the closure
+    that does the real work once the human has submitted the page.
 
-    Branches on the negotiated protocol era, since URL-mode elicitation's wire
-    mechanics differ between them (see _is_modern_protocol):
+    On a handshake-era connection, delegates to _await_secret_handshake_era
+    instead - that era's URL-mode elicitation is a single blocking call, not the
+    stateless round-trip below (see _is_modern_protocol).
 
-    - **Modern (2026-07-28)**: stateless multi-round-trip. Round 1 (no prior
-      answer) registers a pending request - `fields` is an ordered
-      `[(name, label), ...]` list, `on_submit` the closure that does the real
-      work once the human has submitted the page - and returns the
-      InputRequiredResult pointing at it. A later round re-checks the same
-      pending request (found via `request_state`, the token FastMCP seals and
-      echoes back unmodified): re-sends the same link if the human hasn't
-      finished yet, or reports the outcome and retires the token once resolved.
-    - **Handshake-era (2024-11-05 - 2025-11-25)**: one blocking call.
-      `session.elicit_url()` blocks until the human consents to open the link
-      (not until they finish the page - see SEP-1036), so this polls the same
-      pending request afterward, within the same tool call, until it resolves
-      or the link's own TTL runs out.
-
-    Returns the real result directly (there is no second return value to check:
-    a call that isn't finished yet returns by *raising* nothing and instead
-    short-circuits via `return` from inside this function like any other path -
-    callers simply `return await _await_secret(...)`).
+    Modern (2026-07-28) protocol, stateless multi-round-trip: round 1 (no prior
+    answer) registers the pending request and returns an InputRequiredResult
+    pointing at its page. A later round re-checks the same request (found via
+    `request_state`, the token FastMCP seals and echoes back unmodified):
+    re-sends the same link if the human hasn't finished yet, or reports the
+    outcome and retires the token once resolved.
     """
     ctx = get_context()
 
@@ -339,9 +330,8 @@ async def list_users_by_country(country: str):
 async def change_user_password(username: str):
     """Change a user's password. Only works if the caller is an admin.
 
-    The new password is not a parameter of this tool: it's collected on a page
-    this server hosts, opened directly in your browser, so neither your MCP
-    client nor the calling assistant ever sees it.
+    The new password is collected on a page this server hosts, not a tool
+    argument - never seen by your MCP client or this assistant.
     """
     _require_django_token()
     access_token = get_access_token()
@@ -363,10 +353,9 @@ async def change_user_password(username: str):
 async def signup(email: str, username: str, country: str):
     """Create an account. Works even if you don't have one yet - that's the point.
 
-    The password is not a parameter of this tool: it's collected on a page this
-    server hosts, opened directly in your browser, so neither your MCP client
-    nor the calling assistant ever sees it. On success, this session can
-    immediately use the other tools without reconnecting.
+    The password is collected on a page this server hosts, not a tool argument -
+    never seen by your MCP client or this assistant. On success, this session
+    can immediately use the other tools without reconnecting.
     """
     access_token = get_access_token()
 
@@ -396,9 +385,8 @@ async def request_password_reset(email: str):
 async def reset_password(code: str):
     """Complete a password reset using the code emailed by request_password_reset.
 
-    The new password is not a parameter of this tool: it's collected on a page
-    this server hosts, opened directly in your browser, so neither your MCP
-    client nor the calling assistant ever sees it.
+    The new password is collected on a page this server hosts, not a tool
+    argument - never seen by your MCP client or this assistant.
     """
 
     async def _do_reset(values):
@@ -412,9 +400,8 @@ async def reset_password(code: str):
 async def change_my_password():
     """Change your own password. Requires an account - use signup first if you don't have one.
 
-    Neither password is a parameter of this tool: both are collected on a page
-    this server hosts, opened directly in your browser, so neither your MCP
-    client nor the calling assistant ever sees them.
+    Both passwords are collected on a page this server hosts, not tool
+    arguments - never seen by your MCP client or this assistant.
     """
     _require_django_token()
     access_token = get_access_token()

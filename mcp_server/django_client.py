@@ -4,6 +4,11 @@ Field allowlists live here, not in the tools: whatever a tool function returns i
 what the LLM sees, so stripping ids, emails, and other fields the tools don't need
 happens once, in this one layer, rather than being left to every tool author to
 remember.
+
+None of the password-setting functions here (change_password, signup,
+confirm_password_reset, change_own_password) validate password strength
+themselves - each tool's own secret_pages on_submit closure (server.py) does
+that before a call ever reaches here.
 """
 
 import os
@@ -78,6 +83,16 @@ async def send_request(method, path, **kwargs):
         raise DjangoAPIError('Could not reach the API.') from err
 
 
+def _raise_for_failure(response):
+    """A 401 is always a stale/missing credential; anything else non-200 is an
+    ordinary failure. NoDjangoAccountError's 403 case is exchange_google_token's
+    own concern, not shared here - it's the only call this doesn't apply to."""
+    if response.status_code == 401:
+        raise DjangoAuthError(extract_error_detail(response))
+    if response.status_code != 200:
+        raise DjangoAPIError(extract_error_detail(response))
+
+
 async def exchange_google_token(google_access_token):
     """Trade a verified Google access token for this project's own DRF token."""
     response = await send_request(
@@ -110,11 +125,7 @@ async def _get_users(django_token, country=None, username=None):
     response = await send_request(
         'GET', '/users/', params=params, headers={'Authorization': f'Token {django_token}'}
     )
-    if response.status_code == 401:
-        raise DjangoAuthError(extract_error_detail(response))
-    if response.status_code != 200:
-        raise DjangoAPIError(extract_error_detail(response))
-
+    _raise_for_failure(response)
     return response.json()
 
 
@@ -140,28 +151,18 @@ async def change_password(django_token, username, new_password):
         json={'password': new_password},
         headers={'Authorization': f'Token {django_token}'},
     )
-    if response.status_code == 401:
-        raise DjangoAuthError(extract_error_detail(response))
-    if response.status_code != 200:
-        raise DjangoAPIError(extract_error_detail(response))
-
+    _raise_for_failure(response)
     return {'detail': 'Password changed.'}
 
 
 async def signup(email, username, password, country):
-    """Create an account. No credential is sent - a caller with none is exactly who calls this.
-
-    Password strength is checked by the tool's own secret_pages on_submit closure
-    (server.py) before a call reaches here, not by this function itself.
-    """
+    """Create an account. No credential is sent - a caller with none is exactly who calls this."""
     response = await send_request(
         'POST',
         '/signup/',
         json={'email': email, 'username': username, 'password': password, 'country': country},
     )
-    if response.status_code != 200:
-        raise DjangoAPIError(extract_error_detail(response))
-
+    _raise_for_failure(response)
     return {'detail': 'Account created.'}
 
 
@@ -169,44 +170,28 @@ async def request_password_reset(email):
     """Ask Django to email a reset code. The response is identical whether or not the
     address has an account - returned as-is, so that stays true here too."""
     response = await send_request('POST', '/password-reset/', json={'email': email})
-    if response.status_code != 200:
-        raise DjangoAPIError(extract_error_detail(response))
-
+    _raise_for_failure(response)
     return response.json()
 
 
 async def confirm_password_reset(code, new_password):
-    """Spend a reset code and set the new password.
-
-    Password strength is checked by the tool's own secret_pages on_submit closure
-    (server.py) before a call reaches here, not by this function itself.
-    """
+    """Spend a reset code and set the new password."""
     response = await send_request(
         'POST', '/password-reset/confirm/', json={'code': code, 'password': new_password}
     )
-    if response.status_code != 200:
-        raise DjangoAPIError(extract_error_detail(response))
-
+    _raise_for_failure(response)
     return {'detail': 'Password changed.'}
 
 
 async def change_own_password(django_token, current_password, new_password):
-    """Change the caller's own password, current password verified by Django first.
-
-    Password strength is checked by the tool's own secret_pages on_submit closure
-    (server.py) before a call reaches here, not by this function itself.
-    """
+    """Change the caller's own password, current password verified by Django first."""
     response = await send_request(
         'POST',
         '/users/me/change-password/',
         json={'current_password': current_password, 'new_password': new_password},
         headers={'Authorization': f'Token {django_token}'},
     )
-    if response.status_code == 401:
-        raise DjangoAuthError(extract_error_detail(response))
-    if response.status_code != 200:
-        raise DjangoAPIError(extract_error_detail(response))
-
+    _raise_for_failure(response)
     return {'detail': 'Password changed.'}
 
 
