@@ -84,25 +84,20 @@ server" step - it varies by client.
 Useful for trying tools out or writing a quick check without a full MCP-aware
 client. `auth='oauth'` drives the same Google sign-in flow through a browser
 window the first time; the resulting session is then reused for later calls. Every
-password-setting tool elicits its password(s) rather than taking them as
-arguments - see "Elicited passwords" below for what that means for a script.
+password-setting tool collects its password(s) on a page this server itself hosts
+rather than taking them as arguments - see "Elicited passwords" below for what
+that means for a script.
 
 ```python
 import asyncio
 from fastmcp import Client
-from fastmcp.client.elicitation import ElicitResult
-
-async def handler(message, response_type, params, ctx):
-    # In a real client this would prompt a human; here it answers directly.
-    # response_type is generated from the one field each request asks for.
-    field = next(iter(response_type.model_fields))
-    return ElicitResult(action='accept', content=response_type(**{field: 'lovelace1'}))
 
 async def main():
-    async with Client('http://localhost:8100/mcp', auth='oauth', elicitation_handler=handler) as client:
+    async with Client('http://localhost:8100/mcp', auth='oauth') as client:
         # New account - works even before signing in with a Django account
         # already on record, since signup is the one tool that doesn't need one.
-        # The password itself is never in this call - handler supplies it above.
+        # The password itself is never in this call - it's entered on the page
+        # the tool opens; a real client opens it for you automatically.
         result = await client.call_tool('signup', {
             'email': 'ada@example.com',
             'username': 'ada',
@@ -126,25 +121,45 @@ refusal rather than any user data.
 ### Elicited passwords
 
 `signup`, `reset_password`, `change_my_password`, and `change_user_password` take
-no password as a tool argument - calling any of them starts a short back-and-forth
-where the *server* asks your MCP client to collect the value(s) directly from you,
-and the assistant that called the tool never sees the answer. A real MCP client
-(Claude Desktop, Claude Code) renders each elicitation as its own prompt in its own
-UI - there's nothing extra to configure for that case.
+no password as a tool argument. The MCP spec forbids collecting a secret through
+form-mode elicitation (the client would render it inline, with nothing stopping it
+reaching the model too) - so each of these tools instead uses **URL-mode
+elicitation** (SEP-1036): the server hands the caller a URL, and the human enters
+the password directly on a page this server hosts (`/secrets/<token>` in
+`server.py`, rendered by `secret_pages.py`). Neither the value nor its page ever
+passes through the MCP protocol, the client, or the model - only this process and
+the human's own browser see it. A real MCP client (Claude Desktop, Claude Code)
+opens that URL for you automatically; there's nothing extra to configure.
 
-A script using FastMCP's `Client` handles it with an `elicitation_handler`, as in
-the example above. `change_my_password` is the one exception worth knowing about:
-it needs two passwords in sequence (current, then new), so it drives two rounds -
-the handler above works for it unchanged (it just answers with `'lovelace1'` for
-both, whatever the field is called), but a handler that wants to answer them
-differently would need to look at `message` (the human-readable prompt) or the
-field name in `response_type.model_fields` to tell which round it's in:
+A script using FastMCP's `Client` needs an `elicitation_handler` to know what to
+do with the URL - a real one would open it in a browser and wait for the human;
+a script can simulate that human by POSTing the page directly:
+
+```python
+import httpx2
+from fastmcp.client.elicitation import ElicitResult
+
+async def handler(message, response_type, params, ctx):
+    # response_type is None for URL-mode elicitation - there's no schema, only
+    # params.url, exactly like the link a real client would open in a browser.
+    async with httpx2.AsyncClient() as http:
+        await http.post(params.url, data={'password': 'lovelace1'})
+    return ElicitResult(action='accept')  # acknowledges completion; carries no value
+
+async with Client('http://localhost:8100/mcp', auth='oauth', elicitation_handler=handler) as client:
+    result = await client.call_tool('signup', {'email': 'ada@example.com', 'username': 'ada', 'country': 'GB'})
+    print(result.data)  # {'detail': 'Account created.'}
+```
+
+`change_my_password` is the one exception worth knowing about: its page has two
+fields (current password, then new), collected in a single visit rather than two
+separate rounds, so the same handler above needs both keys in one POST:
 
 ```python
 async def handler(message, response_type, params, ctx):
-    field = next(iter(response_type.model_fields))
-    value = 'lovelace1' if field == 'current_password' else 'lovelace2'
-    return ElicitResult(action='accept', content=response_type(**{field: value}))
+    async with httpx2.AsyncClient() as http:
+        await http.post(params.url, data={'current_password': 'lovelace1', 'new_password': 'lovelace2'})
+    return ElicitResult(action='accept')
 
 async with Client('http://localhost:8100/mcp', auth='oauth', elicitation_handler=handler) as client:
     result = await client.call_tool('change_my_password', {})

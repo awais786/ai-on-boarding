@@ -7,7 +7,6 @@ permission checks apply to the real caller, not a blanket service credential.
 """
 
 import hashlib
-import json
 import os
 import time
 
@@ -15,9 +14,11 @@ from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.google import GoogleProvider
 from fastmcp.server.dependencies import get_access_token, get_context
-from mcp.types import ElicitRequest, ElicitRequestFormParams, InputRequiredResult
+from mcp.types import ElicitRequest, ElicitRequestURLParams, InputRequiredResult
+from starlette.responses import HTMLResponse
 
 import django_client
+import secret_pages
 from mcp_middleware import ToolCallLogger, ToolCallRateLimiter
 
 load_dotenv()
@@ -161,65 +162,69 @@ mcp.add_middleware(ToolCallLogger())  # outermost, so it also logs a rate-limit 
 mcp.add_middleware(ToolCallRateLimiter())
 
 
-def _ask_for_password(key, message, request_state=None):
-    """An InputRequiredResult asking the caller's own MCP client - never the LLM -
-    to collect one password-shaped field, keyed by `key`.
-
-    Multi-round-trip is stateless (SEP-2322): nothing survives here between
-    rounds except what rides in `request_state`, which FastMCP seals on the wire
-    (encrypted with a server-held key) before handing it to the client, so a
-    password carried forward in it is never plaintext outside this process.
+def _ask_for_secret(token, message):
+    """An InputRequiredResult pointing the caller's own MCP client at a page this
+    server itself hosts (secret_pages.py) - a browser-facing URL, never a
+    form-mode elicitation. The MCP spec forbids form mode for sensitive data
+    (passwords, tokens, ...): form mode keeps the exchange inside the client, so
+    nothing stops it reaching the model too, which is exactly what happened when
+    this server used it. URL mode's whole point is that the value never enters
+    the MCP protocol, the client, or the model - only this process and the
+    human's own browser ever see it.
     """
     return InputRequiredResult(
         input_requests={
-            key: ElicitRequest(
+            'secret': ElicitRequest(
                 method='elicitation/create',
-                params=ElicitRequestFormParams(
+                params=ElicitRequestURLParams(
+                    mode='url',
                     message=message,
-                    requested_schema={
-                        'type': 'object',
-                        'properties': {key: {'type': 'string', 'format': 'password'}},
-                        'required': [key],
-                    },
+                    url=f'{MCP_BASE_URL}/secrets/{token}',
                 ),
             )
         },
-        request_state=request_state,
+        request_state=token,
     )
 
 
-def _answered(responses, key):
-    """The client's plain value for an elicited field, or None if it declined/cancelled -
-    never raise on a decline, since "the caller changed their mind" isn't an error."""
-    answer = responses.get(key)
-    if answer is None or answer.action != 'accept':
-        return None
-    return answer.content[key]
+async def _await_secret(fields, message, on_submit):
+    """Collect one or more passwords via `secret_pages`, never via a tool argument.
 
+    Round 1 (no prior answer): registers a pending request - `fields` is an
+    ordered `[(name, label), ...]` list, `on_submit` the closure that does the
+    real work once the human has submitted the page - and returns the
+    InputRequiredResult pointing at it.
 
-async def _elicit_password(key, message, cancelled_detail):
-    """One elicited password field for a tool that only ever needs one.
+    A later round re-checks the same pending request (found via `request_state`,
+    the token FastMCP seals and echoes back unmodified). If the human hasn't
+    finished yet, it re-sends the same link. Once resolved, it reports the
+    outcome - raising on failure - and retires the token either way, so a stale
+    link can't be replayed.
 
-    Returns `(password, None)` once the caller has answered and it passes
-    Django's own strength rule, or `(None, result)` when the tool isn't done
-    yet - the caller returns `result` immediately in that case. `result` is
-    either the next `InputRequiredResult` to send, or a plain cancellation
-    reply if the caller declined.
-
-    change_my_password (below) needs two sequential fields and so drives
-    `_ask_for_password`/`_answered` itself instead of using this.
+    Returns the real result directly (there is no second return value to check:
+    a call that isn't finished yet returns by *raising* nothing and instead
+    short-circuits via `return` from inside this function like any other path -
+    callers simply `return await _await_secret(...)`).
     """
     ctx = get_context()
     responses = ctx.input_responses
+
     if responses is None:
-        return None, _ask_for_password(key, message)
+        token = secret_pages.register(fields, on_submit)
+        return _ask_for_secret(token, message)
 
-    password = _answered(responses, key)
-    if password is None:
-        return None, {'detail': cancelled_detail}
+    token = ctx.request_state
+    pending = secret_pages.get(token)
+    if pending is None:
+        return {'detail': 'That link expired before it was completed. Please try again.'}
 
-    django_client.validate_password_strength(password)
-    return password, None
+    if not pending.is_resolved:
+        return _ask_for_secret(token, message)  # still waiting on the human
+
+    secret_pages.discard(token)
+    if pending.error is not None:
+        raise django_client.DjangoAPIError(pending.error)
+    return pending.result
 
 
 def _require_django_token():
@@ -228,9 +233,17 @@ def _require_django_token():
         raise django_client.DjangoAPIError(NEED_TO_SIGN_UP)
 
 
-async def _call_django(django_call, *args, **kwargs):
-    """Call django_call(django_token, ...), refreshing a refused token once before giving up."""
-    access_token = get_access_token()
+async def _call_django(django_call, *args, access_token=None, **kwargs):
+    """Call django_call(django_token, ...), refreshing a refused token once before giving up.
+
+    Uses the current live session by default. A secret page's `on_submit`
+    closure runs from an ordinary HTTP POST handler, outside any MCP request -
+    `get_access_token()` has nothing to read there - so it captures the caller's
+    `AccessToken` while the tool call that registered it is still live, and
+    passes it here explicitly.
+    """
+    if access_token is None:
+        access_token = get_access_token()
     try:
         return await django_call(access_token.claims[DJANGO_TOKEN_CLAIM], *args, **kwargs)
     except django_client.DjangoAuthError:
@@ -268,46 +281,50 @@ async def list_users_by_country(country: str):
 async def change_user_password(username: str):
     """Change a user's password. Only works if the caller is an admin.
 
-    The new password is not a parameter of this tool: your MCP client collects
-    it directly from you, so the calling assistant never sees it.
+    The new password is not a parameter of this tool: it's collected on a page
+    this server hosts, opened directly in your browser, so neither your MCP
+    client nor the calling assistant ever sees it.
     """
     _require_django_token()
-    new_password, pending = await _elicit_password(
-        'new_password',
-        f"Choose {username}'s new password (at least 8 characters, with a letter and a digit).",
-        'Password change cancelled.',
+    access_token = get_access_token()
+
+    async def _do_change(values):
+        django_client.validate_password_strength(values['new_password'])
+        return await _call_django(
+            django_client.change_password, username, values['new_password'], access_token=access_token
+        )
+
+    return await _await_secret(
+        [('new_password', "New password")],
+        f"Choose {username}'s new password.",
+        _do_change,
     )
-    if pending is not None:
-        return pending
-    return await _call_django(django_client.change_password, username, new_password)
 
 
 @mcp.tool()
 async def signup(email: str, username: str, country: str):
     """Create an account. Works even if you don't have one yet - that's the point.
 
-    The password is not a parameter of this tool: your MCP client collects it
-    directly from you, so the calling assistant never sees it. On success, this
-    session can immediately use the other tools without reconnecting.
+    The password is not a parameter of this tool: it's collected on a page this
+    server hosts, opened directly in your browser, so neither your MCP client
+    nor the calling assistant ever sees it. On success, this session can
+    immediately use the other tools without reconnecting.
     """
-    password, pending = await _elicit_password(
-        'password',
-        'Choose a password (at least 8 characters, with a letter and a digit).',
-        'Signup cancelled.',
-    )
-    if pending is not None:
-        return pending
-
-    result = await django_client.signup(email, username, password, country)
-
     access_token = get_access_token()
-    try:
-        django_token = await django_client.exchange_google_token(access_token.token)
-    except django_client.DjangoAPIError:
-        return result  # account exists; the next call resolves a credential the normal way
 
-    _credentials.replace_django_token(access_token.token, django_token)
-    return result
+    async def _do_signup(values):
+        django_client.validate_password_strength(values['password'])
+        result = await django_client.signup(email, username, values['password'], country)
+
+        try:
+            django_token = await django_client.exchange_google_token(access_token.token)
+        except django_client.DjangoAPIError:
+            return result  # account exists; the next call resolves a credential the normal way
+
+        _credentials.replace_django_token(access_token.token, django_token)
+        return result
+
+    return await _await_secret([('password', 'Password')], 'Choose a password.', _do_signup)
 
 
 @mcp.tool()
@@ -321,52 +338,71 @@ async def request_password_reset(email: str):
 async def reset_password(code: str):
     """Complete a password reset using the code emailed by request_password_reset.
 
-    The new password is not a parameter of this tool: your MCP client collects
-    it directly from you, so the calling assistant never sees it.
+    The new password is not a parameter of this tool: it's collected on a page
+    this server hosts, opened directly in your browser, so neither your MCP
+    client nor the calling assistant ever sees it.
     """
-    new_password, pending = await _elicit_password(
-        'new_password',
-        'Choose a new password (at least 8 characters, with a letter and a digit).',
-        'Password reset cancelled.',
-    )
-    if pending is not None:
-        return pending
-    return await django_client.confirm_password_reset(code, new_password)
+
+    async def _do_reset(values):
+        django_client.validate_password_strength(values['new_password'])
+        return await django_client.confirm_password_reset(code, values['new_password'])
+
+    return await _await_secret([('new_password', 'New password')], 'Choose a new password.', _do_reset)
 
 
 @mcp.tool()
 async def change_my_password():
     """Change your own password. Requires an account - use signup first if you don't have one.
 
-    Neither password is a parameter of this tool: your MCP client collects both
-    directly from you, over two rounds, so the calling assistant never sees them.
+    Neither password is a parameter of this tool: both are collected on a page
+    this server hosts, opened directly in your browser, so neither your MCP
+    client nor the calling assistant ever sees them.
     """
     _require_django_token()
+    access_token = get_access_token()
 
-    ctx = get_context()
-    responses = ctx.input_responses
-
-    if responses is None:
-        return _ask_for_password('current_password', 'Enter your current password.')
-
-    current_password = _answered(responses, 'current_password')
-    if 'current_password' in responses and current_password is None:
-        return {'detail': 'Password change cancelled.'}
-
-    if current_password is not None:
-        return _ask_for_password(
-            'new_password',
-            'Choose a new password (at least 8 characters, with a letter and a digit).',
-            request_state=json.dumps({'current_password': current_password}),
+    async def _do_change(values):
+        django_client.validate_password_strength(values['new_password'])
+        return await _call_django(
+            django_client.change_own_password,
+            values['current_password'],
+            values['new_password'],
+            access_token=access_token,
         )
 
-    new_password = _answered(responses, 'new_password')
-    if new_password is None:
-        return {'detail': 'Password change cancelled.'}
+    return await _await_secret(
+        [('current_password', 'Current password'), ('new_password', 'New password')],
+        'Enter your current password and choose a new one.',
+        _do_change,
+    )
 
-    django_client.validate_password_strength(new_password)
-    current_password = json.loads(ctx.request_state)['current_password']
-    return await _call_django(django_client.change_own_password, current_password, new_password)
+
+@mcp.custom_route('/secrets/{token}', methods=['GET', 'POST'])
+async def secret_page(request):
+    """The page every `_await_secret` URL points at. Not part of the MCP
+    protocol - an ordinary HTTP route a browser loads directly, per SEP-1036.
+    """
+    token = request.path_params['token']
+    pending = secret_pages.get(token)
+    if pending is None or pending.is_resolved:
+        return HTMLResponse(secret_pages.render_gone(), status_code=404)
+
+    if request.method == 'GET':
+        return HTMLResponse(secret_pages.render_form(token, pending.fields))
+
+    form = await request.form()
+    values = {name: form.get(name, '') for name, _ in pending.fields}
+    missing = [label for name, label in pending.fields if not values.get(name)]
+    if missing:
+        return HTMLResponse(
+            secret_pages.render_form(token, pending.fields, error=f"{', '.join(missing)} required."),
+            status_code=400,
+        )
+
+    await pending.submit(values)
+    if pending.error is not None:
+        return HTMLResponse(secret_pages.render_error(pending.error), status_code=400)
+    return HTMLResponse(secret_pages.render_done())
 
 
 if __name__ == '__main__':

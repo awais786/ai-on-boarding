@@ -23,7 +23,18 @@ from fastmcp.server.auth.auth import AccessToken  # noqa: E402
 from mcp.types import ElicitResult  # noqa: E402
 
 import django_client  # noqa: E402
+import secret_pages  # noqa: E402
 import server  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _fresh_secret_pages():
+    """secret_pages._pending is module-level state shared across every test - clear
+    it before and after each test so a leaked or stale pending request from one
+    test can never be found by another."""
+    secret_pages._pending.clear()
+    yield
+    secret_pages._pending.clear()
 
 
 def google_access_token(google_token, subject='google-sub-1'):
@@ -200,14 +211,11 @@ class FakeElicitationContext:
         self.request_state = request_state
 
 
-def accepted(key, value):
-    """What a client sends back when the human answers an elicitation."""
-    return ElicitResult(action='accept', content={key: value})
-
-
-def declined():
-    """What a client sends back when the human declines an elicitation."""
-    return ElicitResult(action='decline')
+def acknowledged():
+    """What a client sends back once the human has finished on a URL-mode
+    elicitation's page - content carries nothing, since the whole point of
+    URL mode is that no secret rides back through this channel."""
+    return ElicitResult(action='accept', content=None)
 
 
 @pytest.fixture
@@ -224,50 +232,35 @@ def elicit(monkeypatch):
 
 
 @pytest.fixture
-def drive_password_tool(elicit):
-    """Runs a single-round password-eliciting tool (signup, reset_password,
-    change_user_password) through both rounds a real session would.
+def drive_secret_tool(elicit):
+    """Runs a URL-mode password-eliciting tool through both rounds a real
+    session would.
 
     `call_tool` is a zero-argument callable invoking the tool with whatever
-    non-secret arguments the test cares about already bound; `key` is the name
-    of the one field it elicits. Returns `(asked, result)`: the `InputRequiredResult`
-    from round 1, and round 2's result (the tool's real outcome, or a decline
-    message if `password` is None).
+    non-secret arguments the test cares about already bound. Round 1 gets the
+    `InputRequiredResult` and its token; `values` (a dict of field name -> value,
+    or None to leave the page unsubmitted) is fed directly to the pending
+    request's own `submit()` - standing in for a human filling out that page,
+    the same way the real route handler would call it. Round 2 re-calls the
+    tool with that token in `request_state` and returns whatever it resolves to.
+
+    Returns `(asked, result)`: the `InputRequiredResult` from round 1, and
+    round 2's outcome (the tool's real result, or another `InputRequiredResult`
+    with the same link if `values` was None, since nobody finished the page).
     """
 
-    async def _drive(call_tool, key, password):
+    async def _drive(call_tool, values):
         elicit()  # round 1: nothing asked yet
         asked = await call_tool()
+        token = asked.request_state
 
-        answer = declined() if password is None else accepted(key, password)
-        elicit({key: answer})
+        if values is not None:
+            pending = secret_pages.get(token)
+            assert pending is not None, 'no pending secret request was registered'
+            await pending.submit(values)
+
+        elicit({'secret': acknowledged()}, request_state=token)
         result = await call_tool()
         return asked, result
-
-    return _drive
-
-
-@pytest.fixture
-def drive_change_my_password(elicit):
-    """Runs change_my_password through all three rounds a real session would,
-    given a client that answers both elicited fields (or declines one, if a
-    caller passes None for it). Returns the final round's result."""
-
-    async def _drive(current_password, new_password):
-        elicit()  # round 1: nothing asked yet
-        first = await server.change_my_password()
-
-        current_answer = declined() if current_password is None else accepted(
-            'current_password', current_password
-        )
-        elicit({'current_password': current_answer})
-        second = await server.change_my_password()
-        if current_password is None:
-            return first, second, None  # declined before a new password was ever asked
-
-        new_answer = declined() if new_password is None else accepted('new_password', new_password)
-        elicit({'new_password': new_answer}, request_state=second.request_state)
-        third = await server.change_my_password()
-        return first, second, third
 
     return _drive
