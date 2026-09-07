@@ -4,6 +4,7 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +42,18 @@ def verify_google_access_token(access_token):
     try_deliver_reset_link's "nothing here reaches the caller as a 500" shape.
     """
     tokeninfo_url = f'{TOKENINFO_URL}?{urllib.parse.urlencode({"access_token": access_token})}'
-    tokeninfo = _get_json(tokeninfo_url)
-    if tokeninfo is None:
-        return None
+    # Independent requests (userinfo needs only the raw access_token, not tokeninfo's
+    # result) - run them concurrently rather than back-to-back so verification costs one
+    # round-trip's latency instead of two.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        tokeninfo_future = executor.submit(_get_json, tokeninfo_url)
+        userinfo_future = executor.submit(
+            _get_json, USERINFO_URL, {'Authorization': f'Bearer {access_token}'}
+        )
+        tokeninfo = tokeninfo_future.result()
+        userinfo = userinfo_future.result()
 
-    userinfo = _get_json(USERINFO_URL, headers={'Authorization': f'Bearer {access_token}'})
-    if userinfo is None:
+    if tokeninfo is None or userinfo is None:
         return None
 
     return {**userinfo, 'aud': tokeninfo.get('aud')}

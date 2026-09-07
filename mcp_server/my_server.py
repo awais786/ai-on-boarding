@@ -3,7 +3,7 @@ import os
 import httpx
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.google import GoogleProvider
-from fastmcp.server.dependencies import get_access_token
+from fastmcp.server.dependencies import get_access_token, get_context
 
 mcp = FastMCP(
     "Practice-MCP-Server",
@@ -16,12 +16,26 @@ mcp = FastMCP(
 )
 
 DJANGO_BASE_URL = "http://localhost:8000"
+TOKEN_STATE_KEY = "django_token"
 
-# Token from the most recent successful `signin`. Caching it here (rather than
-# handing it back to the caller) means callers never see the raw token, and
-# get_users simply forwards whatever's cached - Django's own IsAdminUser check
-# is what actually enforces "admin only", not this file.
-_token = None
+
+async def _get_token():
+    """The Django token from the most recent successful `signin` in this MCP session.
+
+    Stored in FastMCP's session-scoped state (keyed by the client's mcp-session-id)
+    rather than a module-level global: a global is shared by every concurrent caller
+    of this process, so one caller's signin could silently overwrite another's and
+    leak one identity's session into another's requests. Session-scoped state keeps
+    each client's token isolated. Caching it here (rather than handing it back to the
+    caller) also means callers never see the raw token - get_users simply forwards
+    whatever's cached, and Django's own IsAdminUser check is what actually enforces
+    "admin only", not this file.
+    """
+    return await get_context().get_state(TOKEN_STATE_KEY)
+
+
+async def _set_token(token):
+    await get_context().set_state(TOKEN_STATE_KEY, token)
 
 @mcp.tool
 async def signup(email, username, password, country):
@@ -47,8 +61,7 @@ async def signup(email, username, password, country):
 
 @mcp.tool
 async def signin(email_or_username, password):
-    """Sign in and cache the token for subsequent get_users calls."""
-    global _token
+    """Sign in and cache the token (scoped to this MCP session) for subsequent get_users calls."""
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{DJANGO_BASE_URL}/api/signin/",
@@ -57,7 +70,7 @@ async def signin(email_or_username, password):
     if response.status_code == 401:
         return {"status": "failed", "detail": "Unable to sign in with the provided credentials."}
     response.raise_for_status()
-    _token = response.json()["token"]
+    await _set_token(response.json()["token"])
     return {"status": "success"}
 
 @mcp.tool
@@ -68,7 +81,6 @@ async def google_signin():
     does - the raw Google access token and the returned Django token are never included in
     this tool's response.
     """
-    global _token
     google_token = get_access_token()
     if google_token is None:
         return {"status": "error", "detail": "No authenticated Google session."}
@@ -79,12 +91,14 @@ async def google_signin():
         )
     if response.status_code == 401:
         return {"status": "failed", "detail": "Unable to authenticate with the provided Google session."}
+    if response.status_code == 400:
+        return {"status": "failed", "detail": response.json()}
     response.raise_for_status()
-    _token = response.json()["token"]
+    await _set_token(response.json()["token"])
     return {"status": "success"}
 
-def _auth_headers():
-    return {"Authorization": f"Token {_token}"}
+async def _auth_headers():
+    return {"Authorization": f"Token {await _get_token()}"}
 
 @mcp.tool
 async def get_users(cursor=None, country=None):
@@ -96,8 +110,9 @@ async def get_users(cursor=None, country=None):
 
     Requires a prior `signin` as a staff/admin account.
     """
-    if _token is None:
+    if await _get_token() is None:
         return {"status": "error", "detail": "Sign in first."}
+    headers = await _auth_headers()
     async with httpx.AsyncClient() as client:
         if country is not None:
             matches = []
@@ -105,8 +120,10 @@ async def get_users(cursor=None, country=None):
             while True:
                 params = {"cursor": page_cursor} if page_cursor else None
                 response = await client.get(
-                    f"{DJANGO_BASE_URL}/api/users/", headers=_auth_headers(), params=params
+                    f"{DJANGO_BASE_URL}/api/users/", headers=headers, params=params
                 )
+                if response.status_code == 401:
+                    return {"status": "error", "detail": "Authentication token is invalid or expired. Sign in again."}
                 if response.status_code == 403:
                     return {"status": "error", "detail": "Signed-in account is not staff."}
                 response.raise_for_status()
@@ -123,8 +140,10 @@ async def get_users(cursor=None, country=None):
 
         params = {"cursor": cursor} if cursor else None
         response = await client.get(
-            f"{DJANGO_BASE_URL}/api/users/", headers=_auth_headers(), params=params
+            f"{DJANGO_BASE_URL}/api/users/", headers=headers, params=params
         )
+        if response.status_code == 401:
+            return {"status": "error", "detail": "Authentication token is invalid or expired. Sign in again."}
         if response.status_code == 403:
             return {"status": "error", "detail": "Signed-in account is not staff."}
         response.raise_for_status()
@@ -142,7 +161,7 @@ async def update_password(username, new_password, current_password=None):
     Requires a prior `signin`. A non-staff caller may only target their own username;
     a staff/admin caller may target any username.
     """
-    if _token is None:
+    if await _get_token() is None:
         return {"status": "error", "detail": "Sign in first."}
     update_payload = {"new_password": new_password}
     if current_password is not None:
@@ -150,9 +169,11 @@ async def update_password(username, new_password, current_password=None):
     async with httpx.AsyncClient() as client:
         response = await client.patch(
             f"{DJANGO_BASE_URL}/api/users/{username}/update-password/",
-            headers=_auth_headers(),
+            headers=await _auth_headers(),
             json=update_payload,
         )
+    if response.status_code == 401:
+        return {"status": "error", "detail": "Authentication token is invalid or expired. Sign in again."}
     if response.status_code == 403:
         return {"status": "error", "detail": "You may only update your own password."}
     if response.status_code in (400, 404):

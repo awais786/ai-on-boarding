@@ -8,7 +8,8 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
 from django.db.models import Case, F, Q, Value, When
-from django.shortcuts import get_object_or_404, render
+from django.http import Http404
+from django.shortcuts import render
 from django.utils import timezone
 from django.views import View
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
@@ -226,6 +227,11 @@ def try_deliver_reset_link(user):
         )
 
 
+def _invalidate_tokens(user):
+    """Delete every existing DRF token for `user`, forcing re-authentication."""
+    Token.objects.filter(user=user).delete()
+
+
 def complete_reset(code, new_password):
     """Spend a reset code and set the new password. False if the code was not usable.
 
@@ -245,7 +251,7 @@ def complete_reset(code, new_password):
         user = record.user
         user.set_password(new_password)
         user.save(update_fields=['password'])
-        Token.objects.filter(user=user).delete()
+        _invalidate_tokens(user)
     return True
 
 
@@ -414,6 +420,27 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         return Response(dict(RESET_COMPLETED_BODY), status=200)
 
 
+def _reject_if_embargoed(user):
+    """The standard signin rejection Response if `user` is embargoed, else None.
+
+    Shared by SigninView and GoogleSigninView so the two auth paths can't drift apart
+    on what "embargoed" means or how it's reported.
+    """
+    if is_user_embargoed(user):
+        return Response(SIGNIN_REJECTION_BODY, status=401)
+    return None
+
+
+def _issue_token_response(user):
+    """Issue (or reuse) `user`'s DRF token and return the standard signin response.
+
+    Shared by SigninView and GoogleSigninView - the tail of "authenticate, then hand
+    back a token" is identical for both once `user` has been established.
+    """
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response({'token': token.key}, status=200)
+
+
 class SigninView(generics.GenericAPIView):
     serializer_class = SigninSerializer
 
@@ -462,12 +489,12 @@ class SigninView(generics.GenericAPIView):
             self._record_failure(attempt_key, now)
             return Response(SIGNIN_REJECTION_BODY, status=401)
 
-        if is_user_embargoed(user):
-            return Response(SIGNIN_REJECTION_BODY, status=401)
+        rejection = _reject_if_embargoed(user)
+        if rejection is not None:
+            return rejection
 
         SigninAttempt.objects.filter(email_or_username=attempt_key).update(failed_count=0)
-        token, _ = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key}, status=200)
+        return _issue_token_response(user)
 
     @staticmethod
     def _record_failure(attempt_key, now):
@@ -576,24 +603,33 @@ class GoogleSigninView(generics.GenericAPIView):
         # the identity" ties persistence to authentication actually succeeding, so an embargoed
         # account's Google sub must not be linked on a first-time attempt that is about to be
         # rejected anyway.
-        if is_user_embargoed(user):
-            return Response(SIGNIN_REJECTION_BODY, status=401)
+        rejection = _reject_if_embargoed(user)
+        if rejection is not None:
+            return rejection
 
         if identity is None:
             try:
                 GoogleIdentity.objects.create(user=user, google_sub=sub)
             except IntegrityError:
-                # A concurrent first-time login for the same sub won the race - reuse its
-                # link rather than fail. If the conflict was on `user` instead (this account
-                # already linked to a different Google identity), no row exists for this sub
-                # and the safest response is the same "no account" rejection.
+                # Two distinct races land here. Same `sub`: a concurrent first-time login
+                # for it already won - reuse its link. Same `user` instead (this account
+                # already has a Google identity linked, under a different sub - e.g. two
+                # Google accounts mapping to the same email racing their first link): no
+                # row exists for *this* sub, but `user` was already correctly resolved
+                # above and is already a linked, non-embargoed account, so this signin can
+                # still succeed without creating a second link for it. Only when neither
+                # explains the failure is the safe "no account" rejection warranted.
                 identity = _find_google_identity(sub)
-                if identity is None:
+                if identity is not None:
+                    user = identity.user
+                elif not GoogleIdentity.objects.filter(user=user).exists():
+                    logger.warning(
+                        'GoogleIdentity.create failed for user %s / sub %s with no '
+                        'matching row for either.', user.pk, sub,
+                    )
                     return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=401)
-                user = identity.user
 
-        token, _ = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key}, status=200)
+        return _issue_token_response(user)
 
 
 class PasswordUpdateView(generics.GenericAPIView):
@@ -627,7 +663,13 @@ class PasswordUpdateView(generics.GenericAPIView):
         # `iexact`, not `exact`: signup lowercases what it stores, but accounts made outside
         # signup do not, and SigninView's `email_or_username` lookup already treats username
         # case-insensitively for the same reason.
-        target = get_object_or_404(User, username__iexact=kwargs['username'])
+        # Ordered `.first()`, not `get_object_or_404`: `iexact` can match more than one
+        # account when they were created outside signup, and `.get()` (which
+        # get_object_or_404 uses) raises an unhandled MultipleObjectsReturned rather than
+        # picking one - same reasoning as PasswordResetRequestView's identical lookup.
+        target = User.objects.filter(username__iexact=kwargs['username']).order_by('pk').first()
+        if target is None:
+            raise Http404
         is_self = target.pk == request.user.pk
 
         # Checked before the body is validated, so a non-staff caller targeting someone
@@ -652,6 +694,6 @@ class PasswordUpdateView(generics.GenericAPIView):
         with transaction.atomic():
             target.set_password(serializer.validated_data['new_password'])
             target.save(update_fields=['password'])
-            Token.objects.filter(user=target).delete()
+            _invalidate_tokens(target)
 
         return Response(dict(PASSWORD_UPDATE_COMPLETED_BODY), status=200)
