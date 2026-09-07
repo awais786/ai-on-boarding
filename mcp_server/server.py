@@ -6,8 +6,10 @@ later requests reuse. Tools call Django with the caller's own token, so Django's
 permission checks apply to the real caller, not a blanket service credential.
 """
 
+import asyncio
 import hashlib
 import os
+import secrets
 import time
 
 from dotenv import load_dotenv
@@ -15,6 +17,7 @@ from fastmcp import FastMCP
 from fastmcp.server.auth.providers.google import GoogleProvider
 from fastmcp.server.dependencies import get_access_token, get_context
 from mcp.types import ElicitRequest, ElicitRequestURLParams, InputRequiredResult
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from starlette.responses import HTMLResponse
 
 import django_client
@@ -24,6 +27,10 @@ from mcp_middleware import ToolCallLogger, ToolCallRateLimiter
 load_dotenv()
 
 MCP_BASE_URL = os.environ.get('MCP_BASE_URL', 'http://localhost:8100')
+
+# How often a handshake-era call re-checks whether its page has been submitted,
+# while blocked inside session.elicit_url() - see _await_secret.
+HANDSHAKE_ERA_POLL_SECONDS = 1
 
 # A revoked Google token still expires the cache entry sooner than this, so raising
 # this value never extends a revoked account's life.
@@ -187,19 +194,39 @@ def _ask_for_secret(token, message):
     )
 
 
+def _is_modern_protocol(ctx):
+    """Whether this call negotiated the 2026-07-28 MCP protocol (multi-round-trip,
+    SEP-2322) rather than an earlier "handshake-era" one (2024-11-05 through
+    2025-11-25, where a server-initiated request like elicitation blocks on a
+    direct back-channel call instead). Defaults to modern when the era can't be
+    read from the context, matching every existing tool call in this codebase,
+    which never needed to know the era before URL mode made it matter.
+    """
+    rc = getattr(ctx, 'request_context', None)
+    if rc is None:
+        return True
+    return rc.protocol_version in MODERN_PROTOCOL_VERSIONS
+
+
 async def _await_secret(fields, message, on_submit):
     """Collect one or more passwords via `secret_pages`, never via a tool argument.
 
-    Round 1 (no prior answer): registers a pending request - `fields` is an
-    ordered `[(name, label), ...]` list, `on_submit` the closure that does the
-    real work once the human has submitted the page - and returns the
-    InputRequiredResult pointing at it.
+    Branches on the negotiated protocol era, since URL-mode elicitation's wire
+    mechanics differ between them (see _is_modern_protocol):
 
-    A later round re-checks the same pending request (found via `request_state`,
-    the token FastMCP seals and echoes back unmodified). If the human hasn't
-    finished yet, it re-sends the same link. Once resolved, it reports the
-    outcome - raising on failure - and retires the token either way, so a stale
-    link can't be replayed.
+    - **Modern (2026-07-28)**: stateless multi-round-trip. Round 1 (no prior
+      answer) registers a pending request - `fields` is an ordered
+      `[(name, label), ...]` list, `on_submit` the closure that does the real
+      work once the human has submitted the page - and returns the
+      InputRequiredResult pointing at it. A later round re-checks the same
+      pending request (found via `request_state`, the token FastMCP seals and
+      echoes back unmodified): re-sends the same link if the human hasn't
+      finished yet, or reports the outcome and retires the token once resolved.
+    - **Handshake-era (2024-11-05 - 2025-11-25)**: one blocking call.
+      `session.elicit_url()` blocks until the human consents to open the link
+      (not until they finish the page - see SEP-1036), so this polls the same
+      pending request afterward, within the same tool call, until it resolves
+      or the link's own TTL runs out.
 
     Returns the real result directly (there is no second return value to check:
     a call that isn't finished yet returns by *raising* nothing and instead
@@ -207,6 +234,10 @@ async def _await_secret(fields, message, on_submit):
     callers simply `return await _await_secret(...)`).
     """
     ctx = get_context()
+
+    if not _is_modern_protocol(ctx):
+        return await _await_secret_handshake_era(ctx, fields, message, on_submit)
+
     responses = ctx.input_responses
 
     if responses is None:
@@ -225,6 +256,33 @@ async def _await_secret(fields, message, on_submit):
     if pending.error is not None:
         raise django_client.DjangoAPIError(pending.error)
     return pending.result
+
+
+async def _await_secret_handshake_era(ctx, fields, message, on_submit):
+    token = secret_pages.register(fields, on_submit)
+    try:
+        consent = await ctx.session.elicit_url(
+            message=message,
+            url=f'{MCP_BASE_URL}/secrets/{token}',
+            elicitation_id=secrets.token_urlsafe(16),
+        )
+        if consent.action != 'accept':
+            return {'detail': 'Cancelled.'}
+
+        pending = secret_pages.get(token)
+        while pending is not None and not pending.is_resolved:
+            await asyncio.sleep(HANDSHAKE_ERA_POLL_SECONDS)
+            pending = secret_pages.get(token)
+
+        if pending is None:
+            raise django_client.DjangoAPIError(
+                'That link expired before it was completed. Please try again.'
+            )
+        if pending.error is not None:
+            raise django_client.DjangoAPIError(pending.error)
+        return pending.result
+    finally:
+        secret_pages.discard(token)
 
 
 def _require_django_token():

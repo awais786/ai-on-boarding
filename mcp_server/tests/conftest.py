@@ -231,6 +231,55 @@ def elicit(monkeypatch):
     return _elicit
 
 
+class FakeRequestContext:
+    def __init__(self, protocol_version):
+        self.protocol_version = protocol_version
+
+
+class FakeHandshakeEraSession:
+    """Stands in for ctx.session during a handshake-era elicit_url() call.
+
+    If `submit_values` is given, the fake submits the pending request itself as
+    part of answering elicit_url - standing in for a page visit that happens to
+    finish before the server's own poll loop first checks, which is the only
+    case this test harness can exercise without a real sleep. Leave it None to
+    exercise the "link never completed" (TTL-expiry) path instead.
+    """
+
+    def __init__(self, action='accept', submit_values=None):
+        self.action = action
+        self.submit_values = submit_values
+        self.calls = []
+
+    async def elicit_url(self, message, url, elicitation_id):
+        self.calls.append({'message': message, 'url': url, 'elicitation_id': elicitation_id})
+        if self.action == 'accept' and self.submit_values is not None:
+            token = url.rsplit('/', 1)[-1]
+            await secret_pages.get(token).submit(self.submit_values)
+        return ElicitResult(action=self.action)
+
+
+class FakeHandshakeEraContext:
+    def __init__(self, session):
+        self.session = session
+        self.request_context = FakeRequestContext('2025-11-25')
+        self.input_responses = None
+        self.request_state = None
+
+
+@pytest.fixture
+def handshake_era(monkeypatch):
+    """Puts a handshake-era get_context() in place, with a fake session whose
+    elicit_url() records what it was asked and answers as configured."""
+
+    def _handshake_era(action='accept', submit_values=None):
+        session = FakeHandshakeEraSession(action=action, submit_values=submit_values)
+        monkeypatch.setattr(server, 'get_context', lambda: FakeHandshakeEraContext(session))
+        return session
+
+    return _handshake_era
+
+
 @pytest.fixture
 def drive_secret_tool(elicit):
     """Runs a URL-mode password-eliciting tool through both rounds a real
