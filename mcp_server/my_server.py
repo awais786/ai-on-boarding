@@ -24,10 +24,6 @@ DJANGO_BASE_URL = "http://localhost:8000"
 _token = None
 
 @mcp.tool
-def greet(name):
-    return f"Hello {name}!"
-
-@mcp.tool
 async def signup(email, username, password, country):
     """Create an account and return its (normalised) email and username.
 
