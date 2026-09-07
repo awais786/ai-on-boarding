@@ -141,41 +141,87 @@ async def test_a_reset_password_result_never_contains_the_new_password(django):
     assert 'a-secret-password' not in str(result)
 
 
-# --- Change the caller's own password -------------------------------------------
+# --- Change the caller's own password ---------------------------------------
+#
+# change_my_password takes neither password as a tool argument - it elicits both
+# from the caller's own MCP client, over two rounds, so the assistant that would
+# otherwise have composed the call never sees either value. drive_change_my_password
+# (conftest.py) plays the client's side of that exchange.
 
 
-async def test_change_my_password_succeeds(sign_in, django):
+async def test_change_my_password_succeeds(sign_in, django, drive_change_my_password):
     await sign_in(GOOGLE_A)
 
-    result = await server.change_my_password('old-password-1', 'new-password-1')
+    _, _, result = await drive_change_my_password('old-password-1', 'new-password-1')
 
     assert result == {'detail': 'Password changed.'}
 
 
-async def test_change_my_password_rejects_a_wrong_current_password(sign_in, django):
+async def test_change_my_password_rejects_a_wrong_current_password(
+    sign_in, django, drive_change_my_password
+):
     await sign_in(GOOGLE_A)
     django.change_own_password_error = django_client.DjangoAPIError(
         'Current password is incorrect.'
     )
 
     with pytest.raises(django_client.DjangoAPIError):
-        await server.change_my_password('wrong-password', 'new-password-1')
+        await drive_change_my_password('wrong-password', 'new-password-1')
 
 
-async def test_change_my_password_refuses_a_caller_with_no_credential(sign_in, django):
+async def test_change_my_password_refuses_a_caller_with_no_credential(sign_in, django, elicit):
     django.exchange_error = django_client.NoDjangoAccountError('No account.')
     await sign_in(GOOGLE_A)
+    elicit()  # the refusal must happen before any elicitation is even sent
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await server.change_my_password('old-password-1', 'new-password-1')
+        await server.change_my_password()
 
     assert 'signup' in str(failure.value).lower()
 
 
-async def test_change_my_password_never_returns_either_password(sign_in, django):
+async def test_change_my_password_never_returns_either_password(
+    sign_in, django, drive_change_my_password
+):
     await sign_in(GOOGLE_A)
 
-    result = await server.change_my_password('old-password-1', 'new-password-1')
+    _, _, result = await drive_change_my_password('old-password-1', 'new-password-1')
 
     assert 'old-password-1' not in str(result)
     assert 'new-password-1' not in str(result)
+
+
+async def test_change_my_password_has_no_password_shaped_tool_arguments():
+    tool = await server.mcp.get_tool('change_my_password')
+
+    assert tool.parameters.get('properties', {}) == {}
+
+
+async def test_change_my_password_rejects_a_weak_new_password(sign_in, django, drive_change_my_password):
+    await sign_in(GOOGLE_A)
+
+    with pytest.raises(django_client.DjangoAPIError):
+        await drive_change_my_password('old-password-1', 'weak')
+
+
+async def test_declining_the_current_password_cancels_without_asking_for_a_new_one(
+    sign_in, django, drive_change_my_password
+):
+    await sign_in(GOOGLE_A)
+
+    _, second, third = await drive_change_my_password(None, 'new-password-1')
+
+    assert second == {'detail': 'Password change cancelled.'}
+    assert third is None
+    assert django.calls == []  # change_own_password was never reached
+
+
+async def test_declining_the_new_password_cancels_without_changing_anything(
+    sign_in, django, drive_change_my_password
+):
+    await sign_in(GOOGLE_A)
+
+    _, _, third = await drive_change_my_password('old-password-1', None)
+
+    assert third == {'detail': 'Password change cancelled.'}
+    assert django.calls == []

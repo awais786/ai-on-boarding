@@ -7,13 +7,15 @@ permission checks apply to the real caller, not a blanket service credential.
 """
 
 import hashlib
+import json
 import os
 import time
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.google import GoogleProvider
-from fastmcp.server.dependencies import get_access_token
+from fastmcp.server.dependencies import get_access_token, get_context
+from mcp.types import ElicitRequest, ElicitRequestFormParams, InputRequiredResult
 
 import django_client
 from mcp_middleware import PasswordStrengthMiddleware, ToolCallLogger, ToolCallRateLimiter
@@ -160,6 +162,42 @@ mcp.add_middleware(ToolCallRateLimiter())
 mcp.add_middleware(PasswordStrengthMiddleware())  # innermost: still counts against the rate limit
 
 
+def _ask_for_password(key, message, request_state=None):
+    """An InputRequiredResult asking the caller's own MCP client - never the LLM -
+    to collect one password-shaped field, keyed by `key`.
+
+    Multi-round-trip is stateless (SEP-2322): nothing survives here between
+    rounds except what rides in `request_state`, which FastMCP seals on the wire
+    (encrypted with a server-held key) before handing it to the client, so a
+    password carried forward in it is never plaintext outside this process.
+    """
+    return InputRequiredResult(
+        input_requests={
+            key: ElicitRequest(
+                method='elicitation/create',
+                params=ElicitRequestFormParams(
+                    message=message,
+                    requested_schema={
+                        'type': 'object',
+                        'properties': {key: {'type': 'string', 'format': 'password'}},
+                        'required': [key],
+                    },
+                ),
+            )
+        },
+        request_state=request_state,
+    )
+
+
+def _answered(responses, key):
+    """The client's plain value for an elicited field, or None if it declined/cancelled -
+    never raise on a decline, since "the caller changed their mind" isn't an error."""
+    answer = responses.get(key)
+    if answer is None or answer.action != 'accept':
+        return None
+    return answer.content[key]
+
+
 def _require_django_token():
     """Raise a clear refusal if the caller's session has no Django credential yet."""
     if DJANGO_TOKEN_CLAIM not in get_access_token().claims:
@@ -241,9 +279,37 @@ async def reset_password(code: str, new_password: str):
 
 
 @mcp.tool()
-async def change_my_password(current_password: str, new_password: str):
-    """Change your own password. Requires an account - use signup first if you don't have one."""
+async def change_my_password():
+    """Change your own password. Requires an account - use signup first if you don't have one.
+
+    Neither password is a parameter of this tool: your MCP client collects both
+    directly from you, over two rounds, so the calling assistant never sees them.
+    """
     _require_django_token()
+
+    ctx = get_context()
+    responses = ctx.input_responses
+
+    if responses is None:
+        return _ask_for_password('current_password', 'Enter your current password.')
+
+    current_password = _answered(responses, 'current_password')
+    if 'current_password' in responses and current_password is None:
+        return {'detail': 'Password change cancelled.'}
+
+    if current_password is not None:
+        return _ask_for_password(
+            'new_password',
+            'Choose a new password (at least 8 characters, with a letter and a digit).',
+            request_state=json.dumps({'current_password': current_password}),
+        )
+
+    new_password = _answered(responses, 'new_password')
+    if new_password is None:
+        return {'detail': 'Password change cancelled.'}
+
+    django_client.validate_password_strength(new_password)
+    current_password = json.loads(ctx.request_state)['current_password']
     return await _call_django(django_client.change_own_password, current_password, new_password)
 
 

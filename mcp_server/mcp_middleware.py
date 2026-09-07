@@ -63,11 +63,14 @@ class PasswordStrengthMiddleware(Middleware):
 
     # Only the field a tool is about to set as someone's new password - never a
     # current/old password (nothing to validate; it must match what's on record) or
-    # a non-password field that merely happens to be a string.
+    # a non-password field that merely happens to be a string. change_my_password
+    # is deliberately absent: its new_password is no longer a tool argument at all
+    # (elicited from the caller's own MCP client instead - see server.py), so it
+    # never appears in `arguments` for this middleware to see; that tool validates
+    # the elicited value itself, at the point it has it.
     PASSWORD_FIELDS = {
         'signup': ('password',),
         'reset_password': ('new_password',),
-        'change_my_password': ('new_password',),
         'change_user_password': ('new_password',),
     }
 

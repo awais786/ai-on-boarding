@@ -20,6 +20,7 @@ os.environ.setdefault('GOOGLE_CLIENT_ID', 'test-client-id.apps.googleusercontent
 os.environ.setdefault('GOOGLE_CLIENT_SECRET', 'test-client-secret')
 
 from fastmcp.server.auth.auth import AccessToken  # noqa: E402
+from mcp.types import ElicitResult  # noqa: E402
 
 import django_client  # noqa: E402
 import server  # noqa: E402
@@ -185,3 +186,64 @@ def as_caller(monkeypatch):
 def verified_google_token():
     """The AccessToken a real Google verifier returns, for cache-level tests."""
     return google_access_token
+
+
+class FakeElicitationContext:
+    """Stands in for get_context() during one round of a guard tool.
+
+    A real Context exposes many more properties; a guard tool built so far only
+    reads these two, so that is all this fakes.
+    """
+
+    def __init__(self, input_responses=None, request_state=None):
+        self.input_responses = input_responses
+        self.request_state = request_state
+
+
+def accepted(key, value):
+    """What a client sends back when the human answers an elicitation."""
+    return ElicitResult(action='accept', content={key: value})
+
+
+def declined():
+    """What a client sends back when the human declines an elicitation."""
+    return ElicitResult(action='decline')
+
+
+@pytest.fixture
+def elicit(monkeypatch):
+    """Puts the next get_context() call's `.input_responses`/`.request_state` in
+    place, the way FastMCP would for one round of a multi-round-trip tool call."""
+
+    def _elicit(input_responses=None, request_state=None):
+        context = FakeElicitationContext(input_responses, request_state)
+        monkeypatch.setattr(server, 'get_context', lambda: context)
+        return context
+
+    return _elicit
+
+
+@pytest.fixture
+def drive_change_my_password(elicit):
+    """Runs change_my_password through all three rounds a real session would,
+    given a client that answers both elicited fields (or declines one, if a
+    caller passes None for it). Returns the final round's result."""
+
+    async def _drive(current_password, new_password):
+        elicit()  # round 1: nothing asked yet
+        first = await server.change_my_password()
+
+        current_answer = declined() if current_password is None else accepted(
+            'current_password', current_password
+        )
+        elicit({'current_password': current_answer})
+        second = await server.change_my_password()
+        if current_password is None:
+            return first, second, None  # declined before a new password was ever asked
+
+        new_answer = declined() if new_password is None else accepted('new_password', new_password)
+        elicit({'new_password': new_answer}, request_state=second.request_state)
+        third = await server.change_my_password()
+        return first, second, third
+
+    return _drive

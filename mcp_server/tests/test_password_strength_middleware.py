@@ -84,27 +84,18 @@ async def test_reset_password_rejects_a_weak_new_password(middleware, call_next)
     assert call_next.calls == []
 
 
-async def test_change_my_password_does_not_check_the_current_password(middleware, call_next):
-    # 'weak' as the *current* password must never be judged - it only has to match
-    # what is already on record, not meet the strength rule.
-    context = FakeContext(
-        'change_my_password', {'current_password': 'weak', 'new_password': 'lovelace1'}
-    )
+async def test_change_my_password_has_no_arguments_for_this_middleware_to_see(
+    middleware, call_next
+):
+    # change_my_password takes no tool arguments at all - both passwords are
+    # elicited from the caller's own MCP client (see server.py and
+    # test_auth_tools.py). A call to it therefore always arrives with empty
+    # arguments; this middleware has nothing to check and must not choke on it.
+    context = FakeContext('change_my_password', {})
 
     result = await middleware.on_call_tool(context, call_next)
 
     assert result == 'tool-ran'
-
-
-async def test_change_my_password_rejects_a_weak_new_password(middleware, call_next):
-    context = FakeContext(
-        'change_my_password', {'current_password': 'lovelace1', 'new_password': 'weak'}
-    )
-
-    with pytest.raises(django_client.DjangoAPIError):
-        await middleware.on_call_tool(context, call_next)
-
-    assert call_next.calls == []
 
 
 async def test_change_user_password_rejects_a_weak_new_password(middleware, call_next):

@@ -4,7 +4,9 @@ Exposes tools backed by the Django API in `../sdd_django_demo/`:
 
 - `signup` - create an account. Works even without a Django account yet.
 - `request_password_reset` / `reset_password` - forgot-password flow, by email code.
-- `change_my_password` - change your own password (needs an account).
+- `change_my_password` - change your own password (needs an account). Takes neither
+  password as a tool argument: your MCP client collects both directly from you, so
+  the calling assistant never sees them - see "Elicited passwords" below.
 - `change_user_password`, `list_signup_users`, `list_users_by_country` - admin only.
 
 There is no signin tool: signing in with Google, below, already establishes the
@@ -96,13 +98,6 @@ async def main():
         })
         print(result.data)  # {'detail': 'Account created.'}
 
-        # Self-service: change the password just set, given the current one.
-        result = await client.call_tool('change_my_password', {
-            'current_password': 'lovelace1',
-            'new_password': 'lovelace2',
-        })
-        print(result.data)  # {'detail': 'Password changed.'}
-
         # Forgot-password flow doesn't need a session credential at all.
         result = await client.call_tool('request_password_reset', {
             'email': 'ada@example.com',
@@ -115,6 +110,31 @@ asyncio.run(main())
 `list_signup_users`, `list_users_by_country`, and `change_user_password` work the
 same way, but need an admin account signed in - a non-admin caller gets a clear
 refusal rather than any user data.
+
+### Elicited passwords
+
+`change_my_password` takes no arguments at all - calling it starts a short back-
+and-forth where the *server* asks your MCP client to collect a value directly from
+you, and the assistant that called the tool never sees the answer. A script using
+FastMCP's `Client` handles this with an `elicitation_handler`:
+
+```python
+from fastmcp.client.elicitation import ElicitResult
+
+async def handler(message, response_type, params, ctx):
+    # In a real client this would prompt a human; here it answers directly.
+    if 'current password' in message.lower():
+        return ElicitResult(action='accept', content=response_type(current_password='lovelace1'))
+    return ElicitResult(action='accept', content=response_type(new_password='lovelace2'))
+
+async with Client('http://localhost:8100/mcp', auth='oauth', elicitation_handler=handler) as client:
+    result = await client.call_tool('change_my_password', {})
+    print(result.data)  # {'detail': 'Password changed.'}
+```
+
+A real MCP client (Claude Desktop, Claude Code) renders each elicitation as its own
+prompt in its own UI - there's nothing extra to configure for that case, only for a
+script driving the protocol directly like the one above.
 
 ### Trying a refusal
 
