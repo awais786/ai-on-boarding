@@ -18,7 +18,7 @@ from fastmcp.server.dependencies import get_access_token, get_context
 from mcp.types import ElicitRequest, ElicitRequestFormParams, InputRequiredResult
 
 import django_client
-from mcp_middleware import PasswordStrengthMiddleware, ToolCallLogger, ToolCallRateLimiter
+from mcp_middleware import ToolCallLogger, ToolCallRateLimiter
 
 load_dotenv()
 
@@ -159,7 +159,6 @@ mcp = FastMCP('django-user-reporting', auth=auth)
 
 mcp.add_middleware(ToolCallLogger())  # outermost, so it also logs a rate-limit rejection
 mcp.add_middleware(ToolCallRateLimiter())
-mcp.add_middleware(PasswordStrengthMiddleware())  # innermost: still counts against the rate limit
 
 
 def _ask_for_password(key, message, request_state=None):
@@ -196,6 +195,31 @@ def _answered(responses, key):
     if answer is None or answer.action != 'accept':
         return None
     return answer.content[key]
+
+
+async def _elicit_password(key, message, cancelled_detail):
+    """One elicited password field for a tool that only ever needs one.
+
+    Returns `(password, None)` once the caller has answered and it passes
+    Django's own strength rule, or `(None, result)` when the tool isn't done
+    yet - the caller returns `result` immediately in that case. `result` is
+    either the next `InputRequiredResult` to send, or a plain cancellation
+    reply if the caller declined.
+
+    change_my_password (below) needs two sequential fields and so drives
+    `_ask_for_password`/`_answered` itself instead of using this.
+    """
+    ctx = get_context()
+    responses = ctx.input_responses
+    if responses is None:
+        return None, _ask_for_password(key, message)
+
+    password = _answered(responses, key)
+    if password is None:
+        return None, {'detail': cancelled_detail}
+
+    django_client.validate_password_strength(password)
+    return password, None
 
 
 def _require_django_token():
@@ -241,18 +265,39 @@ async def list_users_by_country(country: str):
 
 
 @mcp.tool()
-async def change_user_password(username: str, new_password: str):
-    """Change a user's password. Only works if the caller is an admin."""
+async def change_user_password(username: str):
+    """Change a user's password. Only works if the caller is an admin.
+
+    The new password is not a parameter of this tool: your MCP client collects
+    it directly from you, so the calling assistant never sees it.
+    """
     _require_django_token()
+    new_password, pending = await _elicit_password(
+        'new_password',
+        f"Choose {username}'s new password (at least 8 characters, with a letter and a digit).",
+        'Password change cancelled.',
+    )
+    if pending is not None:
+        return pending
     return await _call_django(django_client.change_password, username, new_password)
 
 
 @mcp.tool()
-async def signup(email: str, username: str, password: str, country: str):
+async def signup(email: str, username: str, country: str):
     """Create an account. Works even if you don't have one yet - that's the point.
 
-    On success, this session can immediately use the other tools without reconnecting.
+    The password is not a parameter of this tool: your MCP client collects it
+    directly from you, so the calling assistant never sees it. On success, this
+    session can immediately use the other tools without reconnecting.
     """
+    password, pending = await _elicit_password(
+        'password',
+        'Choose a password (at least 8 characters, with a letter and a digit).',
+        'Signup cancelled.',
+    )
+    if pending is not None:
+        return pending
+
     result = await django_client.signup(email, username, password, country)
 
     access_token = get_access_token()
@@ -273,8 +318,19 @@ async def request_password_reset(email: str):
 
 
 @mcp.tool()
-async def reset_password(code: str, new_password: str):
-    """Complete a password reset using the code emailed by request_password_reset."""
+async def reset_password(code: str):
+    """Complete a password reset using the code emailed by request_password_reset.
+
+    The new password is not a parameter of this tool: your MCP client collects
+    it directly from you, so the calling assistant never sees it.
+    """
+    new_password, pending = await _elicit_password(
+        'new_password',
+        'Choose a new password (at least 8 characters, with a letter and a digit).',
+        'Password reset cancelled.',
+    )
+    if pending is not None:
+        return pending
     return await django_client.confirm_password_reset(code, new_password)
 
 

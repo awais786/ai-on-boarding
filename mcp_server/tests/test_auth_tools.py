@@ -24,25 +24,35 @@ GOOGLE_A = 'google-token-a'
 
 
 # --- Create an account ---------------------------------------------------------
+#
+# signup elicits its password from the caller's own MCP client rather than taking
+# it as a tool argument, the same as change_my_password - drive_password_tool
+# (conftest.py) plays the client's side of that one-field exchange.
 
 
-async def test_signup_succeeds_for_a_caller_with_no_credential(sign_in, django):
+async def test_signup_succeeds_for_a_caller_with_no_credential(
+    sign_in, django, drive_password_tool
+):
     django.exchange_error = django_client.NoDjangoAccountError('No account.')
     await sign_in(GOOGLE_A)
 
-    result = await server.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+    _, result = await drive_password_tool(
+        lambda: server.signup('ada@example.com', 'ada', 'GB'), 'password', 'lovelace1'
+    )
 
     assert result == {'detail': 'Account created.'}
 
 
 async def test_signup_grants_a_credential_usable_by_the_next_call(
-    sign_in, django, as_caller
+    sign_in, django, as_caller, drive_password_tool
 ):
     django.exchange_error = django_client.NoDjangoAccountError('No account.')
     await sign_in(GOOGLE_A)
     django.exchange_error = None
 
-    await server.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+    await drive_password_tool(
+        lambda: server.signup('ada@example.com', 'ada', 'GB'), 'password', 'lovelace1'
+    )
     verified = await server.auth._token_validator.verify_token(GOOGLE_A)
     as_caller(verified)
 
@@ -50,7 +60,7 @@ async def test_signup_grants_a_credential_usable_by_the_next_call(
     assert result == [{'username': 'ada', 'country': 'GB', 'date_joined': '2026-01-01'}]
 
 
-async def test_signup_rejects_a_duplicate_email(sign_in, django):
+async def test_signup_rejects_a_duplicate_email(sign_in, django, drive_password_tool):
     django.exchange_error = django_client.NoDjangoAccountError('No account.')
     await sign_in(GOOGLE_A)
     django.signup_error = django_client.DjangoAPIError(
@@ -58,19 +68,22 @@ async def test_signup_rejects_a_duplicate_email(sign_in, django):
     )
 
     with pytest.raises(django_client.DjangoAPIError):
-        await server.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+        await drive_password_tool(
+            lambda: server.signup('ada@example.com', 'ada', 'GB'), 'password', 'lovelace1'
+        )
 
 
-async def test_signup_rejects_a_weak_password(sign_in, django):
+async def test_signup_rejects_a_weak_password(sign_in, django, drive_password_tool):
     django.exchange_error = django_client.NoDjangoAccountError('No account.')
     await sign_in(GOOGLE_A)
-    django.signup_error = django_client.DjangoAPIError('Must be at least 8 characters.')
 
     with pytest.raises(django_client.DjangoAPIError):
-        await server.signup('ada@example.com', 'ada', 'weak', 'GB')
+        await drive_password_tool(
+            lambda: server.signup('ada@example.com', 'ada', 'GB'), 'password', 'weak'
+        )
 
 
-async def test_signup_rejects_a_blocked_country(sign_in, django):
+async def test_signup_rejects_a_blocked_country(sign_in, django, drive_password_tool):
     django.exchange_error = django_client.NoDjangoAccountError('No account.')
     await sign_in(GOOGLE_A)
     django.signup_error = django_client.DjangoAPIError(
@@ -78,10 +91,12 @@ async def test_signup_rejects_a_blocked_country(sign_in, django):
     )
 
     with pytest.raises(django_client.DjangoAPIError):
-        await server.signup('ada@example.com', 'ada', 'lovelace1', 'Blockistan')
+        await drive_password_tool(
+            lambda: server.signup('ada@example.com', 'ada', 'Blockistan'), 'password', 'lovelace1'
+        )
 
 
-async def test_a_signup_failure_never_returns_the_password(sign_in, django):
+async def test_a_signup_failure_never_returns_the_password(sign_in, django, drive_password_tool):
     django.exchange_error = django_client.NoDjangoAccountError('No account.')
     await sign_in(GOOGLE_A)
     django.signup_error = django_client.DjangoAPIError(
@@ -89,9 +104,25 @@ async def test_a_signup_failure_never_returns_the_password(sign_in, django):
     )
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await server.signup('ada@example.com', 'ada', 'a-secret-password', 'GB')
+        await drive_password_tool(
+            lambda: server.signup('ada@example.com', 'ada', 'GB'), 'password', 'a-secret-password1'
+        )
 
-    assert 'a-secret-password' not in str(failure.value)
+    assert 'a-secret-password1' not in str(failure.value)
+
+
+async def test_declining_signups_password_cancels_without_creating_an_account(
+    sign_in, django, drive_password_tool
+):
+    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    await sign_in(GOOGLE_A)
+
+    _, result = await drive_password_tool(
+        lambda: server.signup('ada@example.com', 'ada', 'GB'), 'password', None
+    )
+
+    assert result == {'detail': 'Signup cancelled.'}
+    assert django.calls == []
 
 
 # --- Request a password-reset code ----------------------------------------------
@@ -113,32 +144,55 @@ async def test_requesting_a_reset_for_an_unregistered_address_is_identical(djang
 
 
 # --- Complete a password reset --------------------------------------------------
+#
+# reset_password elicits its new password the same way signup elicits its
+# password - the code (an emailed token, not a secret this layer judges) stays a
+# plain tool argument.
 
 
-async def test_reset_password_succeeds_with_a_valid_code(django):
-    result = await server.reset_password('a-valid-code', 'new-password-1')
+async def test_reset_password_succeeds_with_a_valid_code(django, drive_password_tool):
+    _, result = await drive_password_tool(
+        lambda: server.reset_password('a-valid-code'), 'new_password', 'new-password-1'
+    )
 
     assert result == {'detail': 'Password changed.'}
 
 
-async def test_reset_password_rejects_an_invalid_code(django):
+async def test_reset_password_rejects_an_invalid_code(django, drive_password_tool):
     django.reset_error = django_client.DjangoAPIError('That reset link is not valid.')
 
     with pytest.raises(django_client.DjangoAPIError):
-        await server.reset_password('bad-code', 'new-password-1')
+        await drive_password_tool(
+            lambda: server.reset_password('bad-code'), 'new_password', 'new-password-1'
+        )
 
 
-async def test_reset_password_rejects_a_weak_new_password(django):
-    django.reset_error = django_client.DjangoAPIError('Must be at least 8 characters.')
-
+async def test_reset_password_rejects_a_weak_new_password(django, drive_password_tool):
     with pytest.raises(django_client.DjangoAPIError):
-        await server.reset_password('a-valid-code', 'weak')
+        await drive_password_tool(
+            lambda: server.reset_password('a-valid-code'), 'new_password', 'weak'
+        )
 
 
-async def test_a_reset_password_result_never_contains_the_new_password(django):
-    result = await server.reset_password('a-valid-code', 'a-secret-password')
+async def test_a_reset_password_result_never_contains_the_new_password(
+    django, drive_password_tool
+):
+    _, result = await drive_password_tool(
+        lambda: server.reset_password('a-valid-code'), 'new_password', 'a-secret-password1'
+    )
 
-    assert 'a-secret-password' not in str(result)
+    assert 'a-secret-password1' not in str(result)
+
+
+async def test_declining_the_reset_password_cancels_without_spending_the_code(
+    django, drive_password_tool
+):
+    _, result = await drive_password_tool(
+        lambda: server.reset_password('a-valid-code'), 'new_password', None
+    )
+
+    assert result == {'detail': 'Password reset cancelled.'}
+    assert django.calls == []
 
 
 # --- Change the caller's own password ---------------------------------------
@@ -224,4 +278,33 @@ async def test_declining_the_new_password_cancels_without_changing_anything(
     _, _, third = await drive_change_my_password('old-password-1', None)
 
     assert third == {'detail': 'Password change cancelled.'}
+    assert django.calls == []
+
+
+# --- Change another user's password (admin) -----------------------------------
+#
+# change_user_password elicits its new password the same way signup and
+# reset_password do - it predates specs/mcp-auth-tools/spec.md (it was one of the
+# original three tools) but gets the same treatment for consistency.
+
+
+async def test_change_user_password_rejects_a_weak_new_password(
+    sign_in, django, drive_password_tool
+):
+    await sign_in(GOOGLE_A)
+
+    with pytest.raises(django_client.DjangoAPIError):
+        await drive_password_tool(lambda: server.change_user_password('ada'), 'new_password', 'weak')
+
+
+async def test_declining_change_user_passwords_new_password_changes_nothing(
+    sign_in, django, drive_password_tool
+):
+    await sign_in(GOOGLE_A)
+
+    _, result = await drive_password_tool(
+        lambda: server.change_user_password('ada'), 'new_password', None
+    )
+
+    assert result == {'detail': 'Password change cancelled.'}
     assert django.calls == []

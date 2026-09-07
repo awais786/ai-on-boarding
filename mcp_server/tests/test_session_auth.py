@@ -107,13 +107,15 @@ async def test_a_tool_requiring_a_credential_refuses_a_credential_less_caller(si
 
 
 async def test_signing_up_grants_a_credential_without_a_new_session(
-    sign_in, django, as_caller
+    sign_in, django, as_caller, drive_password_tool
 ):
     django.exchange_error = django_client.NoDjangoAccountError('No account.')
     await sign_in(GOOGLE_A)
     django.exchange_error = None
 
-    await server.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+    await drive_password_tool(
+        lambda: server.signup('ada@example.com', 'ada', 'GB'), 'password', 'lovelace1'
+    )
 
     # A later request re-reads the session from the cache, as FastMCP would.
     verified = await server.auth._token_validator.verify_token(GOOGLE_A)
@@ -148,11 +150,13 @@ async def test_a_later_tool_call_reuses_the_credential_without_exchanging_again(
 
 
 async def test_two_different_tools_in_one_session_use_the_same_credential(
-    sign_in, django
+    sign_in, django, drive_password_tool
 ):
     await sign_in(GOOGLE_A)
     await server.list_signup_users()
-    await server.change_user_password('ada', 'new-password-1')
+    await drive_password_tool(
+        lambda: server.change_user_password('ada'), 'new_password', 'new-password-1'
+    )
 
     assert django.exchange_count == 1
     assert set(django_tokens_used(django)) == {f'drf-for-{GOOGLE_A}'}
@@ -209,12 +213,14 @@ async def test_the_replacement_credential_is_kept_for_later_calls(sign_in, djang
     assert verified.claims[server.DJANGO_TOKEN_CLAIM] == 'drf-replacement'
 
 
-async def test_a_403_from_django_triggers_no_re_exchange(sign_in, django):
+async def test_a_403_from_django_triggers_no_re_exchange(sign_in, django, drive_password_tool):
     await sign_in(GOOGLE_A)
     django.error = django_client.DjangoAPIError('Only an admin may do that.')
 
     with pytest.raises(django_client.DjangoAPIError) as refusal:
-        await server.change_user_password('ada', 'new-password-1')
+        await drive_password_tool(
+            lambda: server.change_user_password('ada'), 'new_password', 'new-password-1'
+        )
 
     assert django.exchange_count == 1
     assert str(refusal.value) == 'Only an admin may do that.'
@@ -302,12 +308,16 @@ async def test_a_failure_carries_no_credential(sign_in, django):
     assert 'drf-replacement' not in message
 
 
-async def test_the_password_a_caller_supplies_never_appears_in_a_result(sign_in):
+async def test_the_password_a_caller_supplies_never_appears_in_a_result(
+    sign_in, django, drive_password_tool
+):
     await sign_in(GOOGLE_A)
 
-    result = await server.change_user_password('ada', 'a-secret-password')
+    _, result = await drive_password_tool(
+        lambda: server.change_user_password('ada'), 'new_password', 'a-secret-password1'
+    )
 
-    assert 'a-secret-password' not in repr(result)
+    assert 'a-secret-password1' not in repr(result)
 
 
 # --- A refused credential is never left cached -------------------------------

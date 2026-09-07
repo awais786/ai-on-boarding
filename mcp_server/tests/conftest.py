@@ -224,6 +224,30 @@ def elicit(monkeypatch):
 
 
 @pytest.fixture
+def drive_password_tool(elicit):
+    """Runs a single-round password-eliciting tool (signup, reset_password,
+    change_user_password) through both rounds a real session would.
+
+    `call_tool` is a zero-argument callable invoking the tool with whatever
+    non-secret arguments the test cares about already bound; `key` is the name
+    of the one field it elicits. Returns `(asked, result)`: the `InputRequiredResult`
+    from round 1, and round 2's result (the tool's real outcome, or a decline
+    message if `password` is None).
+    """
+
+    async def _drive(call_tool, key, password):
+        elicit()  # round 1: nothing asked yet
+        asked = await call_tool()
+
+        answer = declined() if password is None else accepted(key, password)
+        elicit({key: answer})
+        result = await call_tool()
+        return asked, result
+
+    return _drive
+
+
+@pytest.fixture
 def drive_change_my_password(elicit):
     """Runs change_my_password through all three rounds a real session would,
     given a client that answers both elicited fields (or declines one, if a

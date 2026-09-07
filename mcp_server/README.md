@@ -4,10 +4,13 @@ Exposes tools backed by the Django API in `../sdd_django_demo/`:
 
 - `signup` - create an account. Works even without a Django account yet.
 - `request_password_reset` / `reset_password` - forgot-password flow, by email code.
-- `change_my_password` - change your own password (needs an account). Takes neither
-  password as a tool argument: your MCP client collects both directly from you, so
-  the calling assistant never sees them - see "Elicited passwords" below.
-- `change_user_password`, `list_signup_users`, `list_users_by_country` - admin only.
+- `change_my_password` - change your own password (needs an account).
+- `change_user_password` (admin only), `list_signup_users`, `list_users_by_country`.
+
+None of `signup`, `reset_password`, `change_my_password`, or `change_user_password`
+take a password as a tool argument: your MCP client collects each one directly from
+you, so the calling assistant never sees any of them - see "Elicited passwords"
+below.
 
 There is no signin tool: signing in with Google, below, already establishes the
 credential every other tool uses.
@@ -80,20 +83,29 @@ server" step - it varies by client.
 
 Useful for trying tools out or writing a quick check without a full MCP-aware
 client. `auth='oauth'` drives the same Google sign-in flow through a browser
-window the first time; the resulting session is then reused for later calls.
+window the first time; the resulting session is then reused for later calls. Every
+password-setting tool elicits its password(s) rather than taking them as
+arguments - see "Elicited passwords" below for what that means for a script.
 
 ```python
 import asyncio
 from fastmcp import Client
+from fastmcp.client.elicitation import ElicitResult
+
+async def handler(message, response_type, params, ctx):
+    # In a real client this would prompt a human; here it answers directly.
+    # response_type is generated from the one field each request asks for.
+    field = next(iter(response_type.model_fields))
+    return ElicitResult(action='accept', content=response_type(**{field: 'lovelace1'}))
 
 async def main():
-    async with Client('http://localhost:8100/mcp', auth='oauth') as client:
+    async with Client('http://localhost:8100/mcp', auth='oauth', elicitation_handler=handler) as client:
         # New account - works even before signing in with a Django account
         # already on record, since signup is the one tool that doesn't need one.
+        # The password itself is never in this call - handler supplies it above.
         result = await client.call_tool('signup', {
             'email': 'ada@example.com',
             'username': 'ada',
-            'password': 'lovelace1',
             'country': 'GB',
         })
         print(result.data)  # {'detail': 'Account created.'}
@@ -113,28 +125,31 @@ refusal rather than any user data.
 
 ### Elicited passwords
 
-`change_my_password` takes no arguments at all - calling it starts a short back-
-and-forth where the *server* asks your MCP client to collect a value directly from
-you, and the assistant that called the tool never sees the answer. A script using
-FastMCP's `Client` handles this with an `elicitation_handler`:
+`signup`, `reset_password`, `change_my_password`, and `change_user_password` take
+no password as a tool argument - calling any of them starts a short back-and-forth
+where the *server* asks your MCP client to collect the value(s) directly from you,
+and the assistant that called the tool never sees the answer. A real MCP client
+(Claude Desktop, Claude Code) renders each elicitation as its own prompt in its own
+UI - there's nothing extra to configure for that case.
+
+A script using FastMCP's `Client` handles it with an `elicitation_handler`, as in
+the example above. `change_my_password` is the one exception worth knowing about:
+it needs two passwords in sequence (current, then new), so it drives two rounds -
+the handler above works for it unchanged (it just answers with `'lovelace1'` for
+both, whatever the field is called), but a handler that wants to answer them
+differently would need to look at `message` (the human-readable prompt) or the
+field name in `response_type.model_fields` to tell which round it's in:
 
 ```python
-from fastmcp.client.elicitation import ElicitResult
-
 async def handler(message, response_type, params, ctx):
-    # In a real client this would prompt a human; here it answers directly.
-    if 'current password' in message.lower():
-        return ElicitResult(action='accept', content=response_type(current_password='lovelace1'))
-    return ElicitResult(action='accept', content=response_type(new_password='lovelace2'))
+    field = next(iter(response_type.model_fields))
+    value = 'lovelace1' if field == 'current_password' else 'lovelace2'
+    return ElicitResult(action='accept', content=response_type(**{field: value}))
 
 async with Client('http://localhost:8100/mcp', auth='oauth', elicitation_handler=handler) as client:
     result = await client.call_tool('change_my_password', {})
     print(result.data)  # {'detail': 'Password changed.'}
 ```
-
-A real MCP client (Claude Desktop, Claude Code) renders each elicitation as its own
-prompt in its own UI - there's nothing extra to configure for that case, only for a
-script driving the protocol directly like the one above.
 
 ### Trying a refusal
 
