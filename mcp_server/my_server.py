@@ -1,6 +1,4 @@
-import asyncio
 import os
-import re
 
 import httpx
 from fastmcp import FastMCP
@@ -18,13 +16,11 @@ mcp = FastMCP(
 )
 
 DJANGO_BASE_URL = "http://localhost:8000"
-MAILPIT_BASE_URL = "http://localhost:8025"
-RESET_LINK_PATTERN = re.compile(r"/reset-password/([^/\s]+)/")
 
 # Token from the most recent successful `signin`. Caching it here (rather than
 # handing it back to the caller) means callers never see the raw token, and
-# get_users/password_reset simply forward whatever's cached - Django's own
-# IsAdminUser check is what actually enforces "admin only", not this file.
+# get_users simply forwards whatever's cached - Django's own IsAdminUser check
+# is what actually enforces "admin only", not this file.
 _token = None
 
 @mcp.tool
@@ -55,7 +51,7 @@ async def signup(email, username, password, country):
 
 @mcp.tool
 async def signin(email_or_username, password):
-    """Sign in and cache the token for subsequent get_users/password_reset calls."""
+    """Sign in and cache the token for subsequent get_users calls."""
     global _token
     async with httpx.AsyncClient() as client:
         response = await client.post(
@@ -72,9 +68,9 @@ async def signin(email_or_username, password):
 async def google_signin():
     """Exchange the caller's Google-authenticated MCP session for a Django token.
 
-    Caches the token for subsequent get_users/password_reset/update_password calls, exactly
-    like `signin` does - the raw Google access token and the returned Django token are never
-    included in this tool's response.
+    Caches the token for subsequent get_users/update_password calls, exactly like `signin`
+    does - the raw Google access token and the returned Django token are never included in
+    this tool's response.
     """
     global _token
     google_token = get_access_token()
@@ -137,74 +133,6 @@ async def get_users(cursor=None, country=None):
             return {"status": "error", "detail": "Signed-in account is not staff."}
         response.raise_for_status()
         return response.json()
-
-async def _user_exists(client, email):
-    """Page through /api/users/ looking for `email` (case-insensitive)."""
-    cursor = None
-    while True:
-        params = {"cursor": cursor} if cursor else None
-        response = await client.get(
-            f"{DJANGO_BASE_URL}/api/users/", headers=_auth_headers(), params=params
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if any(user["email"].lower() == email.lower() for user in payload["results"]):
-            return True
-        next_url = payload.get("next")
-        if not next_url:
-            return False
-        cursor = httpx.URL(next_url).params["cursor"]
-
-
-async def _find_reset_code(client, email):
-    """Poll Mailpit for the newest reset email to `email` and pull the code out of it."""
-    for _ in range(5):
-        search = await client.get(
-            f"{MAILPIT_BASE_URL}/api/v1/search", params={"query": f"to:{email}"}
-        )
-        search.raise_for_status()
-        messages = search.json()["messages"]
-        if messages:
-            newest = max(messages, key=lambda message: message["Created"])
-            detail = await client.get(f"{MAILPIT_BASE_URL}/api/v1/message/{newest['ID']}")
-            detail.raise_for_status()
-            match = RESET_LINK_PATTERN.search(detail.json()["Text"])
-            if match:
-                return match.group(1)
-        await asyncio.sleep(0.5)
-    return None
-
-@mcp.tool
-async def password_reset(email, new_password):
-    """Request a password reset for `email` and complete it with the code Mailpit received.
-
-    Requires a prior `signin` as a staff/admin account (used to check the address exists).
-    Local-testing automation only: assumes Django is reachable at localhost:8000
-    and reset emails land in a Mailpit instance at localhost:8025.
-    """
-    if _token is None:
-        return {"status": "error", "detail": "Sign in first."}
-    async with httpx.AsyncClient() as client:
-        if not await _user_exists(client, email):
-            return {"status": "skipped", "detail": "No account exists for that email."}
-
-        request_response = await client.post(
-            f"{DJANGO_BASE_URL}/api/password-reset/", json={"email": email}
-        )
-        request_response.raise_for_status()
-
-        code = await _find_reset_code(client, email)
-        if code is None:
-            return {"status": "failed", "detail": "No reset email found in Mailpit."}
-
-        confirm_response = await client.post(
-            f"{DJANGO_BASE_URL}/api/password-reset/confirm/",
-            json={"code": code, "password": new_password},
-        )
-        if confirm_response.status_code != 200:
-            return {"status": "failed", "detail": confirm_response.json().get("detail")}
-        return {"status": "success"}
-
 
 @mcp.tool
 async def update_password(username, new_password, current_password=None):
