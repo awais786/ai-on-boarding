@@ -16,8 +16,7 @@ PENDING_TTL_SECONDS = 15 * 60  # a human might take a while to open the link
 
 class PendingSecretRequest:
     """One outstanding "collect a password" request. `fields` is an ordered
-    [(name, label), ...] list - one entry for most operations, two for
-    change_my_password (current, then new)."""
+    [(name, label), ...] list."""
 
     def __init__(self, fields, on_submit):
         self.fields = fields

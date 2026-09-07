@@ -28,9 +28,7 @@ def _caller_id():
 
 
 class ToolCallRateLimiter(Middleware):
-    """Caps how many tool calls each caller can make in a rolling time window,
-    independent of every other caller.
-    """
+    """Caps how many tool calls each caller can make in a rolling time window."""
 
     def __init__(self, max_calls=5, window_minutes=1):
         self._max_calls = max_calls

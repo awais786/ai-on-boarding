@@ -27,6 +27,7 @@ import pytest
 import django_client
 import secret_pages
 import server
+import tools
 
 GOOGLE_A = 'google-token-a'
 
@@ -37,35 +38,40 @@ GOOGLE_A = 'google-token-a'
 async def test_signup_succeeds_for_a_caller_with_no_credential(
     sign_in, django, drive_secret_tool
 ):
-    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
 
     _, result = await drive_secret_tool(
-        lambda: server.signup('ada@example.com', 'ada', 'GB'), {'password': 'lovelace1'}
+        lambda: tools.account.signup('ada@example.com', 'ada', 'GB'), {'password': 'lovelace1'}
     )
 
     assert result == {'detail': 'Account created.'}
 
 
-async def test_signup_grants_a_credential_usable_by_the_next_call(
+async def test_signing_up_again_after_a_fresh_login_reaches_other_tools(
     sign_in, django, as_caller, drive_secret_tool
 ):
-    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    """The Django token rides inside the caller's signed session token (see
+    credentials.py), so signup can't grant a credential usable for the rest of
+    the session it happened in - that token was already issued before the
+    account existed. A fresh login (what a real client does on reconnect)
+    picks up the account signup just created."""
+    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
     django.exchange_error = None
 
     await drive_secret_tool(
-        lambda: server.signup('ada@example.com', 'ada', 'GB'), {'password': 'lovelace1'}
+        lambda: tools.account.signup('ada@example.com', 'ada', 'GB'), {'password': 'lovelace1'}
     )
-    verified = await server.auth._token_validator.verify_token(GOOGLE_A)
+    verified = await sign_in(GOOGLE_A)
     as_caller(verified)
 
-    result = await server.list_signup_users()
+    result = await tools.users.list_signup_users()
     assert result == [{'username': 'ada', 'country': 'GB', 'date_joined': '2026-01-01'}]
 
 
 async def test_signup_rejects_a_duplicate_email(sign_in, django, drive_secret_tool):
-    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
     django.signup_error = django_client.DjangoAPIError(
         'An account with this email already exists.'
@@ -73,22 +79,22 @@ async def test_signup_rejects_a_duplicate_email(sign_in, django, drive_secret_to
 
     with pytest.raises(django_client.DjangoAPIError):
         await drive_secret_tool(
-            lambda: server.signup('ada@example.com', 'ada', 'GB'), {'password': 'lovelace1'}
+            lambda: tools.account.signup('ada@example.com', 'ada', 'GB'), {'password': 'lovelace1'}
         )
 
 
 async def test_signup_rejects_a_weak_password(sign_in, django, drive_secret_tool):
-    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
 
     with pytest.raises(django_client.DjangoAPIError):
         await drive_secret_tool(
-            lambda: server.signup('ada@example.com', 'ada', 'GB'), {'password': 'weak'}
+            lambda: tools.account.signup('ada@example.com', 'ada', 'GB'), {'password': 'weak'}
         )
 
 
 async def test_signup_rejects_a_blocked_country(sign_in, django, drive_secret_tool):
-    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
     django.signup_error = django_client.DjangoAPIError(
         'Signups from this country are not allowed.'
@@ -96,12 +102,12 @@ async def test_signup_rejects_a_blocked_country(sign_in, django, drive_secret_to
 
     with pytest.raises(django_client.DjangoAPIError):
         await drive_secret_tool(
-            lambda: server.signup('ada@example.com', 'ada', 'Blockistan'), {'password': 'lovelace1'}
+            lambda: tools.account.signup('ada@example.com', 'ada', 'Blockistan'), {'password': 'lovelace1'}
         )
 
 
 async def test_a_signup_failure_never_returns_the_password(sign_in, django, drive_secret_tool):
-    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
     django.signup_error = django_client.DjangoAPIError(
         'An account with this email already exists.'
@@ -109,7 +115,7 @@ async def test_a_signup_failure_never_returns_the_password(sign_in, django, driv
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
         await drive_secret_tool(
-            lambda: server.signup('ada@example.com', 'ada', 'GB'),
+            lambda: tools.account.signup('ada@example.com', 'ada', 'GB'),
             {'password': 'a-secret-password1'},
         )
 
@@ -125,11 +131,11 @@ async def test_signup_never_takes_a_password_as_a_tool_argument():
 async def test_an_unsubmitted_signup_page_keeps_asking_with_the_same_link(
     sign_in, django, drive_secret_tool
 ):
-    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
 
     asked, result = await drive_secret_tool(
-        lambda: server.signup('ada@example.com', 'ada', 'GB'), None
+        lambda: tools.account.signup('ada@example.com', 'ada', 'GB'), None
     )
 
     assert result.input_requests['secret'].params.url == asked.input_requests['secret'].params.url
@@ -140,7 +146,7 @@ async def test_an_unsubmitted_signup_page_keeps_asking_with_the_same_link(
 
 
 async def test_requesting_a_reset_for_a_registered_address(django):
-    result = await server.request_password_reset('ada@example.com')
+    result = await tools.account.request_password_reset('ada@example.com')
 
     assert result == {
         'detail': 'If that email address has an account, a reset link has been sent to it.'
@@ -148,8 +154,8 @@ async def test_requesting_a_reset_for_a_registered_address(django):
 
 
 async def test_requesting_a_reset_for_an_unregistered_address_is_identical(django):
-    registered = await server.request_password_reset('ada@example.com')
-    unregistered = await server.request_password_reset('nobody@example.com')
+    registered = await tools.account.request_password_reset('ada@example.com')
+    unregistered = await tools.account.request_password_reset('nobody@example.com')
 
     assert registered == unregistered
 
@@ -159,7 +165,7 @@ async def test_requesting_a_reset_for_an_unregistered_address_is_identical(djang
 
 async def test_reset_password_succeeds_with_a_valid_code(django, drive_secret_tool):
     _, result = await drive_secret_tool(
-        lambda: server.reset_password('a-valid-code'), {'new_password': 'new-password-1'}
+        lambda: tools.account.reset_password('a-valid-code'), {'new_password': 'new-password-1'}
     )
 
     assert result == {'detail': 'Password changed.'}
@@ -170,20 +176,20 @@ async def test_reset_password_rejects_an_invalid_code(django, drive_secret_tool)
 
     with pytest.raises(django_client.DjangoAPIError):
         await drive_secret_tool(
-            lambda: server.reset_password('bad-code'), {'new_password': 'new-password-1'}
+            lambda: tools.account.reset_password('bad-code'), {'new_password': 'new-password-1'}
         )
 
 
 async def test_reset_password_rejects_a_weak_new_password(django, drive_secret_tool):
     with pytest.raises(django_client.DjangoAPIError):
         await drive_secret_tool(
-            lambda: server.reset_password('a-valid-code'), {'new_password': 'weak'}
+            lambda: tools.account.reset_password('a-valid-code'), {'new_password': 'weak'}
         )
 
 
 async def test_a_reset_password_result_never_contains_the_new_password(django, drive_secret_tool):
     _, result = await drive_secret_tool(
-        lambda: server.reset_password('a-valid-code'), {'new_password': 'a-secret-password1'}
+        lambda: tools.account.reset_password('a-valid-code'), {'new_password': 'a-secret-password1'}
     )
 
     assert 'a-secret-password1' not in str(result)
@@ -200,7 +206,7 @@ async def test_change_my_password_succeeds(sign_in, django, drive_secret_tool):
     await sign_in(GOOGLE_A)
 
     _, result = await drive_secret_tool(
-        server.change_my_password,
+        tools.account.change_my_password,
         {'current_password': 'old-password-1', 'new_password': 'new-password-1'},
     )
 
@@ -215,18 +221,18 @@ async def test_change_my_password_rejects_a_wrong_current_password(sign_in, djan
 
     with pytest.raises(django_client.DjangoAPIError):
         await drive_secret_tool(
-            server.change_my_password,
+            tools.account.change_my_password,
             {'current_password': 'wrong-password', 'new_password': 'new-password-1'},
         )
 
 
 async def test_change_my_password_refuses_a_caller_with_no_credential(sign_in, django, elicit):
-    django.exchange_error = django_client.NoDjangoAccountError('No account.')
+    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
     elicit()  # the refusal must happen before any elicitation is even sent
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await server.change_my_password()
+        await tools.account.change_my_password()
 
     assert 'signup' in str(failure.value).lower()
     assert secret_pages._pending == {}  # no page was ever registered
@@ -236,7 +242,7 @@ async def test_change_my_password_never_returns_either_password(sign_in, django,
     await sign_in(GOOGLE_A)
 
     _, result = await drive_secret_tool(
-        server.change_my_password,
+        tools.account.change_my_password,
         {'current_password': 'old-password-1', 'new_password': 'new-password-1'},
     )
 
@@ -255,7 +261,7 @@ async def test_change_my_password_rejects_a_weak_new_password(sign_in, django, d
 
     with pytest.raises(django_client.DjangoAPIError):
         await drive_secret_tool(
-            server.change_my_password,
+            tools.account.change_my_password,
             {'current_password': 'old-password-1', 'new_password': 'weak'},
         )
 
@@ -265,7 +271,7 @@ async def test_an_unsubmitted_change_my_password_page_keeps_asking_with_the_same
 ):
     await sign_in(GOOGLE_A)
 
-    asked, result = await drive_secret_tool(server.change_my_password, None)
+    asked, result = await drive_secret_tool(tools.account.change_my_password, None)
 
     assert result.input_requests['secret'].params.url == asked.input_requests['secret'].params.url
     assert django.calls == []
@@ -274,10 +280,10 @@ async def test_an_unsubmitted_change_my_password_page_keeps_asking_with_the_same
 async def test_a_stale_change_my_password_link_is_reported_and_not_reused(sign_in, django, elicit):
     await sign_in(GOOGLE_A)
     elicit()
-    asked = await server.change_my_password()
+    asked = await tools.account.change_my_password()
 
     elicit({'secret': None}, request_state='not-a-real-token')
-    result = await server.change_my_password()
+    result = await tools.account.change_my_password()
 
     assert result == {'detail': 'That link expired before it was completed. Please try again.'}
     # The real pending request is untouched - polling with a wrong token doesn't
@@ -298,7 +304,7 @@ async def test_change_user_password_rejects_a_weak_new_password(sign_in, django,
 
     with pytest.raises(django_client.DjangoAPIError):
         await drive_secret_tool(
-            lambda: server.change_user_password('ada'), {'new_password': 'weak'}
+            lambda: tools.users.change_user_password('ada'), {'new_password': 'weak'}
         )
 
 
@@ -313,7 +319,7 @@ async def test_an_unsubmitted_change_user_password_page_keeps_asking_with_the_sa
 ):
     await sign_in(GOOGLE_A)
 
-    asked, result = await drive_secret_tool(lambda: server.change_user_password('ada'), None)
+    asked, result = await drive_secret_tool(lambda: tools.users.change_user_password('ada'), None)
 
     assert result.input_requests['secret'].params.url == asked.input_requests['secret'].params.url
     assert django.calls == []

@@ -69,22 +69,28 @@ def responds(monkeypatch):
 async def test_a_401_listing_users_is_a_credential_problem(responds):
     responds(FakeResponse(401, {'detail': 'Invalid token.'}))
 
-    with pytest.raises(django_client.DjangoAuthError):
-        await django_client.list_users('stale-token')
+    with pytest.raises(django_client.DjangoAPIError) as failure:
+        await django_client.AuthedDjangoClient('stale-token').list_users()
+
+    assert failure.value.stale_credential
 
 
 async def test_a_401_changing_a_password_is_a_credential_problem(responds):
     responds(FakeResponse(401, {'detail': 'Invalid token.'}))
 
-    with pytest.raises(django_client.DjangoAuthError):
-        await django_client.change_password('stale-token', 'ada', 'new-password-1')
+    with pytest.raises(django_client.DjangoAPIError) as failure:
+        await django_client.AuthedDjangoClient('stale-token').change_password('ada', 'new-password-1')
+
+    assert failure.value.stale_credential
 
 
 async def test_a_401_exchanging_is_a_credential_problem(responds):
     responds(FakeResponse(401, {'detail': 'Google refused that token.'}))
 
-    with pytest.raises(django_client.DjangoAuthError):
+    with pytest.raises(django_client.DjangoAPIError) as failure:
         await django_client.exchange_google_token('google-token-a')
+
+    assert failure.value.stale_credential
 
 
 # --- 403 is Django's real answer, not a stale credential ---------------------
@@ -94,9 +100,9 @@ async def test_a_403_changing_a_password_is_not_a_credential_problem(responds):
     responds(FakeResponse(403, {'detail': 'Only an admin may do that.'}))
 
     with pytest.raises(django_client.DjangoAPIError) as refusal:
-        await django_client.change_password('good-token', 'ada', 'new-password-1')
+        await django_client.AuthedDjangoClient('good-token').change_password('ada', 'new-password-1')
 
-    assert not isinstance(refusal.value, django_client.DjangoAuthError)
+    assert not refusal.value.stale_credential
     assert str(refusal.value) == 'Only an admin may do that.'
 
 
@@ -104,9 +110,9 @@ async def test_a_403_listing_users_is_not_a_credential_problem(responds):
     responds(FakeResponse(403, {'detail': 'Not permitted.'}))
 
     with pytest.raises(django_client.DjangoAPIError) as refusal:
-        await django_client.list_users('good-token')
+        await django_client.AuthedDjangoClient('good-token').list_users()
 
-    assert not isinstance(refusal.value, django_client.DjangoAuthError)
+    assert not refusal.value.stale_credential
 
 
 async def test_a_403_exchanging_means_no_account_here_not_a_stale_credential(responds):
@@ -115,21 +121,24 @@ async def test_a_403_exchanging_means_no_account_here_not_a_stale_credential(res
     # "embargoed", so this can't and doesn't try to tell them apart. Exchanging
     # again cannot help, so it must not be reported as a retryable credential
     # failure at the tool layer, but it also isn't Google itself refusing the
-    # token - it gets its own type so CredentialVerifier can admit the caller
-    # with no credential instead of refusing them outright.
+    # token - no_account is set so DjangoGoogleProvider can admit the caller with
+    # no credential instead of refusing them outright.
     responds(FakeResponse(403, {'detail': 'No account here.'}))
 
-    with pytest.raises(django_client.NoDjangoAccountError):
+    with pytest.raises(django_client.DjangoAPIError) as failure:
         await django_client.exchange_google_token('google-token-a')
+
+    assert failure.value.no_account
+    assert not failure.value.stale_credential
 
 
 async def test_a_401_exchanging_is_not_a_no_account_error(responds):
     responds(FakeResponse(401, {'detail': 'Google refused that token.'}))
 
-    with pytest.raises(django_client.DjangoAuthError) as failure:
+    with pytest.raises(django_client.DjangoAPIError) as failure:
         await django_client.exchange_google_token('google-token-a')
 
-    assert not isinstance(failure.value, django_client.NoDjangoAccountError)
+    assert not failure.value.no_account
 
 
 # --- Other failures ----------------------------------------------------------
@@ -139,9 +148,9 @@ async def test_a_500_is_an_ordinary_failure(responds):
     responds(FakeResponse(500, None, text='Server Error'))
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.list_users('good-token')
+        await django_client.AuthedDjangoClient('good-token').list_users()
 
-    assert not isinstance(failure.value, django_client.DjangoAuthError)
+    assert not failure.value.stale_credential
 
 
 async def test_an_unreachable_django_is_reported_not_raised_raw(transport):
@@ -150,7 +159,7 @@ async def test_an_unreachable_django_is_reported_not_raised_raw(transport):
     transport(raises=httpx2.ConnectError('connection refused'))
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.list_users('good-token')
+        await django_client.AuthedDjangoClient('good-token').list_users()
 
     assert 'reach' in str(failure.value).lower()
 
@@ -170,7 +179,7 @@ async def test_a_timeout_is_reported_not_raised_raw(transport):
     transport(raises=httpx2.ReadTimeout('too slow'))
 
     with pytest.raises(django_client.DjangoAPIError):
-        await django_client.list_users('good-token')
+        await django_client.AuthedDjangoClient('good-token').list_users()
 
 
 async def test_a_tool_result_field_allowlist_strips_ids_and_emails(responds):
@@ -189,7 +198,7 @@ async def test_a_tool_result_field_allowlist_strips_ids_and_emails(responds):
         )
     )
 
-    rows = await django_client.list_users('good-token')
+    rows = await django_client.AuthedDjangoClient('good-token').list_users()
 
     assert rows == [{'username': '***', 'country': 'GB', 'date_joined': '2026-01-01'}]
 
@@ -205,7 +214,7 @@ async def test_list_users_masks_the_real_username(responds):
         )
     )
 
-    rows = await django_client.list_users('good-token')
+    rows = await django_client.AuthedDjangoClient('good-token').list_users()
 
     assert [row['username'] for row in rows] == [django_client.MASKED_USERNAME] * 2
     assert 'ada' not in str(rows)
@@ -219,7 +228,7 @@ async def test_detail_returns_a_short_non_json_body_unchanged(responds):
     responds(FakeResponse(500, None, text='Server Error'))
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.list_users('good-token')
+        await django_client.AuthedDjangoClient('good-token').list_users()
 
     assert str(failure.value) == 'Server Error'
 
@@ -229,7 +238,7 @@ async def test_detail_truncates_a_long_non_json_body(responds):
     responds(FakeResponse(500, None, text=huge_debug_page))
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.list_users('good-token')
+        await django_client.AuthedDjangoClient('good-token').list_users()
 
     message = str(failure.value)
     assert len(message) <= django_client.DETAIL_FALLBACK_MAX_LENGTH + len('...')
@@ -244,7 +253,7 @@ async def test_detail_still_returns_a_json_detail_message_in_full(responds):
     responds(FakeResponse(403, {'detail': long_detail}))
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.list_users('good-token')
+        await django_client.AuthedDjangoClient('good-token').list_users()
 
     assert str(failure.value) == long_detail
 
@@ -256,9 +265,9 @@ async def test_change_password_rejects_no_match(responds):
     responds(FakeResponse(404, {'detail': 'No user with that username.'}))
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.change_password('good-token', 'nobody', 'new-password-1')
+        await django_client.AuthedDjangoClient('good-token').change_password('nobody', 'new-password-1')
 
-    assert not isinstance(failure.value, django_client.DjangoAuthError)
+    assert not failure.value.stale_credential
 
 
 # --- signup --------------------------------------------------------------------
@@ -338,7 +347,7 @@ async def test_confirm_password_reset_never_returns_the_new_password(responds):
 async def test_change_own_password_succeeds(responds):
     responds(FakeResponse(200, {'detail': 'Password changed.'}))
 
-    result = await django_client.change_own_password('good-token', 'old-password-1', 'new-password-1')
+    result = await django_client.AuthedDjangoClient('good-token').change_own_password('old-password-1', 'new-password-1')
 
     assert result == {'detail': 'Password changed.'}
 
@@ -346,14 +355,16 @@ async def test_change_own_password_succeeds(responds):
 async def test_change_own_password_401_is_a_credential_problem(responds):
     responds(FakeResponse(401, {'detail': 'Invalid token.'}))
 
-    with pytest.raises(django_client.DjangoAuthError):
-        await django_client.change_own_password('stale-token', 'old-password-1', 'new-password-1')
+    with pytest.raises(django_client.DjangoAPIError) as failure:
+        await django_client.AuthedDjangoClient('stale-token').change_own_password('old-password-1', 'new-password-1')
+
+    assert failure.value.stale_credential
 
 
 async def test_change_own_password_rejects_a_wrong_current_password(responds):
     responds(FakeResponse(400, {'detail': 'Current password is incorrect.'}))
 
     with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.change_own_password('good-token', 'wrong-password', 'new-password-1')
+        await django_client.AuthedDjangoClient('good-token').change_own_password('wrong-password', 'new-password-1')
 
-    assert not isinstance(failure.value, django_client.DjangoAuthError)
+    assert not failure.value.stale_credential

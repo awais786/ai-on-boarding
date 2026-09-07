@@ -7,6 +7,7 @@ was called, which is most of what this change is about.
 """
 
 import os
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -25,6 +26,13 @@ from mcp.types import ElicitResult  # noqa: E402
 import django_client  # noqa: E402
 import secret_pages  # noqa: E402
 import server  # noqa: E402
+import session  # noqa: E402
+
+# auth.jwt_issuer (used to sign every session token) is only built once
+# get_routes() runs - normally triggered by actually serving the app. Force
+# that here, once, so every test can use it regardless of which file runs
+# first (a real server always does this before taking its first request).
+server.mcp.http_app()
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +58,7 @@ def google_access_token(google_token, subject='google-sub-1'):
 
 
 class FakeGoogleVerifier:
-    """The verifier CredentialVerifier wraps - i.e. Google itself."""
+    """Stands in for GoogleTokenVerifier - i.e. Google itself."""
 
     def __init__(self):
         self.calls = []
@@ -125,7 +133,7 @@ class FakeDjango:
     def _check(self, django_token, record):
         self.calls.append(record)
         if django_token in self.rejects:
-            raise django_client.DjangoAuthError('Invalid token.')
+            raise django_client.DjangoAPIError('Invalid token.', stale_credential=True)
         if self.error is not None:
             raise self.error
 
@@ -136,48 +144,65 @@ class FakeDjango:
 
 @pytest.fixture
 def google(monkeypatch):
+    """DjangoGoogleProvider._extract_upstream_claims calls self._token_validator
+    directly (there's no wrapper around it any more), so this replaces that
+    attribute outright rather than patching an inner delegate."""
     fake = FakeGoogleVerifier()
-    monkeypatch.setattr(server.auth._token_validator, '_inner', fake)
+    monkeypatch.setattr(server.auth, '_token_validator', fake)
     return fake
 
 
 @pytest.fixture
 def django(monkeypatch):
+    """FakeDjango's own methods keep the (self, django_token, ...) shape the
+    module-level functions used to have; these three adapters bridge that to
+    AuthedDjangoClient's real (self, ...) shape, reading the token off the real
+    client instance django hands them - FakeDjango itself doesn't need to change."""
     fake = FakeDjango()
-    for name in (
-        'exchange_google_token',
-        'list_users',
-        'change_password',
-        'signup',
-        'request_password_reset',
-        'confirm_password_reset',
-        'change_own_password',
-    ):
+    for name in ('exchange_google_token', 'signup', 'request_password_reset', 'confirm_password_reset'):
         monkeypatch.setattr(django_client, name, getattr(fake, name))
+
+    async def _list_users(client, country=None):
+        return await fake.list_users(client.django_token, country=country)
+
+    async def _change_password(client, username, new_password):
+        return await fake.change_password(client.django_token, username, new_password)
+
+    async def _change_own_password(client, current_password, new_password):
+        return await fake.change_own_password(client.django_token, current_password, new_password)
+
+    monkeypatch.setattr(django_client.AuthedDjangoClient, 'list_users', _list_users)
+    monkeypatch.setattr(django_client.AuthedDjangoClient, 'change_password', _change_password)
+    monkeypatch.setattr(django_client.AuthedDjangoClient, 'change_own_password', _change_own_password)
     return fake
 
 
 @pytest.fixture
-def cache(monkeypatch):
-    """A cache empty at the start of every test, shared by the verifier and tools."""
-    fresh = server.CredentialCache(ttl_seconds=server.CREDENTIAL_CACHE_TTL_SECONDS)
-    monkeypatch.setattr(server, '_credentials', fresh)
-    monkeypatch.setattr(server.auth._token_validator, '_cache', fresh)
-    return fresh
+def sign_in(google, django, monkeypatch):
+    """Sign a caller in exactly the way a real login does - through
+    DjangoGoogleProvider's own _extract_upstream_claims and load_access_token,
+    with a real signed JWT in between - and make the result the session the
+    tools see.
 
-
-@pytest.fixture
-def sign_in(google, django, cache, monkeypatch):
-    """Sign a caller in and make their session the one the tools see.
-
-    Returns the AccessToken FastMCP would hand the tools, or None if the caller was
-    refused - which is what makes them unable to reach any tool.
+    Returns the AccessToken FastMCP would hand the tools, or None if Google
+    itself refused the token - which is what makes them unable to reach any tool.
     """
 
     async def _sign_in(google_token='google-token-1'):
-        verified = await server.auth._token_validator.verify_token(google_token)
-        if verified is not None:
-            monkeypatch.setattr(server, 'get_access_token', lambda: verified)
+        try:
+            claims = await server.auth._extract_upstream_claims({'access_token': google_token})
+        except RuntimeError:
+            return None  # Google refused the token being exchanged at login
+
+        jwt = server.auth.jwt_issuer.issue_access_token(
+            client_id='test-client',
+            scopes=['openid', 'email'],
+            jti=secrets.token_urlsafe(8),
+            upstream_claims=claims,
+            subject=claims.get('sub'),
+        )
+        verified = await server.auth.load_access_token(jwt)
+        monkeypatch.setattr(session, 'get_access_token', lambda: verified)
         return verified
 
     return _sign_in
@@ -188,15 +213,9 @@ def as_caller(monkeypatch):
     """Switch the current caller to an already-verified session."""
 
     def _as_caller(access_token):
-        monkeypatch.setattr(server, 'get_access_token', lambda: access_token)
+        monkeypatch.setattr(session, 'get_access_token', lambda: access_token)
 
     return _as_caller
-
-
-@pytest.fixture
-def verified_google_token():
-    """The AccessToken a real Google verifier returns, for cache-level tests."""
-    return google_access_token
 
 
 class FakeElicitationContext:
@@ -225,7 +244,7 @@ def elicit(monkeypatch):
 
     def _elicit(input_responses=None, request_state=None):
         context = FakeElicitationContext(input_responses, request_state)
-        monkeypatch.setattr(server, 'get_context', lambda: context)
+        monkeypatch.setattr(session, 'get_context', lambda: context)
         return context
 
     return _elicit
@@ -273,9 +292,9 @@ def handshake_era(monkeypatch):
     elicit_url() records what it was asked and answers as configured."""
 
     def _handshake_era(action='accept', submit_values=None):
-        session = FakeHandshakeEraSession(action=action, submit_values=submit_values)
-        monkeypatch.setattr(server, 'get_context', lambda: FakeHandshakeEraContext(session))
-        return session
+        fake_session = FakeHandshakeEraSession(action=action, submit_values=submit_values)
+        monkeypatch.setattr(session, 'get_context', lambda: FakeHandshakeEraContext(fake_session))
+        return fake_session
 
     return _handshake_era
 
