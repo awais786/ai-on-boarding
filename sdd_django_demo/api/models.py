@@ -75,6 +75,11 @@ class PasswordResetCode(models.Model):
         return type(self).objects.filter(pk=self.pk, usable=True).update(usable=False) == 1
 
 
+class GoogleIdentity(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    google_sub = models.CharField(max_length=255, unique=True)
+
+
 class SigninAttempt(models.Model):
     email_or_username = models.CharField(max_length=255, unique=True)
     failed_count = models.PositiveIntegerField(default=0)

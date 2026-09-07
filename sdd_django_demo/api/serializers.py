@@ -134,3 +134,7 @@ class PasswordUpdateSerializer(serializers.Serializer):
 
 class TokenSerializer(serializers.Serializer):
     token = serializers.CharField()
+
+
+class GoogleSigninSerializer(serializers.Serializer):
+    access_token = serializers.CharField(required=True, allow_blank=False, write_only=True)

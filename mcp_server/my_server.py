@@ -1,10 +1,21 @@
 import asyncio
+import os
 import re
 
 import httpx
 from fastmcp import FastMCP
+from fastmcp.server.auth.providers.google import GoogleProvider
+from fastmcp.server.dependencies import get_access_token
 
-mcp = FastMCP("Practice-MCP-Server")
+mcp = FastMCP(
+    "Practice-MCP-Server",
+    auth=GoogleProvider(
+        client_id=os.environ["GOOGLE_MCP_CLIENT_ID"],
+        client_secret=os.environ["GOOGLE_MCP_CLIENT_SECRET"],
+        base_url=os.environ.get("GOOGLE_MCP_BASE_URL", "http://127.0.0.1:8080"),
+        required_scopes=["openid", "https://www.googleapis.com/auth/userinfo.email"],
+    ),
+)
 
 DJANGO_BASE_URL = "http://localhost:8000"
 MAILPIT_BASE_URL = "http://localhost:8025"
@@ -53,6 +64,29 @@ async def signin(email_or_username, password):
         )
     if response.status_code == 401:
         return {"status": "failed", "detail": "Unable to sign in with the provided credentials."}
+    response.raise_for_status()
+    _token = response.json()["token"]
+    return {"status": "success"}
+
+@mcp.tool
+async def google_signin():
+    """Exchange the caller's Google-authenticated MCP session for a Django token.
+
+    Caches the token for subsequent get_users/password_reset/update_password calls, exactly
+    like `signin` does - the raw Google access token and the returned Django token are never
+    included in this tool's response.
+    """
+    global _token
+    google_token = get_access_token()
+    if google_token is None:
+        return {"status": "error", "detail": "No authenticated Google session."}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{DJANGO_BASE_URL}/api/auth/google/",
+            json={"access_token": google_token.token},
+        )
+    if response.status_code == 401:
+        return {"status": "failed", "detail": "Unable to authenticate with the provided Google session."}
     response.raise_for_status()
     _token = response.json()["token"]
     return {"status": "success"}

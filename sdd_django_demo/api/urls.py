@@ -7,6 +7,7 @@ urlpatterns = [
     path('health/', views.health, name='health'),
     path('signup/', views.SignupView.as_view(), name='signup'),
     path('signin/', views.SigninView.as_view(), name='signin'),
+    path('auth/google/', views.GoogleSigninView.as_view(), name='google-signin'),
     path('users/', views.UserListView.as_view(), name='user-list'),
     path(
         'users/<str:username>/update-password/',

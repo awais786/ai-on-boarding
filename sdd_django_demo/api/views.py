@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Case, F, Q, Value, When
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -24,9 +24,11 @@ from rest_framework.throttling import SimpleRateThrottle
 
 from embargo.rules import is_user_embargoed
 
-from .models import PasswordResetCode, SigninAttempt
+from .google_auth import verify_google_access_token
+from .models import GoogleIdentity, PasswordResetCode, SigninAttempt
 from .serializers import (
     AccountSerializer,
+    GoogleSigninSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
     PasswordUpdateSerializer,
@@ -87,6 +89,20 @@ PAGE_REFUSAL = 'That reset link is not valid.'
 # not their length, not how far apart they are - because the page has no reason to
 # describe input it is about to discard.
 PAGE_MISMATCH = 'Those passwords do not match. Type the same one in both boxes.'
+
+# Google-signin rejection bodies. Unlike SIGNIN_REJECTION_BODY, these are allowed to differ per
+# reason: the caller already holds a valid Google access token proving ownership of that Google
+# identity, so explaining *why* their own attempt failed does not create an enumeration oracle
+# against someone else's account the way password-signin's uniform rejection does.
+GOOGLE_TOKEN_INVALID_BODY = {'detail': 'That Google access token could not be verified.'}
+GOOGLE_AUDIENCE_REJECTED_BODY = {
+    'detail': 'That Google access token was not issued for a recognised application.'
+}
+GOOGLE_EMAIL_UNVERIFIED_BODY = {'detail': "That Google account's email address is not verified."}
+GOOGLE_DOMAIN_REJECTED_BODY = {'detail': "That Google account's domain is not permitted."}
+GOOGLE_NO_ACCOUNT_BODY = {
+    'detail': 'No account exists for that Google identity. Sign up first.'
+}
 
 
 @api_view(['GET'])
@@ -489,6 +505,95 @@ class SigninView(generics.GenericAPIView):
                 email_or_username=attempt_key,
                 defaults={'failed_count': 1, 'window_started_at': now, 'last_failed_at': now},
             )
+
+
+def _find_google_identity(sub):
+    return GoogleIdentity.objects.select_related('user').filter(google_sub=sub).first()
+
+
+class GoogleSigninView(generics.GenericAPIView):
+    """Exchange a verified Google access token for the app's existing DRF token.
+
+    Mirrors SigninView's shape (validate -> find user -> check embargo -> issue/reuse Token)
+    with Google verification standing in for password authentication. See
+    specs/google-signin/spec.md and design.md for the full requirement-by-requirement mapping.
+    """
+
+    serializer_class = GoogleSigninSerializer
+
+    @extend_schema(
+        request=GoogleSigninSerializer,
+        responses={
+            200: OpenApiResponse(response=TokenSerializer, description='Authenticated.'),
+            401: OpenApiResponse(
+                description='Rejected: unverifiable token, disallowed audience, unverified '
+                'email, disallowed domain, no matching account, or the mapped account is '
+                'embargoed.'
+            ),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        claims = verify_google_access_token(serializer.validated_data['access_token'])
+        if claims is None:
+            return Response(dict(GOOGLE_TOKEN_INVALID_BODY), status=401)
+
+        if claims.get('aud') not in settings.GOOGLE_OAUTH_ALLOWED_CLIENT_IDS:
+            return Response(dict(GOOGLE_AUDIENCE_REJECTED_BODY), status=401)
+
+        if str(claims.get('email_verified')).lower() != 'true':
+            return Response(dict(GOOGLE_EMAIL_UNVERIFIED_BODY), status=401)
+
+        if settings.GOOGLE_OAUTH_ALLOWED_DOMAINS and claims.get('hd') not in (
+            settings.GOOGLE_OAUTH_ALLOWED_DOMAINS
+        ):
+            return Response(dict(GOOGLE_DOMAIN_REJECTED_BODY), status=401)
+
+        sub = claims.get('sub')
+        if not sub:
+            # A verified token with no `sub` claim at all is a malformed/unusual response,
+            # not a routine "no account" case - logged so a genuine anomaly stays visible
+            # rather than being silently answered the same as an ordinary rejection.
+            logger.warning('Google verification returned claims with no sub: %r', claims)
+            return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=401)
+
+        identity = _find_google_identity(sub)
+        if identity is not None:
+            user = identity.user
+        else:
+            email = claims.get('email')
+            if not email:
+                return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=401)
+            # Ordered, because iexact can match more than one account when they were created
+            # outside signup - same reasoning as PasswordResetRequestView's identical lookup.
+            user = User.objects.filter(email__iexact=email).order_by('pk').first()
+            if user is None:
+                return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=401)
+
+        # Checked before the identity link is created: "First successful authentication links
+        # the identity" ties persistence to authentication actually succeeding, so an embargoed
+        # account's Google sub must not be linked on a first-time attempt that is about to be
+        # rejected anyway.
+        if is_user_embargoed(user):
+            return Response(SIGNIN_REJECTION_BODY, status=401)
+
+        if identity is None:
+            try:
+                GoogleIdentity.objects.create(user=user, google_sub=sub)
+            except IntegrityError:
+                # A concurrent first-time login for the same sub won the race - reuse its
+                # link rather than fail. If the conflict was on `user` instead (this account
+                # already linked to a different Google identity), no row exists for this sub
+                # and the safest response is the same "no account" rejection.
+                identity = _find_google_identity(sub)
+                if identity is None:
+                    return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=401)
+                user = identity.user
+
+        token, _ = Token.objects.get_or_create(user=user)
+        return Response({'token': token.key}, status=200)
 
 
 class PasswordUpdateView(generics.GenericAPIView):
