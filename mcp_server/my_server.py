@@ -3,7 +3,8 @@ import os
 import httpx
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.google import GoogleProvider
-from fastmcp.server.dependencies import get_access_token, get_context
+from fastmcp.server.dependencies import get_access_token
+from fastmcp.server.sessions import UserSession
 
 mcp = FastMCP(
     "Practice-MCP-Server",
@@ -19,23 +20,28 @@ DJANGO_BASE_URL = "http://localhost:8000"
 TOKEN_STATE_KEY = "django_token"
 
 
-async def _get_token():
-    """The Django token from the most recent successful `signin` in this MCP session.
+async def _get_token(session: UserSession):
+    """The Django token from the most recent successful `signin` by this caller.
 
-    Stored in FastMCP's session-scoped state (keyed by the client's mcp-session-id)
-    rather than a module-level global: a global is shared by every concurrent caller
+    Stored in FastMCP's per-user session state (keyed by the caller's authenticated
+    Google principal, via `UserSession`) rather than a module-level global or the
+    connection-scoped `ctx.session_id`: a global is shared by every concurrent caller
     of this process, so one caller's signin could silently overwrite another's and
-    leak one identity's session into another's requests. Session-scoped state keeps
-    each client's token isolated. Caching it here (rather than handing it back to the
-    caller) also means callers never see the raw token - get_users simply forwards
-    whatever's cached, and Django's own IsAdminUser check is what actually enforces
-    "admin only", not this file.
+    leak one identity's session into another's requests; `ctx.session_id` isn't
+    reliable either, since this server's connections are served over the modern
+    MCP protocol, which is stateless by construction - every request gets a fresh
+    connection with no stable session id, so state keyed on it never survives to the
+    next call. Keying on the authenticated principal instead keeps each caller's
+    token isolated *and* persistent across calls. Caching it here (rather than
+    handing it back to the caller) also means callers never see the raw token -
+    get_users simply forwards whatever's cached, and Django's own IsAdminUser check
+    is what actually enforces "admin only", not this file.
     """
-    return await get_context().get_state(TOKEN_STATE_KEY)
+    return await session.get(TOKEN_STATE_KEY)
 
 
-async def _set_token(token):
-    await get_context().set_state(TOKEN_STATE_KEY, token)
+async def _set_token(session: UserSession, token):
+    await session.set(TOKEN_STATE_KEY, token)
 
 @mcp.tool
 async def signup(email, username, password, country):
@@ -60,8 +66,8 @@ async def signup(email, username, password, country):
     return {"status": "success", **response.json()}
 
 @mcp.tool
-async def signin(email_or_username, password):
-    """Sign in and cache the token (scoped to this MCP session) for subsequent get_users calls."""
+async def signin(email_or_username, password, session: UserSession):
+    """Sign in and cache the token (scoped to this caller) for subsequent get_users calls."""
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{DJANGO_BASE_URL}/api/signin/",
@@ -70,11 +76,11 @@ async def signin(email_or_username, password):
     if response.status_code == 401:
         return {"status": "failed", "detail": "Unable to sign in with the provided credentials."}
     response.raise_for_status()
-    await _set_token(response.json()["token"])
+    await _set_token(session, response.json()["token"])
     return {"status": "success"}
 
 @mcp.tool
-async def google_signin():
+async def google_signin(session: UserSession):
     """Exchange the caller's Google-authenticated MCP session for a Django token.
 
     Caches the token for subsequent get_users/update_password calls, exactly like `signin`
@@ -94,14 +100,14 @@ async def google_signin():
     if response.status_code == 400:
         return {"status": "failed", "detail": response.json()}
     response.raise_for_status()
-    await _set_token(response.json()["token"])
+    await _set_token(session, response.json()["token"])
     return {"status": "success"}
 
-async def _auth_headers():
-    return {"Authorization": f"Token {await _get_token()}"}
+async def _auth_headers(session: UserSession):
+    return {"Authorization": f"Token {await _get_token(session)}"}
 
 @mcp.tool
-async def get_users(cursor=None, country=None):
+async def get_users(session: UserSession, cursor=None, country=None):
     """List users. Pass `cursor` (from a previous response's `next`/`previous`) to fetch that page.
 
     Pass `country` to instead walk every page and return every user whose `country` matches
@@ -110,9 +116,9 @@ async def get_users(cursor=None, country=None):
 
     Requires a prior `signin` as a staff/admin account.
     """
-    if await _get_token() is None:
+    if await _get_token(session) is None:
         return {"status": "error", "detail": "Sign in first."}
-    headers = await _auth_headers()
+    headers = await _auth_headers(session)
     async with httpx.AsyncClient() as client:
         if country is not None:
             matches = []
@@ -150,7 +156,7 @@ async def get_users(cursor=None, country=None):
         return response.json()
 
 @mcp.tool
-async def update_password(username, new_password, current_password=None):
+async def update_password(username, new_password, session: UserSession, current_password=None):
     """Update the account at `username`'s password via PATCH /api/users/<username>/update-password/.
 
     Pass `current_password` when `username` is the signed-in caller's own account - the API
@@ -161,7 +167,7 @@ async def update_password(username, new_password, current_password=None):
     Requires a prior `signin`. A non-staff caller may only target their own username;
     a staff/admin caller may target any username.
     """
-    if await _get_token() is None:
+    if await _get_token(session) is None:
         return {"status": "error", "detail": "Sign in first."}
     update_payload = {"new_password": new_password}
     if current_password is not None:
@@ -169,7 +175,7 @@ async def update_password(username, new_password, current_password=None):
     async with httpx.AsyncClient() as client:
         response = await client.patch(
             f"{DJANGO_BASE_URL}/api/users/{username}/update-password/",
-            headers=await _auth_headers(),
+            headers=await _auth_headers(session),
             json=update_payload,
         )
     if response.status_code == 401:
