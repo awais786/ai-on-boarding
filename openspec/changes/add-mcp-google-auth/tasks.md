@@ -45,8 +45,8 @@
   the environment
 - [x] 4.2 Add the `google_signin` tool: read the caller's Google access token via
   `fastmcp.server.dependencies.get_access_token()`, POST it to `/api/auth/google/`, cache the
-  returned DRF token in the existing module-level `_token` exactly as `signin` does, and return
-  only `{"status": ...}` - never the Google token or the DRF token
+  returned DRF token in FastMCP's session-scoped Context state (`get_context().set_state(...)`)
+  and return only `{"status": ...}` - never the Google token or the DRF token
 - [x] 4.3 Leave every other existing tool (`greet`, `signup`, `signin`, `get_users`,
   `password_reset`, `update_password`) unmodified
 

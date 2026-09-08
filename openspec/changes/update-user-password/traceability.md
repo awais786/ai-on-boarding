@@ -7,7 +7,7 @@ paths are relative to `sdd_django_demo/`.
 | Requirement | Code | Test |
 |---|---|---|
 | Require authentication | `api/views.py:PasswordUpdateView` (`authentication_classes = [TokenAuthentication, SessionAuthentication]`, `permission_classes = [IsAuthenticated]`) | `test_password_update_rejects_unauthenticated_request` |
-| Identify the target account | `api/views.py:PasswordUpdateView.patch` (`get_object_or_404(User, username__iexact=kwargs['username'])`) + `api/urls.py` (`users/<str:username>/update-password/`) | `test_password_update_rejects_nonexistent_target`, `test_password_update_allows_staff_to_target_another_account`, `test_password_update_matches_username_case_insensitively` |
+| Identify the target account | `api/views.py:PasswordUpdateView.patch` (`User.objects.filter(username__iexact=kwargs['username']).order_by('pk').first()`, 404 if None) + `api/urls.py` (`users/<str:username>/update-password/`) | `test_password_update_rejects_nonexistent_target`, `test_password_update_allows_staff_to_target_another_account`, `test_password_update_matches_username_case_insensitively` |
 | A caller may update their own password | `api/views.py:PasswordUpdateView.patch` (`is_self = target.pk == request.user.pk`) | `test_password_update_self_service_succeeds_with_correct_current_password` |
 | A non-staff caller may not update another account's password | `api/views.py:PasswordUpdateView.patch` (403 when `not is_self and not request.user.is_staff`) | `test_password_update_rejects_non_staff_targeting_another_account` |
 | A staff caller may update any account's password | `api/views.py:PasswordUpdateView.patch` (permission check allows `is_staff`) | `test_password_update_allows_staff_to_target_another_account` |

@@ -34,11 +34,9 @@ and test paths are relative to `sdd_django_demo/`.
   race), and `google_auth.py`'s except clause missing `http.client.HTTPException`/`OSError` plus
   design.md's claimed logging never being implemented (both fixed).
 - Two round-1 findings were recorded as nits, not fixed, per the review contract (neither cites a
-  requirement, a named test, or a documented convention this change violates): the MCP server's
-  module-level `_token` cache racing across concurrently-authenticated callers is a pre-existing
-  architectural pattern this change reuses rather than introduces; `mcp_server/my_client.py`
+  requirement, a named failing test, or a documented convention this change violates): `mcp_server/my_client.py`
   (a demo script, not a "tool") now needs a Google login it doesn't perform, which is outside
-  tasks.md's scope and not silently fixed without being asked.
+  tasks.md's scope and not silently fixed without being asked. (The `_token` race is now fixed via Context state.)
 - Round 2 (follow-up pass, 5 findings) caught: an empty/missing `email` claim falling back to
   `''` and matching a blank-email account instead of being rejected (fixed - violated the "no
   linked or matching account" requirement directly); a missing `sub` claim misattributed to the

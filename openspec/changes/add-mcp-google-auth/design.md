@@ -145,8 +145,9 @@ works - none of their code changes.
 @mcp.tool
 async def google_signin():
     """Exchange the caller's Google-authenticated MCP session for a Django token."""
-    global _token
     google_token = get_access_token()
+    if google_token is None:
+      return {"status": "error", "detail": "No authenticated Google session."}
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{DJANGO_BASE_URL}/api/auth/google/",
@@ -155,7 +156,7 @@ async def google_signin():
     if response.status_code == 401:
         return {"status": "failed", "detail": "Unable to authenticate with the provided Google session."}
     response.raise_for_status()
-    _token = response.json()["token"]
+    await get_context().set_state("django_token", response.json()["token"])
     return {"status": "success"}
 ```
 Follows `signin`'s existing shape exactly: caches `_token` at module scope, returns only
