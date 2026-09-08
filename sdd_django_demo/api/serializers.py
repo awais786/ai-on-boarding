@@ -89,6 +89,23 @@ class AccountSerializer(serializers.ModelSerializer):
         fields = ['email', 'username']
 
 
+class UserListSerializer(serializers.ModelSerializer):
+    country = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'date_joined', 'country']
+
+    def get_country(self, obj) -> str:
+        # A plain `getattr(..., default)` on the reverse one-to-one to
+        # embargo.AccountCountry: Django's related-object-missing exception is
+        # deliberately an AttributeError subclass, so this returns None (not a
+        # raise) for an account with no such row (e.g. created before that model
+        # existed) instead of erroring.
+        account_country = getattr(obj, 'accountcountry', None)
+        return account_country.country if account_country else ''
+
+
 class SigninSerializer(serializers.Serializer):
     email_or_username = serializers.CharField(required=True, allow_blank=False, max_length=255)
     password = serializers.CharField(required=True, allow_blank=False, write_only=True)
@@ -105,5 +122,19 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     )
 
 
+class PasswordUpdateSerializer(serializers.Serializer):
+    # `required=False`: whether a current password must be supplied at all depends on the
+    # target account versus the caller, which this serializer has no access to - that check
+    # belongs to the view (see design.md - Decisions).
+    current_password = serializers.CharField(required=False, allow_blank=False, write_only=True)
+    new_password = serializers.CharField(
+        required=True, allow_blank=False, write_only=True, validators=[validate_password_strength]
+    )
+
+
 class TokenSerializer(serializers.Serializer):
     token = serializers.CharField()
+
+
+class GoogleSigninSerializer(serializers.Serializer):
+    access_token = serializers.CharField(required=True, allow_blank=False, write_only=True)

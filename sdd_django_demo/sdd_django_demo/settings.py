@@ -261,3 +261,24 @@ DEFAULT_FROM_EMAIL = os.environ.get('RESET_SMTP_FROM', 'no-reply@example.com')
 # from before) when unset, so local dev and the test suite see no difference.
 
 RESET_LINK_BASE_URL = os.environ.get('RESET_LINK_BASE_URL', 'http://localhost:8000')
+
+
+# Google OAuth (MCP authentication bridge)
+#
+# Comma-separated, matching ALLOWED_HOSTS's exact pattern. Empty by default - a fail-closed
+# default, not fail-open: with nothing configured, no Google access token can ever pass
+# audience verification, rather than every audience being silently accepted.
+GOOGLE_OAUTH_ALLOWED_CLIENT_IDS = [
+    client_id.strip()
+    for client_id in os.environ.get('GOOGLE_OAUTH_ALLOWED_CLIENT_IDS', '').split(',')
+    if client_id.strip()
+]
+
+# Comma-separated hosted domains (Google's `hd` claim). Empty by default, meaning no domain
+# restriction is applied - required for personal @gmail.com accounts, which carry no `hd`
+# claim at all, to authenticate.
+GOOGLE_OAUTH_ALLOWED_DOMAINS = [
+    domain.strip()
+    for domain in os.environ.get('GOOGLE_OAUTH_ALLOWED_DOMAINS', '').split(',')
+    if domain.strip()
+]

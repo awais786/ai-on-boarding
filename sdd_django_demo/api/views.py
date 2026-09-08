@@ -6,29 +6,37 @@ from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Case, F, Q, Value, When
+from django.http import Http404
 from django.shortcuts import render
 from django.utils import timezone
 from django.views import View
-from drf_spectacular.utils import extend_schema, OpenApiResponse
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 from rest_framework import generics
+from rest_framework.authentication import SessionAuthentication, TokenAuthentication
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.pagination import CursorPagination
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
 from embargo.rules import is_user_embargoed
 
-from .models import PasswordResetCode, SigninAttempt
+from .google_auth import verify_google_access_token
+from .models import GoogleIdentity, PasswordResetCode, SigninAttempt
 from .serializers import (
     AccountSerializer,
+    GoogleSigninSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
+    PasswordUpdateSerializer,
     SigninSerializer,
     SignupSerializer,
     TokenSerializer,
+    UserListSerializer,
     validate_password_strength,
 )
 
@@ -58,6 +66,11 @@ RESET_REFUSED_BODY = {'detail': 'That reset link is not valid.'}
 
 RESET_COMPLETED_BODY = {'detail': 'Your password has been changed.'}
 
+PASSWORD_UPDATE_COMPLETED_BODY = {'detail': 'Password updated.'}
+
+# Returned when a non-staff caller targets an account other than their own.
+PASSWORD_UPDATE_FORBIDDEN_BODY = {'detail': 'You may only update your own password.'}
+
 # Returned when the per-address limit refuses a request. Fixed on purpose: DRF's
 # default appends the wait remaining, rounded up ("Expected available in 3595
 # seconds."), so two refusals a second apart differ by one. *Limit how often a
@@ -77,6 +90,20 @@ PAGE_REFUSAL = 'That reset link is not valid.'
 # not their length, not how far apart they are - because the page has no reason to
 # describe input it is about to discard.
 PAGE_MISMATCH = 'Those passwords do not match. Type the same one in both boxes.'
+
+# Google-signin rejection bodies. Unlike SIGNIN_REJECTION_BODY, these are allowed to differ per
+# reason: the caller already holds a valid Google access token proving ownership of that Google
+# identity, so explaining *why* their own attempt failed does not create an enumeration oracle
+# against someone else's account the way password-signin's uniform rejection does.
+GOOGLE_TOKEN_INVALID_BODY = {'detail': 'That Google access token could not be verified.'}
+GOOGLE_AUDIENCE_REJECTED_BODY = {
+    'detail': 'That Google access token was not issued for a recognised application.'
+}
+GOOGLE_EMAIL_UNVERIFIED_BODY = {'detail': "That Google account's email address is not verified."}
+GOOGLE_DOMAIN_REJECTED_BODY = {'detail': "That Google account's domain is not permitted."}
+GOOGLE_NO_ACCOUNT_BODY = {
+    'detail': 'No account exists for that Google identity. Sign up first.'
+}
 
 
 @api_view(['GET'])
@@ -99,6 +126,44 @@ class SignupView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         return Response(AccountSerializer(user).data, status=200)
+
+
+class UserListPagination(CursorPagination):
+    # Cursor, not offset/page-number: a page-number scheme identifies a page by
+    # position, so a user inserted or deleted between two page fetches shifts every
+    # later offset - a row already seen can reappear, or one never seen can be
+    # skipped, on the very next page. That breaks "List reflects all signed-up
+    # accounts" - each account exactly once across the combined pages. A cursor
+    # anchors each page to the last row actually returned (by `ordering`) instead
+    # of a position, so it survives concurrent inserts/deletes. See design.md.
+    page_size = 20
+    ordering = 'id'
+
+
+@extend_schema_view(
+    get=extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=UserListSerializer, description='A page of signed-up users.'
+            ),
+            401: OpenApiResponse(description='No valid authentication token was provided.'),
+            403: OpenApiResponse(description='Authenticated caller is not staff.'),
+        },
+    )
+)
+class UserListView(generics.ListAPIView):
+    # select_related avoids one extra query per row for UserListSerializer's
+    # `country` field, which follows the reverse one-to-one to AccountCountry.
+    queryset = User.objects.select_related('accountcountry').order_by('id')
+    serializer_class = UserListSerializer
+    # Both TokenAuthentication (the intended API caller mechanism) and
+    # SessionAuthentication (so a browser session from /admin/login/ also works,
+    # e.g. when browsing this endpoint via drf-spectacular's Swagger UI) -
+    # declaring only TokenAuthentication here would silently drop DRF's
+    # project-wide SessionAuthentication default for this view alone.
+    authentication_classes = [TokenAuthentication, SessionAuthentication]
+    permission_classes = [IsAdminUser]
+    pagination_class = UserListPagination
 
 
 def flatten_messages(detail):
@@ -162,6 +227,11 @@ def try_deliver_reset_link(user):
         )
 
 
+def _invalidate_tokens(user):
+    """Delete every existing DRF token for `user`, forcing re-authentication."""
+    Token.objects.filter(user=user).delete()
+
+
 def complete_reset(code, new_password):
     """Spend a reset code and set the new password. False if the code was not usable.
 
@@ -181,7 +251,7 @@ def complete_reset(code, new_password):
         user = record.user
         user.set_password(new_password)
         user.save(update_fields=['password'])
-        Token.objects.filter(user=user).delete()
+        _invalidate_tokens(user)
     return True
 
 
@@ -350,6 +420,27 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         return Response(dict(RESET_COMPLETED_BODY), status=200)
 
 
+def _reject_if_embargoed(user):
+    """The standard signin rejection Response if `user` is embargoed, else None.
+
+    Shared by SigninView and GoogleSigninView so the two auth paths can't drift apart
+    on what "embargoed" means or how it's reported.
+    """
+    if is_user_embargoed(user):
+        return Response(SIGNIN_REJECTION_BODY, status=401)
+    return None
+
+
+def _issue_token_response(user):
+    """Issue (or reuse) `user`'s DRF token and return the standard signin response.
+
+    Shared by SigninView and GoogleSigninView - the tail of "authenticate, then hand
+    back a token" is identical for both once `user` has been established.
+    """
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response({'token': token.key}, status=200)
+
+
 class SigninView(generics.GenericAPIView):
     serializer_class = SigninSerializer
 
@@ -398,12 +489,12 @@ class SigninView(generics.GenericAPIView):
             self._record_failure(attempt_key, now)
             return Response(SIGNIN_REJECTION_BODY, status=401)
 
-        if is_user_embargoed(user):
-            return Response(SIGNIN_REJECTION_BODY, status=401)
+        rejection = _reject_if_embargoed(user)
+        if rejection is not None:
+            return rejection
 
         SigninAttempt.objects.filter(email_or_username=attempt_key).update(failed_count=0)
-        token, _ = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key}, status=200)
+        return _issue_token_response(user)
 
     @staticmethod
     def _record_failure(attempt_key, now):
@@ -441,3 +532,168 @@ class SigninView(generics.GenericAPIView):
                 email_or_username=attempt_key,
                 defaults={'failed_count': 1, 'window_started_at': now, 'last_failed_at': now},
             )
+
+
+def _find_google_identity(sub):
+    return GoogleIdentity.objects.select_related('user').filter(google_sub=sub).first()
+
+
+class GoogleSigninView(generics.GenericAPIView):
+    """Exchange a verified Google access token for the app's existing DRF token.
+
+    Mirrors SigninView's shape (validate -> find user -> check embargo -> issue/reuse Token)
+    with Google verification standing in for password authentication. See
+    specs/google-signin/spec.md and design.md for the full requirement-by-requirement mapping.
+    """
+
+    serializer_class = GoogleSigninSerializer
+
+    @extend_schema(
+        request=GoogleSigninSerializer,
+        responses={
+            200: OpenApiResponse(response=TokenSerializer, description='Authenticated.'),
+            401: OpenApiResponse(
+                description='Rejected: unverifiable token, disallowed audience, unverified '
+                'email, disallowed domain, no matching account, or the mapped account is '
+                'embargoed.'
+            ),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        claims = verify_google_access_token(serializer.validated_data['access_token'])
+        if claims is None:
+            return Response(dict(GOOGLE_TOKEN_INVALID_BODY), status=401)
+
+        if claims.get('aud') not in settings.GOOGLE_OAUTH_ALLOWED_CLIENT_IDS:
+            return Response(dict(GOOGLE_AUDIENCE_REJECTED_BODY), status=401)
+
+        if str(claims.get('email_verified')).lower() != 'true':
+            return Response(dict(GOOGLE_EMAIL_UNVERIFIED_BODY), status=401)
+
+        if settings.GOOGLE_OAUTH_ALLOWED_DOMAINS and claims.get('hd') not in (
+            settings.GOOGLE_OAUTH_ALLOWED_DOMAINS
+        ):
+            return Response(dict(GOOGLE_DOMAIN_REJECTED_BODY), status=401)
+
+        sub = claims.get('sub')
+        if not sub:
+            # A verified token with no `sub` claim at all is a malformed/unusual response,
+            # not a routine "no account" case - logged so a genuine anomaly stays visible
+            # rather than being silently answered the same as an ordinary rejection.
+            logger.warning('Google verification returned claims with no sub: %r', claims)
+            return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=401)
+
+        identity = _find_google_identity(sub)
+        if identity is not None:
+            user = identity.user
+        else:
+            email = claims.get('email')
+            if not email:
+                return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=401)
+            # Ordered, because iexact can match more than one account when they were created
+            # outside signup - same reasoning as PasswordResetRequestView's identical lookup.
+            user = User.objects.filter(email__iexact=email).order_by('pk').first()
+            if user is None:
+                return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=401)
+
+        # Checked before the identity link is created: "First successful authentication links
+        # the identity" ties persistence to authentication actually succeeding, so an embargoed
+        # account's Google sub must not be linked on a first-time attempt that is about to be
+        # rejected anyway.
+        rejection = _reject_if_embargoed(user)
+        if rejection is not None:
+            return rejection
+
+        if identity is None:
+            try:
+                GoogleIdentity.objects.create(user=user, google_sub=sub)
+            except IntegrityError:
+                # Two distinct races land here. Same `sub`: a concurrent first-time login
+                # for it already won - reuse its link. Same `user` instead (this account
+                # already has a Google identity linked, under a different sub - e.g. two
+                # Google accounts mapping to the same email racing their first link): no
+                # row exists for *this* sub, but `user` was already correctly resolved
+                # above and is already a linked, non-embargoed account, so this signin can
+                # still succeed without creating a second link for it. Only when neither
+                # explains the failure is the safe "no account" rejection warranted.
+                identity = _find_google_identity(sub)
+                if identity is not None:
+                    user = identity.user
+                elif not GoogleIdentity.objects.filter(user=user).exists():
+                    logger.warning(
+                        'GoogleIdentity.create failed for user %s / sub %s with no '
+                        'matching row for either.', user.pk, sub,
+                    )
+                    return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=401)
+
+        return _issue_token_response(user)
+
+
+class PasswordUpdateView(generics.GenericAPIView):
+    """Change a password while authenticated: the caller's own, or - if staff - any account's.
+
+    One view branching on `target == request.user` rather than two, since every requirement
+    this serves ("self needs current password", "staff can target others", "non-staff can't")
+    is a rule about the relationship between caller and target. See design.md - Decisions.
+    """
+
+    serializer_class = PasswordUpdateSerializer
+    authentication_classes = [TokenAuthentication, SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=PasswordUpdateSerializer,
+        responses={
+            200: OpenApiResponse(description='Password updated.'),
+            400: OpenApiResponse(
+                description='Validation failed, or - for a self-update - the current password '
+                'was missing or incorrect; the response names the offending field.'
+            ),
+            401: OpenApiResponse(description='No valid authentication credential was provided.'),
+            403: OpenApiResponse(
+                description='Caller is not staff and the target account is not their own.'
+            ),
+            404: OpenApiResponse(description='No account exists with the given username.'),
+        },
+    )
+    def patch(self, request, *args, **kwargs):
+        # `iexact`, not `exact`: signup lowercases what it stores, but accounts made outside
+        # signup do not, and SigninView's `email_or_username` lookup already treats username
+        # case-insensitively for the same reason.
+        # Ordered `.first()`, not `get_object_or_404`: `iexact` can match more than one
+        # account when they were created outside signup, and `.get()` (which
+        # get_object_or_404 uses) raises an unhandled MultipleObjectsReturned rather than
+        # picking one - same reasoning as PasswordResetRequestView's identical lookup.
+        target = User.objects.filter(username__iexact=kwargs['username']).order_by('pk').first()
+        if target is None:
+            raise Http404
+        is_self = target.pk == request.user.pk
+
+        # Checked before the body is validated, so a non-staff caller targeting someone
+        # else always gets 403 regardless of what else was submitted (design.md).
+        if not is_self and not request.user.is_staff:
+            return Response(dict(PASSWORD_UPDATE_FORBIDDEN_BODY), status=403)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if is_self:
+            current_password = serializer.validated_data.get('current_password')
+            if not current_password:
+                raise ValidationError({'current_password': ['This field is required.']})
+            if not target.check_password(current_password):
+                raise ValidationError(
+                    {'current_password': ['Does not match your current password.']}
+                )
+
+        # One transaction: a failure part-way must not leave the password changed while an
+        # old token stays valid, mirroring complete_reset's token-invalidation shape.
+        with transaction.atomic():
+            target.set_password(serializer.validated_data['new_password'])
+            target.save(update_fields=['password'])
+            _invalidate_tokens(target)
+
+        return Response(dict(PASSWORD_UPDATE_COMPLETED_BODY), status=200)
