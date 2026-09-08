@@ -45,7 +45,7 @@ how often the MCP server calls it and what it does with the result.
 - `mcp_server/server.py`: the Google token verifier wrapper is replaced by one that exchanges
   and caches the API token. `CachingGoogleTokenVerifier` and `GOOGLE_TOKEN_CACHE_TTL_SECONDS`
   go away.
-- `mcp_server/django_client.py`: tool functions stop calling `exchange_google_token` per call;
+- `mcp_server/backend_client.py`: tool functions stop calling `exchange_google_token` per call;
   the exchange moves behind the verifier and gains a defined failure path.
 - No change to `sdd_django_demo/` - no new endpoint, model, migration, or dependency.
 - No change to any HTTP contract a client of the Django API can observe.

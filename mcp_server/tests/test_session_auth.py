@@ -32,7 +32,7 @@ Each requirement and what a test has to observe to protect it:
 import pytest
 
 import credentials
-import django_client
+import backend_client
 import server
 import tools
 
@@ -51,7 +51,7 @@ async def test_first_tool_call_of_a_session_exchanges_the_google_token_once(
     sign_in, django
 ):
     await sign_in(GOOGLE_A)
-    await tools.users.list_signup_users()
+    await tools.read.list_signup_users()
 
     assert django.exchange_count == 1
     assert django.exchanges == [GOOGLE_A]
@@ -60,32 +60,32 @@ async def test_first_tool_call_of_a_session_exchanges_the_google_token_once(
 async def test_the_exchanged_token_is_retained_as_the_session_credential(sign_in):
     verified = await sign_in(GOOGLE_A)
 
-    assert verified.claims[credentials.DJANGO_TOKEN_CLAIM] == f'drf-for-{GOOGLE_A}'
+    assert verified.claims[credentials.BACKEND_TOKEN_CLAIM] == f'drf-for-{GOOGLE_A}'
 
 
 # --- Admit a caller with no matching account, without a session credential ---
 
 
 async def test_a_caller_with_no_account_here_is_admitted_with_no_credential(sign_in, django):
-    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
+    django.exchange_error = backend_client.BackendAPIError('No account.', no_account=True)
 
     verified = await sign_in(GOOGLE_A)
 
     assert verified is not None
-    assert credentials.DJANGO_TOKEN_CLAIM not in verified.claims
+    assert credentials.BACKEND_TOKEN_CLAIM not in verified.claims
 
 
 async def test_an_embargoed_caller_is_admitted_with_no_credential(sign_in, django):
-    django.exchange_error = django_client.DjangoAPIError('That Google account cannot sign in here.', no_account=True)
+    django.exchange_error = backend_client.BackendAPIError('That Google account cannot sign in here.', no_account=True)
 
     verified = await sign_in(GOOGLE_A)
 
     assert verified is not None
-    assert credentials.DJANGO_TOKEN_CLAIM not in verified.claims
+    assert credentials.BACKEND_TOKEN_CLAIM not in verified.claims
 
 
 async def test_a_no_credential_session_is_not_re_exchanged_on_a_later_decode(sign_in, django):
-    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
+    django.exchange_error = backend_client.BackendAPIError('No account.', no_account=True)
     verified = await sign_in(GOOGLE_A)
     exchanges_so_far = django.exchange_count
 
@@ -100,11 +100,11 @@ async def test_a_no_credential_session_is_not_re_exchanged_on_a_later_decode(sig
 
 
 async def test_a_tool_requiring_a_credential_refuses_a_credential_less_caller(sign_in, django):
-    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
+    django.exchange_error = backend_client.BackendAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await tools.users.list_signup_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await tools.read.list_signup_users()
 
     assert 'signup' in str(failure.value).lower()
 
@@ -118,12 +118,12 @@ async def test_signing_up_succeeds_for_a_credential_less_caller(
     itself still succeeds; using other tools afterward needs a fresh session
     token (see test_the_replacement_credential_is_not_kept_for_later_calls for
     the same tradeoff on the recovery path)."""
-    django.exchange_error = django_client.DjangoAPIError('No account.', no_account=True)
+    django.exchange_error = backend_client.BackendAPIError('No account.', no_account=True)
     await sign_in(GOOGLE_A)
     django.exchange_error = None
 
     _, result = await drive_secret_tool(
-        lambda: tools.account.signup('ada@example.com', 'ada', 'GB'), {'password': 'lovelace1'}
+        lambda: tools.write.signup('ada@example.com', 'ada', 'GB'), {'password': 'lovelace1'}
     )
 
     assert result == {'detail': 'Account created.'}
@@ -146,8 +146,8 @@ async def test_a_later_tool_call_reuses_the_credential_without_exchanging_again(
     sign_in, django
 ):
     await sign_in(GOOGLE_A)
-    await tools.users.list_signup_users()
-    await tools.users.list_signup_users()
+    await tools.read.list_signup_users()
+    await tools.read.list_signup_users()
 
     assert django.exchange_count == 1
     assert django_tokens_used(django) == [f'drf-for-{GOOGLE_A}'] * 2
@@ -157,9 +157,9 @@ async def test_two_different_tools_in_one_session_use_the_same_credential(
     sign_in, django, drive_secret_tool
 ):
     await sign_in(GOOGLE_A)
-    await tools.users.list_signup_users()
+    await tools.read.list_signup_users()
     await drive_secret_tool(
-        lambda: tools.users.change_user_password('ada'), {'new_password': 'new-password-1'}
+        lambda: tools.write.change_user_password('ada'), {'new_password': 'new-password-1'}
     )
 
     assert django.exchange_count == 1
@@ -177,7 +177,7 @@ async def test_serving_a_later_request_makes_no_google_or_django_call(sign_in, g
     # What FastMCP does on every subsequent request - decode the same
     # already-issued session token - then the tool it guards.
     await server.auth.load_access_token(verified.token)
-    await tools.users.list_signup_users()
+    await tools.read.list_signup_users()
 
     assert google.call_count == calls_after_login
     assert django.exchange_count == exchanges_after_login
@@ -191,9 +191,9 @@ async def test_a_refused_credential_is_replaced_and_the_call_retried(sign_in, dj
     django.rejects.add(f'drf-for-{GOOGLE_A}')
     django.next_tokens = ['drf-replacement']
 
-    result = await tools.users.list_signup_users()
+    result = await tools.read.list_signup_users()
 
-    assert result == [{'username': 'ada', 'country': 'GB', 'date_joined': '2026-01-01'}]
+    assert result == [{'username': '***', 'country': 'GB', 'date_joined': '2026-01-01'}]
     assert django_tokens_used(django) == [f'drf-for-{GOOGLE_A}', 'drf-replacement']
 
 
@@ -202,7 +202,7 @@ async def test_recovery_exchanges_at_most_once_for_a_single_call(sign_in, django
     django.rejects.add(f'drf-for-{GOOGLE_A}')
     django.next_tokens = ['drf-replacement']
 
-    await tools.users.list_signup_users()
+    await tools.read.list_signup_users()
 
     assert django.exchange_count == 2  # one at login, one for the recovery
 
@@ -214,22 +214,22 @@ async def test_the_replacement_credential_is_not_kept_for_later_calls(sign_in, d
     verified = await sign_in(GOOGLE_A)
     django.rejects.add(f'drf-for-{GOOGLE_A}')
     django.next_tokens = ['drf-replacement']
-    await tools.users.list_signup_users()
+    await tools.read.list_signup_users()
 
     # Decoding the same session token again still carries the original,
     # by-now-stale credential - nothing server-side remembers the replacement.
     redecoded = await server.auth.load_access_token(verified.token)
 
-    assert redecoded.claims[credentials.DJANGO_TOKEN_CLAIM] == f'drf-for-{GOOGLE_A}'
+    assert redecoded.claims[credentials.BACKEND_TOKEN_CLAIM] == f'drf-for-{GOOGLE_A}'
 
 
 async def test_a_403_from_django_triggers_no_re_exchange(sign_in, django, drive_secret_tool):
     await sign_in(GOOGLE_A)
-    django.error = django_client.DjangoAPIError('Only an admin may do that.')
+    django.error = backend_client.BackendAPIError('Only an admin may do that.')
 
-    with pytest.raises(django_client.DjangoAPIError) as refusal:
+    with pytest.raises(backend_client.BackendAPIError) as refusal:
         await drive_secret_tool(
-            lambda: tools.users.change_user_password('ada'), {'new_password': 'new-password-1'}
+            lambda: tools.write.change_user_password('ada'), {'new_password': 'new-password-1'}
         )
 
     assert django.exchange_count == 1
@@ -245,8 +245,8 @@ async def test_a_call_fails_when_the_replacement_is_also_refused(sign_in, django
     django.next_tokens = ['drf-replacement']
     django.rejects.add('drf-replacement')
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await tools.users.list_signup_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await tools.read.list_signup_users()
 
     assert 'sign in again' in str(failure.value).lower()
 
@@ -254,10 +254,10 @@ async def test_a_call_fails_when_the_replacement_is_also_refused(sign_in, django
 async def test_a_call_fails_when_the_fresh_exchange_itself_fails(sign_in, django):
     await sign_in(GOOGLE_A)
     django.rejects.add(f'drf-for-{GOOGLE_A}')
-    django.exchange_error = django_client.DjangoAPIError('No account.', stale_credential=True)
+    django.exchange_error = backend_client.BackendAPIError('No account.', stale_credential=True)
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await tools.users.list_signup_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await tools.read.list_signup_users()
 
     assert 'sign in again' in str(failure.value).lower()
 
@@ -271,19 +271,19 @@ async def test_a_stale_credential_keeps_failing_every_call_until_the_client_sign
     client does on session refresh) is what actually clears it."""
     await sign_in(GOOGLE_A)
     django.rejects.add(f'drf-for-{GOOGLE_A}')
-    django.exchange_error = django_client.DjangoAPIError('Could not reach the API.')
+    django.exchange_error = backend_client.BackendAPIError('Could not reach the API.')
 
-    with pytest.raises(django_client.DjangoAPIError):
-        await tools.users.list_signup_users()
-    with pytest.raises(django_client.DjangoAPIError):
-        await tools.users.list_signup_users()
+    with pytest.raises(backend_client.BackendAPIError):
+        await tools.read.list_signup_users()
+    with pytest.raises(backend_client.BackendAPIError):
+        await tools.read.list_signup_users()
 
     django.exchange_error = None
     django.rejects.clear()
     await sign_in(GOOGLE_A)  # a fresh login/refresh mints a new session token
-    result = await tools.users.list_signup_users()
+    result = await tools.read.list_signup_users()
 
-    assert result == [{'username': 'ada', 'country': 'GB', 'date_joined': '2026-01-01'}]
+    assert result == [{'username': '***', 'country': 'GB', 'date_joined': '2026-01-01'}]
 
 
 # --- Confine a session credential to its own caller --------------------------
@@ -295,9 +295,9 @@ async def test_each_caller_uses_their_own_credential(sign_in, as_caller, google,
     caller_b = await sign_in(GOOGLE_B)
 
     as_caller(caller_a)
-    await tools.users.list_signup_users()
+    await tools.read.list_signup_users()
     as_caller(caller_b)
-    await tools.users.list_signup_users()
+    await tools.read.list_signup_users()
 
     assert django_tokens_used(django) == [f'drf-for-{GOOGLE_A}', f'drf-for-{GOOGLE_B}']
 
@@ -308,8 +308,8 @@ async def test_one_callers_credential_is_never_served_to_another(sign_in, google
     caller_b = await sign_in(GOOGLE_B)
 
     assert (
-        caller_a.claims[credentials.DJANGO_TOKEN_CLAIM]
-        != caller_b.claims[credentials.DJANGO_TOKEN_CLAIM]
+        caller_a.claims[credentials.BACKEND_TOKEN_CLAIM]
+        != caller_b.claims[credentials.BACKEND_TOKEN_CLAIM]
     )
     assert caller_a.subject != caller_b.subject
 
@@ -320,7 +320,7 @@ async def test_one_callers_credential_is_never_served_to_another(sign_in, google
 async def test_a_tool_result_carries_no_credential(sign_in):
     await sign_in(GOOGLE_A)
 
-    result = await tools.users.list_signup_users()
+    result = await tools.read.list_signup_users()
 
     rendered = repr(result)
     assert GOOGLE_A not in rendered
@@ -333,8 +333,8 @@ async def test_a_failure_carries_no_credential(sign_in, django):
     django.next_tokens = ['drf-replacement']
     django.rejects.add('drf-replacement')
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await tools.users.list_signup_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await tools.read.list_signup_users()
 
     message = str(failure.value)
     assert GOOGLE_A not in message
@@ -348,7 +348,7 @@ async def test_the_password_a_caller_supplies_never_appears_in_a_result(
     await sign_in(GOOGLE_A)
 
     _, result = await drive_secret_tool(
-        lambda: tools.users.change_user_password('ada'), {'new_password': 'a-secret-password1'}
+        lambda: tools.write.change_user_password('ada'), {'new_password': 'a-secret-password1'}
     )
 
     assert 'a-secret-password1' not in repr(result)
@@ -362,18 +362,18 @@ async def test_a_caller_is_told_to_sign_in_when_django_cannot_be_reached(
 ):
     await sign_in(GOOGLE_A)
     django.rejects.add(f'drf-for-{GOOGLE_A}')
-    django.exchange_error = django_client.DjangoAPIError('Could not reach the API.')
+    django.exchange_error = backend_client.BackendAPIError('Could not reach the API.')
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await tools.users.list_signup_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await tools.read.list_signup_users()
 
     assert 'sign in again' in str(failure.value).lower()
 
 
 async def test_no_session_is_established_when_django_cannot_be_reached(sign_in, django):
-    django.exchange_error = django_client.DjangoAPIError('Could not reach the API.')
+    django.exchange_error = backend_client.BackendAPIError('Could not reach the API.')
 
-    with pytest.raises(django_client.DjangoAPIError):
+    with pytest.raises(backend_client.BackendAPIError):
         await sign_in(GOOGLE_A)
 
 

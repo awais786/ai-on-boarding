@@ -88,15 +88,15 @@ repeat the same two doomed round trips, and because FastMCP never returns a 401 
 client would never re-run the OAuth flow it was just told to. Discarding makes the next request a
 cache miss, which re-verifies, fails, and produces the 401 that sends the caller back to Google.
 
-**Transport failures are reported, not raised raw.** `django_client` turns an unreachable or
-slow Django into `DjangoAPIError`, the way `sdd_django_demo/api/google_auth.py` already turns an
+**Transport failures are reported, not raised raw.** `backend_client` turns an unreachable or
+slow Django into `BackendAPIError`, the way `sdd_django_demo/api/google_auth.py` already turns an
 unreachable Google into `GoogleTokenError`. Without it an httpx exception escapes `_call_django`
 uncaught and the caller never gets the "sign in again" the spec requires.
 
-**Recover on 401 only, never on 403.** `django_client` gains an error type for 401 alone.
+**Recover on 401 only, never on 403.** `backend_client` gains an error type for 401 alone.
 A 403 is Django answering the question correctly - a non-admin calling `change_user_password`,
 an embargoed account - and re-exchanging would turn a clear refusal into a retry loop that still
-refuses. The retry lives in `server.py`, which owns the session's credential; `django_client`
+refuses. The retry lives in `server.py`, which owns the session's credential; `backend_client`
 stays the layer that only speaks HTTP.
 
 **Do not lock around a concurrent first exchange.** Two tool calls racing on a cold cache both
@@ -121,7 +121,7 @@ environment carrying both Django and FastMCP, which nothing else in this repo ne
   expiring with the Google token, after which the exchange runs again and Django asks Google.
 - **The DRF token now sits in an in-memory structure and in `AccessToken.claims`.** → Cache keys
   are hashes, never tokens; the spec requires a test that no tool result or error carries a
-  credential; the existing `django_client` field allowlist already keeps tool output to
+  credential; the existing `backend_client` field allowlist already keeps tool output to
   `USER_FIELDS`.
 - **Django's `GOOGLE_OAUTH_CLIENT_IDS` must contain the MCP server's `GOOGLE_CLIENT_ID`.** →
   Already true today, since the exchange already happens on every call; this change makes the

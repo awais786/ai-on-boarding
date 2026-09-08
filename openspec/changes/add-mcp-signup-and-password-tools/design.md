@@ -1,10 +1,10 @@
 ## Context
 
 See proposal.md - Why. `mcp_server/server.py`'s `CredentialVerifier.verify_token` currently
-treats any `django_client.DjangoAPIError` from `exchange_google_token` (401 from Google refusing
+treats any `backend_client.BackendAPIError` from `exchange_google_token` (401 from Google refusing
 the token, or 403 from Django having no account/an embargoed one) the same way: return `None`,
 which FastMCP's `RequireAuthMiddleware` turns into an outright refusal before any tool runs.
-`django_client.py` is the only module that calls the Django API; every tool goes through it.
+`backend_client.py` is the only module that calls the Django API; every tool goes through it.
 
 ## Goals / Non-Goals
 
@@ -40,16 +40,16 @@ which FastMCP's `RequireAuthMiddleware` turns into an outright refusal before an
   account already exists.
 - **Admit rather than refuse on `NoDjangoAccountError`**: `CredentialVerifier.verify_token`
   catches it, strips claims down to `GOOGLE_CLAIMS_TO_KEEP` as it already does on success, and
-  caches and returns the verified token with no `DJANGO_TOKEN_CLAIM` set. The caller reaches a
+  caches and returns the verified token with no `BACKEND_TOKEN_CLAIM` set. The caller reaches a
   session; individual tools decide whether they need a credential.
 - **A small helper, not a decorator, for the credential check**: every tool except `signup` calls
-  a `_require_django_token()` helper at its start that raises a clear `DjangoAPIError` ("no
-  account - use the signup tool to create one") when `DJANGO_TOKEN_CLAIM` is absent from the
+  a `_require_django_token()` helper at its start that raises a clear `BackendAPIError` ("no
+  account - use the signup tool to create one") when `BACKEND_TOKEN_CLAIM` is absent from the
   caller's claims. A decorator would hide that check from a reader of the tool function; given
   there are only four affected tools, inlining the one-line call is easier to verify against the
   spec than introducing indirection for it.
 - **Signup exchanges and caches a credential on success, inline in the tool**: after
-  `django_client.signup(...)` succeeds, the tool calls `django_client.exchange_google_token` with
+  `backend_client.signup(...)` succeeds, the tool calls `backend_client.exchange_google_token` with
   the caller's own Google token (available via `get_access_token().token`) and, on success, calls
   `_credentials.replace_django_token(...)` so the *cached* entry gains the credential too -
   without this, the next call in the same session would still find no credential cached and ask
@@ -57,10 +57,10 @@ which FastMCP's `RequireAuthMiddleware` turns into an outright refusal before an
   fails (Django unreachable, or some new refusal), signup still reports success - the account
   exists - and the caller resolves the credential on their next call the normal way, through
   `verify_token`.
-- **New `django_client` functions each map one Django endpoint**: `signup`, `request_password_reset`,
+- **New `backend_client` functions each map one Django endpoint**: `signup`, `request_password_reset`,
   `confirm_password_reset`, `change_own_password`, following the existing pattern of
   `list_users`/`change_password` - one function per endpoint, translating a non-2xx response into
-  `DjangoAuthError` (401) or `DjangoAPIError` (everything else), and returning only what a tool
+  `DjangoAuthError` (401) or `BackendAPIError` (everything else), and returning only what a tool
   needs.
 
 ## Risks / Trade-offs

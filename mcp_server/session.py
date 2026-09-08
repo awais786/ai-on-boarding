@@ -1,5 +1,5 @@
 """Elicitation (asking the human for a secret via a hosted page) and calling
-Django with the caller's own, possibly-stale, credential.
+the backend with the caller's own, possibly-stale, credential.
 """
 
 import asyncio
@@ -10,9 +10,10 @@ from fastmcp.server.dependencies import get_access_token, get_context
 from mcp.types import ElicitRequest, ElicitRequestURLParams, InputRequiredResult
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
-import credentials
-import django_client
-import secret_pages
+import backend_client  # module-qualified: exchange_google_token is a test seam (see tests/conftest.py)
+from backend_client import AuthedBackendClient, BackendAPIError
+from credentials import BACKEND_TOKEN_CLAIM, GOOGLE_TOKEN_CLAIM
+from secret_pages import discard, get as get_pending, register
 
 MCP_BASE_URL = os.environ.get('MCP_BASE_URL', 'http://localhost:8100')
 
@@ -65,25 +66,25 @@ async def _await_secret(fields, message, on_submit):
     responses = ctx.input_responses
 
     if responses is None:
-        token = secret_pages.register(fields, on_submit)
+        token = register(fields, on_submit)
         return _ask_for_secret(token, message)
 
     token = ctx.request_state
-    pending = secret_pages.get(token)
+    pending = get_pending(token)
     if pending is None:
         return {'detail': 'That link expired before it was completed. Please try again.'}
 
     if not pending.is_resolved:
         return _ask_for_secret(token, message)  # still waiting on the human
 
-    secret_pages.discard(token)
+    discard(token)
     if pending.error is not None:
-        raise django_client.DjangoAPIError(pending.error)
+        raise BackendAPIError(pending.error)
     return pending.result
 
 
 async def _await_secret_handshake_era(ctx, fields, message, on_submit):
-    token = secret_pages.register(fields, on_submit)
+    token = register(fields, on_submit)
     try:
         consent = await ctx.session.elicit_url(
             message=message,
@@ -93,61 +94,61 @@ async def _await_secret_handshake_era(ctx, fields, message, on_submit):
         if consent.action != 'accept':
             return {'detail': 'Cancelled.'}
 
-        pending = secret_pages.get(token)
+        pending = get_pending(token)
         while pending is not None and not pending.is_resolved:
             await asyncio.sleep(HANDSHAKE_ERA_POLL_SECONDS)
-            pending = secret_pages.get(token)
+            pending = get_pending(token)
 
         if pending is None:
-            raise django_client.DjangoAPIError(
+            raise BackendAPIError(
                 'That link expired before it was completed. Please try again.'
             )
         if pending.error is not None:
-            raise django_client.DjangoAPIError(pending.error)
+            raise BackendAPIError(pending.error)
         return pending.result
     finally:
-        secret_pages.discard(token)
+        discard(token)
 
 
-def _require_django_token():
-    """Raise a clear refusal if the caller's session has no Django credential yet."""
-    if credentials.DJANGO_TOKEN_CLAIM not in get_access_token().claims:
-        raise django_client.DjangoAPIError(NEED_TO_SIGN_UP)
+def _require_backend_token():
+    """Raise a clear refusal if the caller's session has no backend credential yet."""
+    if BACKEND_TOKEN_CLAIM not in get_access_token().claims:
+        raise BackendAPIError(NEED_TO_SIGN_UP)
 
 
-async def _call_django(method, *args, access_token=None, **kwargs):
-    """Call method(client, ...) - `method` an AuthedDjangoClient method, e.g.
-    `django_client.AuthedDjangoClient.list_users` - refreshing a refused token
-    once before giving up. Pass `access_token` explicitly when calling from
-    outside a live MCP request (a secret page's `on_submit`); default is the
-    current session's.
+async def _call_backend(method, *args, access_token=None, **kwargs):
+    """Call method(client, ...) - `method` an AuthedBackendClient method, e.g.
+    `AuthedBackendClient.list_users` - refreshing a refused token once before
+    giving up. Pass `access_token` explicitly when calling from outside a live
+    MCP request (a secret page's `on_submit`); default is the current
+    session's.
 
-    The Django token lives inside the caller's signed JWT (see credentials.py),
+    The backend token lives inside the caller's signed JWT (see credentials.py),
     so a fresh one obtained here can't be written back into it - it only
     covers this one call.
     """
     if access_token is None:
         access_token = get_access_token()
 
-    async def _attempt(django_token):
-        client = django_client.AuthedDjangoClient(django_token)
+    async def _attempt(backend_token):
+        client = AuthedBackendClient(backend_token)
         return await method(client, *args, **kwargs)
 
     try:
-        return await _attempt(access_token.claims[credentials.DJANGO_TOKEN_CLAIM])
-    except django_client.DjangoAPIError as err:
+        return await _attempt(access_token.claims[BACKEND_TOKEN_CLAIM])
+    except BackendAPIError as err:
         if not err.stale_credential:
             raise
 
     try:
-        google_token = access_token.claims[credentials.GOOGLE_TOKEN_CLAIM]
-        django_token = await django_client.exchange_google_token(google_token)
-    except django_client.DjangoAPIError:
-        raise django_client.DjangoAPIError(SIGN_IN_AGAIN) from None
+        google_token = access_token.claims[GOOGLE_TOKEN_CLAIM]
+        backend_token = await backend_client.exchange_google_token(google_token)
+    except BackendAPIError:
+        raise BackendAPIError(SIGN_IN_AGAIN) from None
 
     try:
-        return await _attempt(django_token)
-    except django_client.DjangoAPIError as err:
+        return await _attempt(backend_token)
+    except BackendAPIError as err:
         if not err.stale_credential:
             raise
-        raise django_client.DjangoAPIError(SIGN_IN_AGAIN) from None
+        raise BackendAPIError(SIGN_IN_AGAIN) from None

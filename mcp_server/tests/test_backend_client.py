@@ -1,15 +1,15 @@
-"""Tests for how django_client reads Django's answers.
+"""Tests for how backend_client reads Django's answers.
 
-These go straight at django_client with a fake transport, because the 401-vs-403
+These go straight at backend_client with a fake transport, because the 401-vs-403
 distinction is what the whole recovery path turns on: a 401 means the credential
 is stale and worth replacing, a 403 means Django answered correctly and replacing
 the credential would only get the same refusal. The session-auth tests replace
-django_client wholesale, so nothing there would notice this mapping inverting.
+backend_client wholesale, so nothing there would notice this mapping inverting.
 """
 
 import pytest
 
-import django_client
+import backend_client
 
 
 class FakeResponse:
@@ -40,10 +40,10 @@ class FakeClient:
 
 @pytest.fixture
 def transport(monkeypatch):
-    """Replace the shared HTTP client, leaving every line of django_client in play."""
+    """Replace the shared HTTP client, leaving every line of backend_client in play."""
 
     def _transport(raises=None, response=None):
-        monkeypatch.setattr(django_client, 'django_client', FakeClient(raises, response))
+        monkeypatch.setattr(backend_client, '_client', FakeClient(raises, response))
 
     return _transport
 
@@ -58,7 +58,7 @@ def responds(monkeypatch):
                 raise raises
             return response
 
-        monkeypatch.setattr(django_client, 'send_request', _send)
+        monkeypatch.setattr(backend_client, 'send_request', _send)
 
     return _responds
 
@@ -69,8 +69,8 @@ def responds(monkeypatch):
 async def test_a_401_listing_users_is_a_credential_problem(responds):
     responds(FakeResponse(401, {'detail': 'Invalid token.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('stale-token').list_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('stale-token').list_users()
 
     assert failure.value.stale_credential
 
@@ -78,8 +78,8 @@ async def test_a_401_listing_users_is_a_credential_problem(responds):
 async def test_a_401_changing_a_password_is_a_credential_problem(responds):
     responds(FakeResponse(401, {'detail': 'Invalid token.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('stale-token').change_password('ada', 'new-password-1')
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('stale-token').change_password('ada', 'new-password-1')
 
     assert failure.value.stale_credential
 
@@ -87,8 +87,8 @@ async def test_a_401_changing_a_password_is_a_credential_problem(responds):
 async def test_a_401_exchanging_is_a_credential_problem(responds):
     responds(FakeResponse(401, {'detail': 'Google refused that token.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.exchange_google_token('google-token-a')
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.exchange_google_token('google-token-a')
 
     assert failure.value.stale_credential
 
@@ -99,8 +99,8 @@ async def test_a_401_exchanging_is_a_credential_problem(responds):
 async def test_a_403_changing_a_password_is_not_a_credential_problem(responds):
     responds(FakeResponse(403, {'detail': 'Only an admin may do that.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as refusal:
-        await django_client.AuthedDjangoClient('good-token').change_password('ada', 'new-password-1')
+    with pytest.raises(backend_client.BackendAPIError) as refusal:
+        await backend_client.AuthedBackendClient('good-token').change_password('ada', 'new-password-1')
 
     assert not refusal.value.stale_credential
     assert str(refusal.value) == 'Only an admin may do that.'
@@ -109,8 +109,8 @@ async def test_a_403_changing_a_password_is_not_a_credential_problem(responds):
 async def test_a_403_listing_users_is_not_a_credential_problem(responds):
     responds(FakeResponse(403, {'detail': 'Not permitted.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as refusal:
-        await django_client.AuthedDjangoClient('good-token').list_users()
+    with pytest.raises(backend_client.BackendAPIError) as refusal:
+        await backend_client.AuthedBackendClient('good-token').list_users()
 
     assert not refusal.value.stale_credential
 
@@ -121,12 +121,12 @@ async def test_a_403_exchanging_means_no_account_here_not_a_stale_credential(res
     # "embargoed", so this can't and doesn't try to tell them apart. Exchanging
     # again cannot help, so it must not be reported as a retryable credential
     # failure at the tool layer, but it also isn't Google itself refusing the
-    # token - no_account is set so DjangoGoogleProvider can admit the caller with
+    # token - no_account is set so BackendGoogleProvider can admit the caller with
     # no credential instead of refusing them outright.
     responds(FakeResponse(403, {'detail': 'No account here.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.exchange_google_token('google-token-a')
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.exchange_google_token('google-token-a')
 
     assert failure.value.no_account
     assert not failure.value.stale_credential
@@ -135,8 +135,8 @@ async def test_a_403_exchanging_means_no_account_here_not_a_stale_credential(res
 async def test_a_401_exchanging_is_not_a_no_account_error(responds):
     responds(FakeResponse(401, {'detail': 'Google refused that token.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.exchange_google_token('google-token-a')
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.exchange_google_token('google-token-a')
 
     assert not failure.value.no_account
 
@@ -147,8 +147,8 @@ async def test_a_401_exchanging_is_not_a_no_account_error(responds):
 async def test_a_500_is_an_ordinary_failure(responds):
     responds(FakeResponse(500, None, text='Server Error'))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('good-token').list_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('good-token').list_users()
 
     assert not failure.value.stale_credential
 
@@ -158,8 +158,8 @@ async def test_an_unreachable_django_is_reported_not_raised_raw(transport):
 
     transport(raises=httpx2.ConnectError('connection refused'))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('good-token').list_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('good-token').list_users()
 
     assert 'reach' in str(failure.value).lower()
 
@@ -169,8 +169,8 @@ async def test_an_unreachable_django_during_an_exchange_is_reported(transport):
 
     transport(raises=httpx2.ConnectError('connection refused'))
 
-    with pytest.raises(django_client.DjangoAPIError):
-        await django_client.exchange_google_token('google-token-a')
+    with pytest.raises(backend_client.BackendAPIError):
+        await backend_client.exchange_google_token('google-token-a')
 
 
 async def test_a_timeout_is_reported_not_raised_raw(transport):
@@ -178,8 +178,8 @@ async def test_a_timeout_is_reported_not_raised_raw(transport):
 
     transport(raises=httpx2.ReadTimeout('too slow'))
 
-    with pytest.raises(django_client.DjangoAPIError):
-        await django_client.AuthedDjangoClient('good-token').list_users()
+    with pytest.raises(backend_client.BackendAPIError):
+        await backend_client.AuthedBackendClient('good-token').list_users()
 
 
 async def test_a_tool_result_field_allowlist_strips_ids_and_emails(responds):
@@ -198,27 +198,11 @@ async def test_a_tool_result_field_allowlist_strips_ids_and_emails(responds):
         )
     )
 
-    rows = await django_client.AuthedDjangoClient('good-token').list_users()
+    rows = await backend_client.AuthedBackendClient('good-token').list_users()
 
-    assert rows == [{'username': '***', 'country': 'GB', 'date_joined': '2026-01-01'}]
-
-
-async def test_list_users_masks_the_real_username(responds):
-    responds(
-        FakeResponse(
-            200,
-            [
-                {'id': 1, 'username': 'ada', 'email': 'a@example.com', 'country': 'GB', 'date_joined': '2026-01-01'},
-                {'id': 2, 'username': 'grace', 'email': 'g@example.com', 'country': 'US', 'date_joined': '2026-01-02'},
-            ],
-        )
-    )
-
-    rows = await django_client.AuthedDjangoClient('good-token').list_users()
-
-    assert [row['username'] for row in rows] == [django_client.MASKED_USERNAME] * 2
-    assert 'ada' not in str(rows)
-    assert 'grace' not in str(rows)
+    # The real username passes through here unmasked - masking it is a
+    # read-tool concern (see test_read.py), not this client's.
+    assert rows == [{'username': 'ada', 'country': 'GB', 'date_joined': '2026-01-01'}]
 
 
 # --- _detail truncates a non-JSON fallback ------------------------------------
@@ -227,8 +211,8 @@ async def test_list_users_masks_the_real_username(responds):
 async def test_detail_returns_a_short_non_json_body_unchanged(responds):
     responds(FakeResponse(500, None, text='Server Error'))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('good-token').list_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('good-token').list_users()
 
     assert str(failure.value) == 'Server Error'
 
@@ -237,11 +221,11 @@ async def test_detail_truncates_a_long_non_json_body(responds):
     huge_debug_page = '<html>' + ('x' * 5000) + '</html>'
     responds(FakeResponse(500, None, text=huge_debug_page))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('good-token').list_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('good-token').list_users()
 
     message = str(failure.value)
-    assert len(message) <= django_client.DETAIL_FALLBACK_MAX_LENGTH + len('...')
+    assert len(message) <= backend_client.DETAIL_FALLBACK_MAX_LENGTH + len('...')
     assert message.endswith('...')
     assert message != huge_debug_page
 
@@ -252,8 +236,8 @@ async def test_detail_still_returns_a_json_detail_message_in_full(responds):
     long_detail = 'A' * 500
     responds(FakeResponse(403, {'detail': long_detail}))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('good-token').list_users()
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('good-token').list_users()
 
     assert str(failure.value) == long_detail
 
@@ -264,8 +248,8 @@ async def test_detail_still_returns_a_json_detail_message_in_full(responds):
 async def test_change_password_rejects_no_match(responds):
     responds(FakeResponse(404, {'detail': 'No user with that username.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('good-token').change_password('nobody', 'new-password-1')
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('good-token').change_password('nobody', 'new-password-1')
 
     assert not failure.value.stale_credential
 
@@ -276,7 +260,7 @@ async def test_change_password_rejects_no_match(responds):
 async def test_signup_succeeds(responds):
     responds(FakeResponse(200, {'email': 'ada@example.com', 'username': 'ada'}))
 
-    result = await django_client.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+    result = await backend_client.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
 
     assert result == {'detail': 'Account created.'}
 
@@ -284,14 +268,14 @@ async def test_signup_succeeds(responds):
 async def test_signup_rejects_a_duplicate_email(responds):
     responds(FakeResponse(400, {'email': ['An account with this email already exists.']}))
 
-    with pytest.raises(django_client.DjangoAPIError):
-        await django_client.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+    with pytest.raises(backend_client.BackendAPIError):
+        await backend_client.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
 
 
 async def test_signup_never_returns_the_password(responds):
     responds(FakeResponse(200, {'email': 'ada@example.com', 'username': 'ada'}))
 
-    result = await django_client.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
+    result = await backend_client.signup('ada@example.com', 'ada', 'lovelace1', 'GB')
 
     assert 'lovelace1' not in str(result)
 
@@ -303,7 +287,7 @@ async def test_request_password_reset_returns_djangos_response_unchanged(respond
     body = {'detail': 'If that email address has an account, a reset link has been sent to it.'}
     responds(FakeResponse(200, body))
 
-    result = await django_client.request_password_reset('ada@example.com')
+    result = await backend_client.request_password_reset('ada@example.com')
 
     assert result == body
 
@@ -311,8 +295,8 @@ async def test_request_password_reset_returns_djangos_response_unchanged(respond
 async def test_request_password_reset_reports_a_non_200(responds):
     responds(FakeResponse(429, {'detail': 'Too many reset requests for that address.'}))
 
-    with pytest.raises(django_client.DjangoAPIError):
-        await django_client.request_password_reset('ada@example.com')
+    with pytest.raises(backend_client.BackendAPIError):
+        await backend_client.request_password_reset('ada@example.com')
 
 
 # --- confirm_password_reset ------------------------------------------------------
@@ -321,7 +305,7 @@ async def test_request_password_reset_reports_a_non_200(responds):
 async def test_confirm_password_reset_succeeds(responds):
     responds(FakeResponse(200, {'detail': 'Your password has been changed.'}))
 
-    result = await django_client.confirm_password_reset('a-code', 'new-password-1')
+    result = await backend_client.confirm_password_reset('a-code', 'new-password-1')
 
     assert result == {'detail': 'Password changed.'}
 
@@ -329,14 +313,14 @@ async def test_confirm_password_reset_succeeds(responds):
 async def test_confirm_password_reset_rejects_an_invalid_code(responds):
     responds(FakeResponse(400, {'detail': 'That reset link is not valid.'}))
 
-    with pytest.raises(django_client.DjangoAPIError):
-        await django_client.confirm_password_reset('bad-code', 'new-password-1')
+    with pytest.raises(backend_client.BackendAPIError):
+        await backend_client.confirm_password_reset('bad-code', 'new-password-1')
 
 
 async def test_confirm_password_reset_never_returns_the_new_password(responds):
     responds(FakeResponse(200, {'detail': 'Your password has been changed.'}))
 
-    result = await django_client.confirm_password_reset('a-code', 'new-password-1')
+    result = await backend_client.confirm_password_reset('a-code', 'new-password-1')
 
     assert 'new-password-1' not in str(result)
 
@@ -347,7 +331,7 @@ async def test_confirm_password_reset_never_returns_the_new_password(responds):
 async def test_change_own_password_succeeds(responds):
     responds(FakeResponse(200, {'detail': 'Password changed.'}))
 
-    result = await django_client.AuthedDjangoClient('good-token').change_own_password('old-password-1', 'new-password-1')
+    result = await backend_client.AuthedBackendClient('good-token').change_own_password('old-password-1', 'new-password-1')
 
     assert result == {'detail': 'Password changed.'}
 
@@ -355,8 +339,8 @@ async def test_change_own_password_succeeds(responds):
 async def test_change_own_password_401_is_a_credential_problem(responds):
     responds(FakeResponse(401, {'detail': 'Invalid token.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('stale-token').change_own_password('old-password-1', 'new-password-1')
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('stale-token').change_own_password('old-password-1', 'new-password-1')
 
     assert failure.value.stale_credential
 
@@ -364,7 +348,7 @@ async def test_change_own_password_401_is_a_credential_problem(responds):
 async def test_change_own_password_rejects_a_wrong_current_password(responds):
     responds(FakeResponse(400, {'detail': 'Current password is incorrect.'}))
 
-    with pytest.raises(django_client.DjangoAPIError) as failure:
-        await django_client.AuthedDjangoClient('good-token').change_own_password('wrong-password', 'new-password-1')
+    with pytest.raises(backend_client.BackendAPIError) as failure:
+        await backend_client.AuthedBackendClient('good-token').change_own_password('wrong-password', 'new-password-1')
 
     assert not failure.value.stale_credential

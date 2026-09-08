@@ -1,7 +1,7 @@
 """Collects a password directly from a human's browser via URL-mode elicitation
 (SEP-1036) - never through the MCP protocol, client, or model (see server.py).
 
-A pending request's `on_submit` closure does the real Django call the moment
+A pending request's `on_submit` closure does the real backend call the moment
 the page is submitted. The waiting tool call only ever learns whether it
 resolved, and to what result - never the password itself.
 """
@@ -121,7 +121,7 @@ def render_gone():
 
 
 def render_error(message):
-    """A submission Django rejected. No retry on this link - a submitted request
+    """A submission the backend rejected. No retry on this link - a submitted request
     is resolved either way, avoiding a race with the polling tool call."""
     return f"""<!doctype html>
 <html>

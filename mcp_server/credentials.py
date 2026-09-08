@@ -1,18 +1,18 @@
-"""Embeds a caller's Django token in the FastMCP-signed JWT itself, verified
-locally on every later request - no repeat Google call, no repeat Django
+"""Embeds a caller's backend token in the FastMCP-signed JWT itself, verified
+locally on every later request - no repeat Google call, no repeat backend
 exchange, no server-side session state.
 """
 
 from fastmcp.server.auth.auth import AccessToken
 from fastmcp.server.auth.providers.google import GoogleProvider
 
-import django_client
+import backend_client  # module-qualified: exchange_google_token is a test seam (see tests/conftest.py)
 
-DJANGO_TOKEN_CLAIM = 'django_token'
-GOOGLE_TOKEN_CLAIM = 'google_token'  # kept to re-exchange a stale Django token mid-session
+BACKEND_TOKEN_CLAIM = 'backend_token'
+GOOGLE_TOKEN_CLAIM = 'google_token'  # kept to re-exchange a stale backend token mid-session
 
 
-class DjangoGoogleProvider(GoogleProvider):
+class BackendGoogleProvider(GoogleProvider):
     async def _extract_upstream_claims(self, idp_tokens):
         google_token = idp_tokens['access_token']
 
@@ -23,9 +23,9 @@ class DjangoGoogleProvider(GoogleProvider):
         claims = {'sub': verified.claims.get('sub'), 'email': verified.claims.get('email')}
 
         try:
-            claims[DJANGO_TOKEN_CLAIM] = await django_client.exchange_google_token(google_token)
+            claims[BACKEND_TOKEN_CLAIM] = await backend_client.exchange_google_token(google_token)
             claims[GOOGLE_TOKEN_CLAIM] = google_token
-        except django_client.DjangoAPIError as err:
+        except backend_client.BackendAPIError as err:
             if not err.no_account:
                 raise
             # identity is fine, no account yet - admit the session anyway so `signup` is reachable

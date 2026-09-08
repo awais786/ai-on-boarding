@@ -1,42 +1,42 @@
-## 1. django_client: distinguish "no account" and add new endpoint functions
+## 1. backend_client: distinguish "no account" and add new endpoint functions
 
-- [x] 1.1 In `mcp_server/django_client.py`, add `NoDjangoAccountError(DjangoAuthError)` and have
+- [x] 1.1 In `mcp_server/backend_client.py`, add `NoDjangoAccountError(DjangoAuthError)` and have
   `exchange_google_token` raise it for a 403 response, keeping `DjangoAuthError` for a 401
 - [x] 1.2 Add `signup(email, username, password, country)` calling `POST /signup/` with no auth
-  header, raising `DjangoAPIError` on any non-200 response (validation failures included), and
+  header, raising `BackendAPIError` on any non-200 response (validation failures included), and
   returning `{'detail': 'Account created.'}` on success
 - [x] 1.3 Add `request_password_reset(email)` calling `POST /password-reset/`, returning Django's
   own generic response body unchanged (it is already identical for every address)
 - [x] 1.4 Add `confirm_password_reset(code, new_password)` calling `POST
-  /password-reset/confirm/`, raising `DjangoAPIError` on a non-200 response and returning
+  /password-reset/confirm/`, raising `BackendAPIError` on a non-200 response and returning
   `{'detail': 'Password changed.'}` on success
 - [x] 1.5 Add `change_own_password(django_token, current_password, new_password)` calling `POST
   /users/me/change-password/` with the caller's own token, raising `DjangoAuthError` on 401 and
-  `DjangoAPIError` on any other non-200 response
+  `BackendAPIError` on any other non-200 response
 
 ## 2. server.py: admit a caller with no account, gate the other tools
 
 - [x] 2.1 In `CredentialVerifier.verify_token`, catch `NoDjangoAccountError` separately from
-  `DjangoAuthError`/`DjangoAPIError`: strip claims to `GOOGLE_CLAIMS_TO_KEEP` as on success, cache
-  the entry with no `DJANGO_TOKEN_CLAIM`, and return it instead of `None`
-- [x] 2.2 Add a `_require_django_token()` helper that raises `django_client.DjangoAPIError` with
+  `DjangoAuthError`/`BackendAPIError`: strip claims to `GOOGLE_CLAIMS_TO_KEEP` as on success, cache
+  the entry with no `BACKEND_TOKEN_CLAIM`, and return it instead of `None`
+- [x] 2.2 Add a `_require_django_token()` helper that raises `backend_client.BackendAPIError` with
   a message telling the caller to use the signup tool when the current access token's claims have
-  no `DJANGO_TOKEN_CLAIM`
+  no `BACKEND_TOKEN_CLAIM`
 - [x] 2.3 Call `_require_django_token()` at the start of `list_signup_users`,
   `list_users_by_country`, and `change_user_password`, before they touch `_call_django`
 
 ## 3. New tools
 
 - [x] 3.1 Add a `signup(email, username, password, country)` tool: calls
-  `django_client.signup`, then tries `django_client.exchange_google_token` on the caller's own
+  `backend_client.signup`, then tries `backend_client.exchange_google_token` on the caller's own
   Google token and `_credentials.replace_django_token(...)` on success; the tool reports signup's
   own outcome regardless of whether the immediate exchange succeeds
-- [x] 3.2 Add a `request_password_reset(email)` tool calling `django_client.request_password_reset`
+- [x] 3.2 Add a `request_password_reset(email)` tool calling `backend_client.request_password_reset`
   - no credential required, callable with or without a session credential
 - [x] 3.3 Add a `reset_password(code, new_password)` tool calling
-  `django_client.confirm_password_reset` - no credential required
+  `backend_client.confirm_password_reset` - no credential required
 - [x] 3.4 Add a `change_my_password(current_password, new_password)` tool: calls
-  `_require_django_token()` then `_call_django(django_client.change_own_password,
+  `_require_django_token()` then `_call_django(backend_client.change_own_password,
   current_password, new_password)`
 
 ## 4. Tests (after implementation, from the spec)

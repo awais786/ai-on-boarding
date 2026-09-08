@@ -48,8 +48,8 @@ pip install -r requirements.txt
   authorized redirect URI.
 - `MCP_BASE_URL` - this server's own public URL, used for the Google OAuth
   callback. Defaults to `http://localhost:8100`.
-- `DJANGO_API_BASE` - base URL of the Django API. Defaults to
-  `http://localhost:8000/api`.
+- `BACKEND_API_BASE` - base URL of the backend API (the Django app in this
+  repo). Defaults to `http://localhost:8000/api`.
 - `MCP_CREDENTIAL_CACHE_TTL_SECONDS` - ceiling on how long a credential is reused
   before the caller is verified and exchanged again. Defaults to `86400` (a day).
   It is only a ceiling: a credential also expires with the Google token it came

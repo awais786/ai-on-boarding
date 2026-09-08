@@ -1,9 +1,9 @@
 ## 1. Django client: a distinguishable rejection
 
-- [x] 1.1 In `mcp_server/django_client.py`, add `DjangoAuthError(DjangoAPIError)` - raised only
-  when Django answers 401, so a 403 (non-admin, embargoed) stays an ordinary `DjangoAPIError`
+- [x] 1.1 In `mcp_server/backend_client.py`, add `DjangoAuthError(BackendAPIError)` - raised only
+  when Django answers 401, so a 403 (non-admin, embargoed) stays an ordinary `BackendAPIError`
 - [x] 1.2 Raise `DjangoAuthError` on a 401 from `_get_users` and from `change_password`'s
-  change-password call; leave every other status on the existing `DjangoAPIError` path
+  change-password call; leave every other status on the existing `BackendAPIError` path
 - [x] 1.3 Give `exchange_google_token` the same treatment: a 401 or 403 from
   `POST /api/auth/google/` means this caller cannot be signed in, not a transient failure
 - [x] 1.4 Remove the `[timing]` `print` calls and the now-unused `time` import left over from the
@@ -28,7 +28,7 @@
 - [x] 3.2 On a cache hit, return the cached `AccessToken` with no network call at all
 - [x] 3.3 On a miss, call the wrapped Google verifier first; return `None` unchanged if it
   refuses, so every check it makes today still applies
-- [x] 3.4 On success, exchange the same token via `django_client.exchange_google_token`; return
+- [x] 3.4 On success, exchange the same token via `backend_client.exchange_google_token`; return
   `None` if the exchange is refused, so a caller this project will not sign in reaches no tool
 - [x] 3.5 Attach the DRF token to the verified `AccessToken`'s `claims` and cache the result
 - [x] 3.6 Do not cache failures - neither a Google refusal nor a refused exchange

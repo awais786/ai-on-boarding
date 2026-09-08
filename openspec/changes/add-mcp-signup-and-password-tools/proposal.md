@@ -45,7 +45,7 @@ today has no way to create one through this server.
 - `mcp_server/server.py`: `CredentialVerifier` no longer refuses a caller solely because Django
   reports no matching account; every tool but signup gains a check for a missing Django
   credential.
-- `mcp_server/django_client.py`: gains functions for signup, password-reset request, password-
+- `mcp_server/backend_client.py`: gains functions for signup, password-reset request, password-
   reset confirm, and the self-service change-password call; `exchange_google_token` distinguishes
   "Google itself refused the token" from "no Django account for this identity" so the verifier
   can tell the two apart.
