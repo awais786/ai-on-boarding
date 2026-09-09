@@ -40,6 +40,15 @@ instead of hand-rolled orchestration.
 - **Comments only, no write access to code.** `claude_args` restricts tools to
   `gh pr comment` / `gh pr diff` / `gh pr view` and the inline-comment MCP tool - the action can
   read and comment on the PR, not push commits.
+- **Least-privilege permissions.** No `id-token: write` - that permission is only for OIDC
+  federation to a cloud provider (Bedrock/Vertex), which this setup doesn't use; the OAuth token
+  auths directly, so the job only needs `contents: read` and `pull-requests: write`.
+- **`track_progress: true`** posts a visible "reviewing..." comment that updates to the finished
+  review, instead of the PR going quiet until the whole run completes.
+- **Prompt-injection awareness.** The action already strips common hidden-instruction vectors
+  (HTML comments, invisible characters) from PR content, but the prompt also explicitly tells
+  Claude that the diff/comments it's reviewing are data, not instructions - belt-and-suspenders
+  against a PR description or comment trying to steer the review.
 
 ## Known gaps
 
@@ -47,4 +56,5 @@ instead of hand-rolled orchestration.
   `anthropic_api_key`; with only an OAuth token, comments post directly and unconfirmed ones are
   not filtered out the same way.
 - No path-filtering, no separate handling for external contributors yet - every PR gets the same
-  full review.
+  full review. (Default access control still applies: only users with write access to the repo
+  can trigger the action via a `pull_request` event.)
