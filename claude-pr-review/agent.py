@@ -19,7 +19,16 @@ class AgentError(RuntimeError):
 
 
 def run(client, model: str, system: str, user_content: str, output_schema: dict) -> dict:
-    messages = [{"role": "user", "content": user_content}]
+    # cache_control on this block caches everything up to and including it -
+    # tools, system prompt, and this message - so the tool-use loop below,
+    # which resends this same prefix every iteration, only pays full price
+    # for it once.
+    messages = [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": user_content, "cache_control": {"type": "ephemeral"}}],
+        }
+    ]
 
     for _ in range(MAX_ITERATIONS):
         response = client.messages.create(

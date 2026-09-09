@@ -55,6 +55,15 @@ A manual loop was used instead of the SDK's beta `tool_runner` specifically so `
 and `tools` could be combined without relying on undocumented interaction between two beta
 surfaces.
 
+The initial user message (repo rules + diff, which stays constant across the loop) carries
+`cache_control: {"type": "ephemeral"}` - the tool-use loop resends that same prefix, plus
+`tools` and the system prompt ahead of it, on every one of up to `MAX_ITERATIONS` turns, so only
+the first turn pays full price for it.
+
+Retries for transient API errors (429/5xx/connection failures) and tool-output truncation
+(`MAX_OUTPUT_CHARS` in `tools.py`) are already handled - the SDK client retries by default
+(`max_retries`), so `agent.py` doesn't reimplement it.
+
 ## Why this shape
 
 - **Layer 1 is not an agent call.** A linter is never wrong about what it covers, so there's no
@@ -80,5 +89,6 @@ surfaces.
 
 ## Not built yet
 
-Path filtering (e.g. skip non-code PRs) and re-running only on new commits rather than the whole
-diff each time.
+Path filtering (e.g. skip non-code PRs), re-running only on new commits rather than the whole
+diff each time, and a fixture set of past PRs with known-correct verdicts to regression-test
+`judge.py`/`verify.py`/`gate.py` against when the prompts change.
