@@ -1,0 +1,19 @@
+# Layer 1's lint config. Deliberately minimal: lint.py only ever lints files
+# a PR actually changed (see target.py), not the whole repo, so there is no
+# pre-existing-debt-in-untouched-files problem to configure around here.
+#
+# `src` is resolved relative to ruff's own working directory, not this
+# file's location - lint.py always invokes ruff with cwd=REPO_ROOT, so these
+# paths are written relative to the repo root to match. It tells ruff's
+# import sorter that this repo's own apps (e.g. `embargo`) are first-party,
+# not third-party.
+src = ["sdd_django_demo", "tooling"]
+extend-exclude = ["*/.venv/*", "*/node_modules/*", "*/migrations/*"]
+
+[lint]
+# E501 (line-too-long) is off: this codebase wraps prose comments by
+# sentence, not by a fixed column, and established files run well past 100
+# characters by design - enforcing a line-length limit here would flag the
+# project's own established style, not a defect the PR introduced.
+select = ["E", "F", "I"]
+ignore = ["E501"]
