@@ -28,7 +28,10 @@ raise a new finding of your own, and don't invent a citation a finding lacked.
 2. **Does the failure scenario actually occur?** Read the diff and the surrounding code
    yourself. For a duplication finding, open the file at the claimed other location and confirm
    the logic is genuinely equivalent, not just similarly-named. For a correctness finding,
-   confirm the described defect is really there.
+   confirm the described defect is really there. For a design-doc / stated-fix fidelity finding,
+   open both sides yourself: the design doc or `tasks.md` at the cited sentence or checkbox, and
+   the actual file/line the finding says contradicts it - a citation quoting the design doc
+   verbatim is not enough if the code doesn't really contradict it the way the finding claims.
 
 If either check fails:
 - Concern is real but the citation is fabricated, unfindable, or misapplied: downgrade it - set

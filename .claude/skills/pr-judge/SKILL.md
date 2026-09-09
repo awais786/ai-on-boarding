@@ -29,12 +29,24 @@ For every changed hunk in the diff (not the whole file just because you read it 
    justification?
 2. **Convention compliance** - does it violate anything in `CLAUDE.md` or
    `openspec/config.yaml`?
-3. **Functional correctness and completeness** - does it appear to fully implement what it
-   claims to, with the edge cases a reader would expect handled?
+3. **Functional correctness and completeness** - trace the actual code path end-to-end rather
+   than judging each hunk in isolation: does it appear to fully implement what it claims to, with
+   the edge cases a reader would expect handled?
 4. **Blast radius** - does it duplicate logic that already exists elsewhere in the repository
    rather than reusing it? Search for similarly-named functions or similar validation logic
    before raising this (`Grep`/`Glob`, not a guess). Do not raise a duplication finding you have
    not confirmed by actually finding the other copy and naming its location.
+5. **Design-doc / stated-fix fidelity** - if the diff touches an OpenSpec change directory
+   (`openspec/changes/<name>/`), read that change's `design.md` and `proposal.md` in full, not
+   just the parts near the diff. Both documents make specific, checkable claims about the code:
+   a defect being fixed, a decision about what an endpoint's permissions are, which field a
+   response includes or omits, which value a URL or lookup is keyed on. For every such claim,
+   open the actual file it describes and confirm the claim against the real code - never accept
+   it as true because it is asserted in prose, and never assume a task or defect is fixed just
+   because the diff exists. A design doc or a `tasks.md` checkbox that contradicts the shipped
+   code is a finding in its own right: CRITICAL if the mismatch is about security-relevant
+   behavior (auth, permissions, credential exposure), MAJOR otherwise. Cite the exact sentence or
+   checklist item that doesn't hold up.
 
 Do not raise a finding about pre-existing code the diff did not touch, even if you notice
 something wrong while reading a file for context - that is not this diff's blast radius. Do not
