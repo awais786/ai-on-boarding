@@ -23,23 +23,23 @@ session gets the identical judge/verify behavior these skills describe, not a CI
 
 ## One-time setup
 
-1. Install the Claude GitHub App on this repo (repo admin required):
-   ```
-   claude /install-github-app
-   ```
-   or follow [docs/setup.md](https://github.com/anthropics/claude-code-action/blob/main/docs/setup.md)
-   for a manual app + secret setup.
-
-2. Generate a subscription OAuth token locally (Pro/Max plan - uses subscription quota, not API
+1. Generate a subscription OAuth token locally (Pro/Max plan - uses subscription quota, not API
    billing):
    ```
    claude setup-token
    ```
 
-3. Add it as a repo secret named `CLAUDE_CODE_OAUTH_TOKEN`
+2. Add it as a repo secret named `CLAUDE_CODE_OAUTH_TOKEN`
    (Settings -> Secrets and variables -> Actions -> New repository secret).
 
-4. Open a PR. The workflow runs automatically on `opened`/`synchronize`.
+3. Open a PR. The workflow runs automatically on `opened`/`synchronize`.
+
+No Claude GitHub App install is needed: each `claude-code-action` step is given
+`github_token: ${{ secrets.GITHUB_TOKEN }}` directly, so it skips the action's default behavior
+of exchanging a GitHub Actions OIDC token for a Claude App installation token - which otherwise
+requires both `id-token: write` and the app installed. Passing the ambient `GITHUB_TOKEN`
+sidesteps both requirements at the cost of the app's extra features (e.g. commit signing), which
+this workflow doesn't use anyway (it only comments, never pushes commits).
 
 ## Why this shape
 
