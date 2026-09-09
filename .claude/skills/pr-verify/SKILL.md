@@ -27,11 +27,18 @@ raise a new finding of your own, and don't invent a citation a finding lacked.
    concern that rule doesn't actually govern - does not hold up either.
 2. **Does the failure scenario actually occur?** Read the diff and the surrounding code
    yourself. For a duplication finding, open the file at the claimed other location and confirm
-   the logic is genuinely equivalent, not just similarly-named. For a correctness finding,
-   confirm the described defect is really there. For a design-doc / stated-fix fidelity finding,
-   open both sides yourself: the design doc or `tasks.md` at the cited sentence or checkbox, and
-   the actual file/line the finding says contradicts it - a citation quoting the design doc
-   verbatim is not enough if the code doesn't really contradict it the way the finding claims.
+   the logic is genuinely equivalent, not just similarly-named. For a call-site finding, open the
+   named caller yourself and confirm it really does still expect the old shape or access level -
+   a caller that was updated in the same diff, or that doesn't actually exist at the cited
+   location, doesn't hold up. For a test-inspection finding, confirm the claimed test gap is
+   real: search for tests of the changed behavior yourself rather than trusting that none exist.
+   For a correctness finding, confirm the described defect is really there. For a design-doc /
+   stated-fix fidelity finding, open all three yourself: the design doc or `tasks.md` at the
+   cited sentence or checkbox, the actual file/line the finding says contradicts it, and - if one
+   exists - the spec requirement that change amends. The spec is the actual contract; if the code
+   matches the spec but disagrees with `design.md`, the finding is correctly aimed at `design.md`
+   being stale, not at the code. If the finding blames the code for something the spec doesn't
+   actually require, it doesn't hold up regardless of what `design.md` says.
 
 If either check fails:
 - Concern is real but the citation is fabricated, unfindable, or misapplied: downgrade it - set
