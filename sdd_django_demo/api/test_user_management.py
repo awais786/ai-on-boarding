@@ -152,7 +152,7 @@ def test_listing_by_an_authenticated_non_admin_is_rejected():
     assert response.status_code == 403
 
 
-# --- Never expose an email address in the user list ------------------------------
+# --- Never expose an email address or internal id in the user list ---------------
 
 
 @pytest.mark.django_db
@@ -173,6 +173,26 @@ def test_filtered_listing_contains_no_email_address():
     response = list_users(admin_client, country='gb')
 
     assert all('email' not in row for row in response.data)
+
+
+@pytest.mark.django_db
+def test_unfiltered_listing_contains_no_internal_id():
+    create_account('ada', email='ada@example.com', country='gb')
+    admin_client = authed_client(create_account('admin', is_staff=True))
+
+    response = list_users(admin_client)
+
+    assert all('id' not in row for row in response.data)
+
+
+@pytest.mark.django_db
+def test_filtered_listing_contains_no_internal_id():
+    create_account('ada', email='ada@example.com', country='gb')
+    admin_client = authed_client(create_account('admin', is_staff=True))
+
+    response = list_users(admin_client, country='gb')
+
+    assert all('id' not in row for row in response.data)
 
 
 # --- Let an admin reset a user's password ----------------------------------------

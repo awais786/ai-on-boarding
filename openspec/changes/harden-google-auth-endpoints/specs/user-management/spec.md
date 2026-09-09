@@ -41,17 +41,17 @@ SHALL reject one from a caller who has authenticated but is not an admin.
 - **WHEN** the user list is requested by a caller who has authenticated but is not an admin
 - **THEN** the request is rejected
 
-### Requirement: Never expose an email address in the user list
-The system SHALL NOT include any user's email address in the user list response, in filtered or
-unfiltered form.
+### Requirement: Never expose an email address or internal id in the user list
+The system SHALL NOT include any user's email address or internal id in the user list response,
+in filtered or unfiltered form.
 
 #### Scenario: Unfiltered listing
 - **WHEN** an admin caller requests the user list
-- **THEN** no entry in the response contains an email address
+- **THEN** no entry in the response contains an email address or an internal id
 
 #### Scenario: Filtered listing
 - **WHEN** an admin caller requests the user list filtered by country
-- **THEN** no entry in the response contains an email address
+- **THEN** no entry in the response contains an email address or an internal id
 
 ### Requirement: Let an admin reset a user's password
 The system SHALL let an authenticated admin set a new password for any user, given that user's
