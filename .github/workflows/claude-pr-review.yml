@@ -37,7 +37,9 @@ jobs:
 
       # Layer 2: the pr-judge skill assesses architectural fit, convention compliance,
       # correctness, and blast radius. Writes findings to a file rather than posting - Layer 3
-      # verifies them first, so nothing unverified reaches the PR.
+      # verifies them first, so nothing unverified reaches the PR. Runs on Opus 5 deliberately -
+      # this is the layer doing open-ended judgment (cross-referencing diff, spec, design doc,
+      # and existing code), so it gets the most capable model; Layer 3 only rechecks its output.
       - name: Layer 2 - judge (pr-judge skill)
         uses: anthropics/claude-code-action@v1
         with:
@@ -57,6 +59,7 @@ jobs:
             Do not post anything to the PR - Layer 3 does that after independently verifying
             your findings.
           claude_args: |
+            --model claude-opus-5
             --allowedTools "Read,Grep,Glob,Write,Bash(gh pr diff:*),Bash(gh pr view:*)"
 
       # Layer 3: the pr-verify skill independently re-checks every Layer 2 citation and failure

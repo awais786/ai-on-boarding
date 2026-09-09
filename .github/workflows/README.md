@@ -13,7 +13,7 @@ prompts and orchestration calling the API directly.
 | Layer | What | Where |
 |---|---|---|
 | 1 | Lint the PR's changed Python files. Mechanical, always right about what it covers - not worth a model call. | plain `ruff` step in the workflow |
-| 2 | Judge the diff for architectural fit, convention compliance, correctness/completeness, and blast radius. Excludes anything Layer 1 already flagged. Writes findings to a file, doesn't post. | `.claude/skills/pr-judge/` |
+| 2 | Judge the diff for architectural fit, convention compliance, correctness/completeness, and blast radius. Excludes anything Layer 1 already flagged. Writes findings to a file, doesn't post. | `.claude/skills/pr-judge/`, `--model claude-opus-5` |
 | 3 | Independently re-check every Layer 2 finding's citation and failure scenario before it can block a merge. Posts the final `Ready to merge: yes/no` verdict. | `.claude/skills/pr-verify/`, `--model claude-haiku-4-5-20251001` |
 
 Putting Layers 2 and 3 in skills (rather than inlining their instructions in the workflow prompt)
