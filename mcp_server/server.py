@@ -4,24 +4,22 @@ Google authenticates a caller once; the first request of a session trades that
 for this project's own backend token, reused for later requests. Tools call
 the backend with the caller's own token, not a blanket service credential.
 
-This module is wiring only - auth/caching logic lives in credentials.py,
-elicitation and the backend call path live in session.py, and the tools
-themselves live in tools/, organized by domain and by read vs. write.
+This module is wiring only - auth/caching logic lives in auth/, elicitation
+and the hosted secret pages live in elicitation/, the domain HTTP clients
+live in clients/, the tools themselves live in tools/ (organized by domain,
+account and users), and every environment-driven value lives in config.py.
 """
 
 import os
 
-from dotenv import load_dotenv
 from fastmcp import FastMCP
 from starlette.responses import HTMLResponse
 
-from credentials import BackendGoogleProvider
-from mcp_middleware import ToolCallLogger
-from secret_pages import get as get_pending, render_done, render_error, render_form, render_gone
-from session import MCP_BASE_URL
+from auth import BackendGoogleProvider
+from config import MCP_BASE_URL
+from elicitation import get as get_pending, render_done, render_error, render_form, render_gone
+from middleware import ToolCallLogger
 from tools import load_tools
-
-load_dotenv()
 
 auth = BackendGoogleProvider(
     client_id=os.environ['GOOGLE_CLIENT_ID'],
@@ -39,7 +37,7 @@ load_tools(mcp)
 
 @mcp.custom_route('/secrets/{token}', methods=['GET', 'POST'])
 async def secret_page(request):
-    """The page every `_await_secret` URL points at - an ordinary HTTP route a
+    """The page every `await_secret` URL points at - an ordinary HTTP route a
     browser loads directly, not part of the MCP protocol (SEP-1036)."""
     token = request.path_params['token']
     pending = get_pending(token)

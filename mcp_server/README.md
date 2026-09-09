@@ -15,6 +15,77 @@ below.
 There is no signin tool: signing in with Google, below, already establishes the
 credential every other tool uses.
 
+## Layout
+
+- `server.py` - wiring only: builds the FastMCP app, the Google auth provider,
+  and the `/secrets/{token}` route; registers the tools.
+- `tools/` - the MCP tools themselves, one module per domain (`account.py`,
+  `users.py`), each self-registering its own tools. Not split further into
+  read vs write within a domain - each tool already carries its own
+  `readOnlyHint`/`destructiveHint` annotation (see `load_tools` in either
+  file), which is what actually decides whether Claude can call it without
+  asking; a matching file split would only restate that, not add anything.
+- `clients/` - the HTTP clients that talk to the Django API, one module per domain
+  (`account_client.py`, `users_client.py`) plus shared transport plumbing in
+  `base_client.py`. A tool module only imports the client for its own domain, so
+  e.g. `tools/account.py` has no way to reach `UsersClient.change_password`
+  through it.
+- `auth.py` - verifying Google identity (`BackendGoogleProvider`, the JWT
+  claims) and calling the backend with the caller's own credential
+  (`call_backend`, `require_backend_token` - the stale-credential retry).
+  Used to be `auth/credentials.py` + `auth/backend_calls.py`; merged into one
+  file once there was no longer a good reason for two - see below.
+- `elicitation.py` - collecting a secret from a human directly, never through
+  the MCP protocol, client, or model: the hosted page itself (`register`,
+  `get`, `discard`, the `/secrets/<token>` HTML) and the tool-side wait for a
+  submission (`await_secret`, including the handshake-era fallback;
+  `ElicitationError`, since that failure is specific to this concern). Used
+  to be `elicitation/secret_pages.py` + `elicitation/wait_for_secret.py`,
+  merged for the same reason as `auth.py`.
+- `middleware.py` - request logging, used by both domains, not specific to
+  either. Not (yet) its own package - see its own docstring.
+- `validation.py` - domain rules checked before spending a round trip on a
+  call the backend would reject anyway (currently just password strength).
+  Defines its own `ValidationError` - not in `clients/`, since nothing here
+  talks to the backend.
+- `config.py` - every environment-driven or tunable value this server uses
+  (base URLs, timeouts, TTLs, poll intervals), in one place, plus
+  `load_dotenv()` itself. Without this, each of those tends to get added as
+  a bare `os.environ.get(...)` in whichever module first needs it - which is
+  exactly what had happened here, and which caused a real bug: `server.py`
+  called `load_dotenv()` after its own imports, so any module it imported
+  that read an env var at import time (`elicitation.py`'s `MCP_BASE_URL`,
+  `clients/base_client.py`'s `BACKEND_API_BASE`) read it before the `.env`
+  file had been loaded, silently ignoring a `.env`-only override.
+  `config.py` calls `load_dotenv()` itself, before reading anything, and is
+  the first of these modules every other one imports.
+
+`auth.py` and `elicitation.py` were each two files in their own package
+(`auth/credentials.py` + `auth/backend_calls.py`, `elicitation/secret_pages.py`
++ `elicitation/wait_for_secret.py`) before being flattened. The split inside
+each pair was real - "verify identity" vs. "call the backend with the result"
+inside `auth`; "the hosted page" vs. "waiting on it" inside `elicitation` -
+but a whole package (a directory, an `__init__.py`, two files) was more
+structure than two closely-related files needed, and it had a real cost: the
+two packages both ended up with a file called `session.py` at one point
+(different jobs, same name, because both were "the second file in a
+two-file package about X"), which forced every caller to alias both imports
+just to tell them apart. One file per concern, named for the concern, needs
+no alias and no package machinery to say the same thing.
+
+No shared `errors.py`. Each error type is defined where it's raised -
+`BackendAPIError` in `clients/base_client.py`, `ElicitationError` in
+`elicitation.py`, `ValidationError` in `validation.py` - and imported from
+there by anything that needs to catch it. A shared module made sense only if
+something needed to catch *any* tool error generically; nothing does, so it
+was one file existing to hold an unused common base class.
+
+`elicitation.py` is named that, not `secrets.py` - that would shadow the
+standard library's own `secrets` module (used for token generation in this
+same file). This project is installed as an editable package (see Setup,
+below) specifically so a name like this can't silently shadow anything
+installed, or be shadowed by it.
+
 Auth is Google login at the MCP layer, and only at the front door. A caller signs
 in with Google to reach any tool; the first request of that session trades the
 Google token for a Django token via `POST /api/auth/google/`, and every later
@@ -39,21 +110,41 @@ token's own lifetime (about an hour).
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -e . --no-deps
 ```
+
+The second command registers this project itself as an editable-installed package
+(`pyproject.toml`), so `auth`, `clients`, `elicitation`, `tools`, etc. are
+importable from anywhere - not only when the current directory happens to be
+`mcp_server/` (the failure mode that made `mcp/` and `secrets/` unsafe package
+names earlier - see Layout, above). `--no-deps` skips re-resolving dependencies:
+`requirements.txt` already pins the exact, tested versions (including
+transitive ones); `pyproject.toml`'s `dependencies` list exists for readability
+and for `pip install -e .` to work in a fresh environment, not to override
+`requirements.txt`'s pins.
 
 ## Environment variables
 
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` - required. A Google Cloud OAuth
-  client (Web application type), with `<MCP_BASE_URL>/auth/callback` added as an
-  authorized redirect URI.
+Every environment-driven value lives in `config.py` - that file is the source of
+truth for defaults; this list is just where to set them.
+
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` - required, no default (read in
+  `server.py`, not `config.py` - see that module's own docstring for why). A
+  Google Cloud OAuth client (Web application type), with
+  `<MCP_BASE_URL>/auth/callback` added as an authorized redirect URI.
 - `MCP_BASE_URL` - this server's own public URL, used for the Google OAuth
-  callback. Defaults to `http://localhost:8100`.
+  callback and every hosted secret-entry page link. Defaults to
+  `http://localhost:8100`.
 - `BACKEND_API_BASE` - base URL of the backend API (the Django app in this
   repo). Defaults to `http://localhost:8000/api`.
-- `MCP_CREDENTIAL_CACHE_TTL_SECONDS` - ceiling on how long a credential is reused
-  before the caller is verified and exchanged again. Defaults to `86400` (a day).
-  It is only a ceiling: a credential also expires with the Google token it came
-  from, which is sooner, so raising this does not extend a session past that.
+- `BACKEND_REQUEST_TIMEOUT` - seconds before a backend request times out.
+  Defaults to `10`.
+- `SECRET_PAGE_TTL_SECONDS` - how long a hosted secret-entry page link stays
+  valid before it expires. Defaults to `900` (15 minutes).
+- `HANDSHAKE_ERA_POLL_SECONDS` - poll interval for the handshake-era
+  elicitation fallback (older MCP clients only). Defaults to `1`.
+- `MCP_TOOL_CALL_LOG_FILE` - path to the tool-call audit log. Defaults to
+  `tool_calls.log` next to this project's own files.
 
 The Django app also needs `GOOGLE_OAUTH_CLIENT_IDS` set to the same client id
 (comma-separated if there are several), so `/api/auth/google/` accepts tokens
@@ -126,7 +217,7 @@ form-mode elicitation (the client would render it inline, with nothing stopping 
 reaching the model too) - so each of these tools instead uses **URL-mode
 elicitation** (SEP-1036): the server hands the caller a URL, and the human enters
 the password directly on a page this server hosts (`/secrets/<token>` in
-`server.py`, rendered by `secret_pages.py`). Neither the value nor its page ever
+`server.py`, rendered by `elicitation.py`). Neither the value nor its page ever
 passes through the MCP protocol, the client, or the model - only this process and
 the human's own browser see it. A real MCP client (Claude Desktop, Claude Code)
 opens that URL for you automatically; there's nothing extra to configure.

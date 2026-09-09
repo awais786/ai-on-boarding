@@ -1,4 +1,5 @@
-"""Tests for secret_pages.py and server.py's /secrets/{token} route.
+"""Tests for elicitation.py's pending-request registry and server.py's
+/secrets/{token} route.
 
 Nothing in test_auth_tools.py or test_session_auth.py exercises this route for
 real - drive_secret_tool (conftest.py) calls a pending request's submit()
@@ -12,7 +13,7 @@ import time
 import pytest
 from starlette.testclient import TestClient
 
-import secret_pages
+import elicitation as secret_pages
 import server
 
 

@@ -8,25 +8,24 @@ was called, which is most of what this change is about.
 
 import os
 import secrets
-import sys
 import time
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-# server.py reads these at import time to build the GoogleProvider.
+# server.py reads these at import time to build the GoogleProvider. Must be
+# set before importing it below - mcp_server is an editable install (see
+# pyproject.toml), so no sys.path setup is needed here, only this ordering.
 os.environ.setdefault('GOOGLE_CLIENT_ID', 'test-client-id.apps.googleusercontent.com')
 os.environ.setdefault('GOOGLE_CLIENT_SECRET', 'test-client-secret')
 
 from fastmcp.server.auth.auth import AccessToken  # noqa: E402
 from mcp.types import ElicitResult  # noqa: E402
 
-import backend_client  # noqa: E402
-import secret_pages  # noqa: E402
+import auth as backend_calls  # noqa: E402
+import elicitation  # noqa: E402
 import server  # noqa: E402
-import session  # noqa: E402
+from clients import account_client, users_client  # noqa: E402
+from clients.base_client import BackendAPIError  # noqa: E402
 
 # auth.jwt_issuer (used to sign every session token) is only built once
 # get_routes() runs - normally triggered by actually serving the app. Force
@@ -37,12 +36,12 @@ server.mcp.http_app()
 
 @pytest.fixture(autouse=True)
 def _fresh_secret_pages():
-    """secret_pages._pending is module-level state shared across every test - clear
+    """elicitation._pending is module-level state shared across every test - clear
     it before and after each test so a leaked or stale pending request from one
     test can never be found by another."""
-    secret_pages._pending.clear()
+    elicitation._pending.clear()
     yield
-    secret_pages._pending.clear()
+    elicitation._pending.clear()
 
 
 def google_access_token(google_token, subject='google-sub-1'):
@@ -77,7 +76,8 @@ class FakeGoogleVerifier:
 
 
 class FakeDjango:
-    """The Django API, as backend_client sees it."""
+    """The Django API, as the domain clients (clients/account_client.py,
+    clients/users_client.py) see it."""
 
     def __init__(self):
         self.exchanges = []
@@ -133,7 +133,7 @@ class FakeDjango:
     def _check(self, django_token, record):
         self.calls.append(record)
         if django_token in self.rejects:
-            raise backend_client.BackendAPIError('Invalid token.', stale_credential=True)
+            raise BackendAPIError('Invalid token.', stale_credential=True)
         if self.error is not None:
             raise self.error
 
@@ -156,11 +156,12 @@ def google(monkeypatch):
 def django(monkeypatch):
     """FakeDjango's own methods keep the (self, django_token, ...) shape the
     module-level functions used to have; these three adapters bridge that to
-    AuthedBackendClient's real (self, ...) shape, reading the token off the real
-    client instance django hands them - FakeDjango itself doesn't need to change."""
+    AccountClient/UsersClient's real (self, ...) shape, reading the token off
+    the real client instance django hands them - FakeDjango itself doesn't
+    need to change."""
     fake = FakeDjango()
     for name in ('exchange_google_token', 'signup', 'request_password_reset', 'confirm_password_reset'):
-        monkeypatch.setattr(backend_client, name, getattr(fake, name))
+        monkeypatch.setattr(account_client, name, getattr(fake, name))
 
     async def _list_users(client, country=None):
         return await fake.list_users(client.backend_token, country=country)
@@ -171,9 +172,9 @@ def django(monkeypatch):
     async def _change_own_password(client, current_password, new_password):
         return await fake.change_own_password(client.backend_token, current_password, new_password)
 
-    monkeypatch.setattr(backend_client.AuthedBackendClient, 'list_users', _list_users)
-    monkeypatch.setattr(backend_client.AuthedBackendClient, 'change_password', _change_password)
-    monkeypatch.setattr(backend_client.AuthedBackendClient, 'change_own_password', _change_own_password)
+    monkeypatch.setattr(users_client.UsersClient, 'list_users', _list_users)
+    monkeypatch.setattr(users_client.UsersClient, 'change_password', _change_password)
+    monkeypatch.setattr(account_client.AccountClient, 'change_own_password', _change_own_password)
     return fake
 
 
@@ -202,7 +203,7 @@ def sign_in(google, django, monkeypatch):
             subject=claims.get('sub'),
         )
         verified = await server.auth.load_access_token(jwt)
-        monkeypatch.setattr(session, 'get_access_token', lambda: verified)
+        monkeypatch.setattr(backend_calls, 'get_access_token', lambda: verified)
         return verified
 
     return _sign_in
@@ -213,7 +214,7 @@ def as_caller(monkeypatch):
     """Switch the current caller to an already-verified session."""
 
     def _as_caller(access_token):
-        monkeypatch.setattr(session, 'get_access_token', lambda: access_token)
+        monkeypatch.setattr(backend_calls, 'get_access_token', lambda: access_token)
 
     return _as_caller
 
@@ -244,7 +245,7 @@ def elicit(monkeypatch):
 
     def _elicit(input_responses=None, request_state=None):
         context = FakeElicitationContext(input_responses, request_state)
-        monkeypatch.setattr(session, 'get_context', lambda: context)
+        monkeypatch.setattr(elicitation, 'get_context', lambda: context)
         return context
 
     return _elicit
@@ -274,7 +275,7 @@ class FakeHandshakeEraSession:
         self.calls.append({'message': message, 'url': url, 'elicitation_id': elicitation_id})
         if self.action == 'accept' and self.submit_values is not None:
             token = url.rsplit('/', 1)[-1]
-            await secret_pages.get(token).submit(self.submit_values)
+            await elicitation.get(token).submit(self.submit_values)
         return ElicitResult(action=self.action)
 
 
@@ -293,7 +294,7 @@ def handshake_era(monkeypatch):
 
     def _handshake_era(action='accept', submit_values=None):
         fake_session = FakeHandshakeEraSession(action=action, submit_values=submit_values)
-        monkeypatch.setattr(session, 'get_context', lambda: FakeHandshakeEraContext(fake_session))
+        monkeypatch.setattr(elicitation, 'get_context', lambda: FakeHandshakeEraContext(fake_session))
         return fake_session
 
     return _handshake_era
@@ -323,7 +324,7 @@ def drive_secret_tool(elicit):
         token = asked.request_state
 
         if values is not None:
-            pending = secret_pages.get(token)
+            pending = elicitation.get(token)
             assert pending is not None, 'no pending secret request was registered'
             await pending.submit(values)
 

@@ -1,17 +1,16 @@
 """Audit logging around every tool call."""
 
 import logging
-import os
 
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import Middleware
 
-LOG_FILE = os.environ.get('MCP_TOOL_CALL_LOG_FILE', os.path.join(os.path.dirname(__file__), 'tool_calls.log'))
+from config import TOOL_CALL_LOG_FILE
 
 logger = logging.getLogger('mcp_server')
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.FileHandler(LOG_FILE)
+    handler = logging.FileHandler(TOOL_CALL_LOG_FILE)
     handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     logger.addHandler(handler)
 
