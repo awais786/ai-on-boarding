@@ -8,6 +8,7 @@ agents calling the Claude API directly (`anthropic` SDK) - not the Claude Code C
 | 1 | Lint the files the PR changed. Mechanical, always right about what it covers. | - | `lint.py` |
 | 2 | Judge the diff for architectural fit, convention compliance, correctness/completeness, and blast radius (duplicated logic elsewhere in the repo). Runs Layer 1 itself first; drops any of its own findings that land on the same file/line as a Layer 1 finding - in code, not by prompt instruction. | `claude-sonnet-5` | `judge.py` |
 | 3 | Independently re-check every Layer 2 finding's citation and failure scenario before it can block a merge. Drops or downgrades anything that doesn't hold up. | `claude-haiku-4-5-20251001` | `verify.py` |
+| 4 | Render Layer 3's output as the `Ready to merge: yes/no` verdict, per this repo's review contract: a finding blocks only if it still carries a citation. Exits non-zero on `no`, for CI. | - | `gate.py` |
 
 ## Running it
 
@@ -26,6 +27,9 @@ export ANTHROPIC_API_KEY=...
 
 # Layer 3, given Layer 2's output:
 .venv/bin/python verify.py [pr-number|branch] --findings build/findings.json --out build/verified_findings.json
+
+# Layer 4, given Layer 3's output:
+.venv/bin/python gate.py --findings build/verified_findings.json --out build/verdict.md
 ```
 
 All three accept the same target: a PR number, a branch name, or nothing (the working tree's
@@ -68,7 +72,13 @@ surfaces.
   the repo root with path-traversal checks) - no write, no shell beyond those three functions, so
   neither can modify the repo or do anything beyond reading it and reporting.
 
+## CI
+
+`.github/workflows/pr-review-agent.yml` runs all four layers on every PR (`opened`,
+`synchronize`) against `secrets.ANTHROPIC_API_KEY`, posts Layer 4's verdict as a PR comment via
+`gh pr comment`, and fails the check when the verdict is `no`.
+
 ## Not built yet
 
-There is no CI wiring, and no "gate"/verdict step deciding `Ready to merge: yes/no` from Layer
-3's output - deliberately deferred until this shape itself is settled.
+Path filtering (e.g. skip non-code PRs) and re-running only on new commits rather than the whole
+diff each time.

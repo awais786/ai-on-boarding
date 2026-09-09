@@ -1,0 +1,48 @@
+name: PR Review Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install review agent
+        working-directory: claude-pr-review
+        run: pip install -r requirements.txt
+
+      - name: Layer 2 - judge
+        working-directory: claude-pr-review
+        run: python judge.py "${{ github.event.pull_request.number }}" --out build/findings.json
+
+      - name: Layer 3 - verify
+        working-directory: claude-pr-review
+        run: |
+          python verify.py "${{ github.event.pull_request.number }}" \
+            --findings build/findings.json --out build/verified_findings.json
+
+      - name: Gate - render verdict
+        id: gate
+        working-directory: claude-pr-review
+        run: python gate.py --findings build/verified_findings.json --out build/verdict.md
+        continue-on-error: true
+
+      - name: Post verdict as PR comment
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file claude-pr-review/build/verdict.md
+
+      - name: Fail if not ready to merge
+        if: steps.gate.outcome == 'failure'
+        run: exit 1
