@@ -30,13 +30,13 @@ For each finding, check:
 2. Is it lint-level? If the finding is really about formatting, whitespace, unused imports, or
    anything else Layer 1 (a linter) already covers, drop it - Layer 2 was told to exclude these,
    and this is the backstop for when that instruction wasn't followed.
-3. Does the citation hold up? If `citation` is non-null, find it: does it name a real
-   requirement, a test that actually exists and actually fails for the stated reason, or a
-   sentence that genuinely appears in the rules you were given? A citation that paraphrases or
-   misapplies something real - quoting an actual rule but for a concern that rule doesn't
-   actually govern - does not hold up either. A citation that is real and on-topic but does not
-   actually apply to this code (e.g. a convention scoped to a different layer or file type) also
-   does not hold up.
+3. Does the citation hold up? It holds up if it names a real requirement, a test that actually
+   exists and actually fails for the stated reason, or a real rule from the rules you were given
+   that genuinely governs this concern - reworded in Layer 2's own words is fine, as long as the
+   meaning matches; you are checking whether the underlying rule is real and on-topic, not
+   grading it for an exact quote. It does NOT hold up if it's fabricated (no such rule/test
+   exists), or misapplied (a real rule, but about a different concern than the one being raised,
+   or scoped to a different layer/file type than this code).
 4. Does the failure scenario actually occur, at the cited location? Read the diff and the
    surrounding code yourself - don't take the summary's word for it. Confirm the file and line
    cited actually contain the behavior being criticized, not a nearby but different hunk. For a
@@ -60,11 +60,19 @@ For each finding, check:
    can confirm (e.g. "breaks all callers" when your search turns up exactly one caller), that
    claim doesn't hold up even if the narrower, real version of the concern does.
 
+These checks fail independently - a finding only gets dropped entirely for reasons that make the
+concern itself false (not caused by this diff, lint-level, the failure scenario doesn't occur, or
+it's already mitigated). A citation problem alone is never one of those reasons: a real,
+on-topic, correctly-applied concern stays a finding - kept as a CRITICAL or MAJOR if the citation
+holds, downgraded to a nit (citation: null) if only the citation doesn't, never discarded outright
+just because the wording wasn't a perfect quote.
+
 Disposition, per finding:
 - Not caused by this diff, or merely lint-level: drop it entirely.
-- Citation fabricated, unfindable, misapplied, or inapplicable to this code: downgrade - set
-  citation to null and keep it as a nit. Do not substitute a better citation of your own.
-- Failure scenario doesn't occur, or is already mitigated elsewhere: drop it entirely.
+- The failure scenario doesn't occur, or is already mitigated elsewhere: drop it entirely.
+- The concern is real, but its citation is fabricated, unfindable, misapplied, or inapplicable to
+  this code: downgrade - set citation to null and keep the finding as a nit. Do not substitute a
+  better citation of your own, and do not drop the finding just because its citation didn't hold.
 - The core concern survives but part of what Layer 2 said about it doesn't (an overstated
   severity, an overstated scope, or a supporting detail that doesn't check out): keep the
   finding, correct only the specific field that's wrong (severity and/or summary) to match what
