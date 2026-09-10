@@ -1,8 +1,6 @@
-"""Turn Layer 3's verified findings into the merge decision itself, per this
-repo's review contract (CLAUDE.md / openspec/config.yaml): a finding blocks
-merge only if it still carries a citation after verification - anything
-else is a nit, recorded but never blocking. Exits non-zero when the verdict
-is "no", so CI can fail the check on it.
+"""Layer 4: render Layer 3's verified findings as the Ready to merge: yes/no
+verdict - a finding blocks only if it still carries a citation. Exits
+non-zero on "no" so CI can fail the check.
 """
 from __future__ import annotations
 

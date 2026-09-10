@@ -41,7 +41,7 @@ never silently disagree about which files or diff make up "the PR".
 Both are a manual agentic loop (`agent.py`) over `client.messages.create()`: the model gets
 read-only tools (`read_file`, `grep`, `list_files` - `tools.py`, confined to the repo root) to
 search the codebase, and every request also carries `output_config.format` with a JSON schema
-(`schemas.py`) that constrains the model's *final* text answer. Tool-use turns are unaffected -
+(`agent.py`'s `FINDINGS_SCHEMA`) that constrains the model's *final* text answer. Tool-use turns are unaffected -
 the schema only binds once the model stops calling tools and writes a final answer - so this
 gets both agentic search and guaranteed-valid JSON output from a single loop, with no markdown
 fence or explanatory prose to strip afterward.
@@ -56,13 +56,25 @@ and `tools` could be combined without relying on undocumented interaction betwee
 surfaces.
 
 The initial user message (repo rules + diff, which stays constant across the loop) carries
-`cache_control: {"type": "ephemeral"}` - the tool-use loop resends that same prefix, plus
-`tools` and the system prompt ahead of it, on every one of up to `MAX_ITERATIONS` turns, so only
-the first turn pays full price for it.
+`cache_control: {"type": "ephemeral"}`, which also covers `tools` and the system prompt ahead of
+it. As the loop appends tool-call and tool-result turns, the breakpoint moves forward to the
+newest block each iteration (clearing the previous one, to stay under the 4-breakpoint cap) -
+otherwise only the very first turn would ever be cached, and every later turn would resend the
+whole growing tail at full price, the cost of which grows with roughly the square of the number
+of turns.
 
 Retries for transient API errors (429/5xx/connection failures) and tool-output truncation
 (`MAX_OUTPUT_CHARS` in `tools.py`) are already handled - the SDK client retries by default
 (`max_retries`), so `agent.py` doesn't reimplement it.
+
+`judge.py` also passes `task_budget=TASK_BUDGET_TOKENS` (40,000) to `agent.run()` - a total
+token ceiling for the whole loop (beta `task-budgets-2026-03-13`), so the model paces its own
+spend across iterations (reading fewer/more files depending on what a given diff needs) instead
+of every response getting the same fixed `MAX_TOKENS` cap regardless of how much the turn
+actually required. `agent.run()`'s `task_budget` argument is opt-in per caller because the beta
+isn't supported on every model - `verify.py` runs on Haiku 4.5, which doesn't support it, so it
+stays on the plain (non-beta) request path and keeps `MAX_ITERATIONS`/`MAX_TOKENS` as its only
+spend guardrail.
 
 ## Why this shape
 

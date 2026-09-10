@@ -1,12 +1,7 @@
-"""Layer 2: judge a PR diff against architectural fit, this repo's own
-conventions, functional correctness/completeness, and blast radius
-(duplicated logic elsewhere in the codebase).
-
-Runs Layer 1 (lint.py) itself first. Findings that land on the same
-(file, line) as a Layer 1 finding are dropped programmatically after the
-model responds - not left to a prompt instruction the model might not
-follow. (An earlier prompt-only version of this rule was tested and did not
-hold reliably; filtering in code cannot fail to hold.)
+"""Layer 2: judge a PR diff for architectural fit, convention compliance,
+correctness, and blast radius. Runs Layer 1 (lint.py) first and drops any
+finding that lands on the same (file, line) as a lint finding in code - a
+prompt-only version of that rule was tested and didn't reliably hold.
 """
 from __future__ import annotations
 
@@ -18,10 +13,10 @@ from pathlib import Path
 import agent
 import anthropic
 import lint
-import schemas
 import target
 
 MODEL = "claude-sonnet-5"
+TASK_BUDGET_TOKENS = 40_000  # guardrail on total spend for one judge run
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 SYSTEM_PROMPT = (PROMPTS_DIR / "judge.md").read_text()
 
@@ -40,7 +35,7 @@ def judge(client, target_arg: str | None) -> dict:
     lint_result = lint.run(target.changed_python_files(target_arg))
     user_content = build_user_content(target_arg, lint_result)
 
-    result = agent.run(client, MODEL, SYSTEM_PROMPT, user_content, schemas.FINDINGS_SCHEMA)
+    result = agent.run(client, MODEL, SYSTEM_PROMPT, user_content, task_budget=TASK_BUDGET_TOKENS)
 
     closed = _closed_locations(lint_result)
     result["findings"] = [

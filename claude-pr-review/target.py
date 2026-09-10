@@ -1,8 +1,5 @@
 """Resolve "what am I reviewing" the same way for every layer: a PR number,
-a branch name, or nothing (the working tree against its upstream or the
-default branch). Layer 1 (lint.py) and the judge/verify agents all resolve
-a target through this one module, so they never silently disagree about
-which files or diff make up "the PR".
+a branch name, or nothing (the working tree's uncommitted changes).
 """
 from __future__ import annotations
 

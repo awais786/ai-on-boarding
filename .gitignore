@@ -24,3 +24,4 @@ tooling/api-verification/build/
 
 # PR review agent build output
 claude-pr-review/build/
+.env

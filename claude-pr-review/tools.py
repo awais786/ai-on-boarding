@@ -1,8 +1,6 @@
-"""Read-only tools given to both the judge and verify agents. No tool here
-can write to the repository, run arbitrary shell commands, or leave the
-repo root - the guardrail is structural (these are the only three functions
-ever wired into the tool loop), not a prompt instruction the model could be
-talked out of.
+"""Read-only tools given to the judge and verify agents. No write access, no
+arbitrary shell - these three functions are the only ones ever wired into
+the tool loop, so the guardrail is structural, not a prompt instruction.
 """
 from __future__ import annotations
 
@@ -53,8 +51,7 @@ def grep(pattern: str, path: str = ".") -> str:
         result = None
 
     if result is None or result.returncode not in (0, 1):  # 1 = no matches, not an error
-        # Fall back to `grep` if ripgrep isn't installed (or errored oddly).
-        try:
+        try:  # rg missing or errored oddly - fall back to grep
             result = subprocess.run(
                 ["grep", "-rn", "-E", pattern, str(target)], capture_output=True, text=True,
             )

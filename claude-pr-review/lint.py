@@ -1,16 +1,6 @@
-"""Layer 1: the linter, and only the linter.
-
-This is the one deterministic layer in the review. It never uses an LLM and
-its findings are ground truth - Layer 2 (judge.py) runs this module's
-`run()` directly and drops any of its own findings that land on the same
-(file, line) as one of these, in code, not by prompt instruction alone.
-
-Scoped to the files the target actually changed (see target.py), not the
-whole repository - a PR that never touches a file is never blocked by that
-file's pre-existing lint debt. A changed file is linted whole, though: a
-pre-existing issue on a line the PR didn't touch can still surface, since
-line-level diff scoping is meaningfully more complex than this layer needs
-to be for what it's for.
+"""Layer 1: run ruff over the files the target changed (target.py). No LLM -
+its findings are ground truth judge.py filters its own output against.
+Lints each changed file whole, not just the touched lines.
 """
 from __future__ import annotations
 
@@ -26,11 +16,8 @@ PR_REVIEW_DIR = Path(__file__).resolve().parent
 
 
 def _ruff() -> str:
-    # ruff is a dependency of this directory's requirements.txt. Prefer this
-    # directory's own .venv (present whether this script is run directly
-    # with a system `python3`, e.g. from inside a skill, or through that
-    # venv's own interpreter), then fall back to a console script next to
-    # whatever interpreter is actually running this, then bare PATH lookup.
+    # Prefer this dir's own .venv, then a console script beside the running
+    # interpreter, then bare PATH lookup.
     candidates = [
         PR_REVIEW_DIR / ".venv" / "bin" / "ruff",
         Path(sys.executable).parent / "ruff",

@@ -1,7 +1,6 @@
-"""Layer 3: independently re-check Layer 2's findings against the actual
-diff and repo before any of them is allowed to block a merge - confirms
-each citation is real and each failure scenario actually holds, dropping or
-downgrading anything that doesn't check out.
+"""Layer 3: independently re-check Layer 2's findings before any of them can
+block a merge - confirms each citation is real and each failure scenario
+actually holds, dropping or downgrading anything that doesn't check out.
 """
 from __future__ import annotations
 
@@ -12,7 +11,6 @@ from pathlib import Path
 
 import agent
 import anthropic
-import schemas
 import target
 
 MODEL = "claude-haiku-4-5-20251001"
@@ -30,7 +28,7 @@ def verify(client, target_arg: str | None, findings: dict) -> dict:
     if not findings.get("findings"):
         return {"findings": []}
     user_content = build_user_content(target_arg, findings)
-    return agent.run(client, MODEL, SYSTEM_PROMPT, user_content, schemas.FINDINGS_SCHEMA)
+    return agent.run(client, MODEL, SYSTEM_PROMPT, user_content)
 
 
 def main() -> int:
