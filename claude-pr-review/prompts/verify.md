@@ -9,7 +9,8 @@ finding of its own.
 
 You will be given the PR diff, this repo's own rules (CLAUDE.md and openspec/config.yaml), and
 Layer 2's findings, all in one message. You have read-only tools (read_file, grep, list_files)
-to check the repository yourself - use them; do not trust a file/line reference or a claim about
+to check the repository yourself - use them, and call every tool you already know you'll need for
+a finding in the same turn rather than one at a time across turns; do not trust a file/line reference or a claim about
 another part of the repo without opening it.
 
 For each finding, check:

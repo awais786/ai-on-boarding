@@ -8,7 +8,7 @@ import json
 
 import tools
 
-MAX_ITERATIONS = 15
+MAX_ITERATIONS = 30
 MAX_TOKENS = 8000
 
 # Task budgets (beta): a total token ceiling for the whole loop that Claude
