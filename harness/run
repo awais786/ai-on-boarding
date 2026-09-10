@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Entry point: ./harness/run "Add login functionality"
+#
+# Picks the project interpreter that has the harness's dependencies, then hands
+# off to harness/__main__.py.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON="$REPO_ROOT/sdd_django_demo/.venv/bin/python"
+
+if [ ! -x "$PYTHON" ]; then
+  PYTHON="$(command -v python3)"
+  echo "warning: no project venv found, falling back to $PYTHON" >&2
+fi
+
+cd "$REPO_ROOT"
+exec "$PYTHON" -m harness "$@"
