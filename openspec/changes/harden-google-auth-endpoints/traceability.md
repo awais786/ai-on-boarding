@@ -7,10 +7,10 @@ the code that implements it, and the test that protects it.
 
 | Requirement | Code | Test |
 |---|---|---|
-| Sign in with a verified Google access token | `mcp_views.GoogleAuthView.post`; `mcp_views.resolve_google_user` | `test_a_matching_account_signs_in`, `test_signing_in_a_second_time_succeeds_again` |
+| Sign in with a verified Google access token | `mcp_views.GoogleAuthView.post`; `google_auth.resolve_google_user` | `test_a_matching_account_signs_in`, `test_signing_in_a_second_time_succeeds_again` |
 | Accept only a token issued for this application | `google_auth.verify_access_token`'s audience check; `settings.GOOGLE_OAUTH_CLIENT_IDS` (stripped) | `test_a_token_for_a_different_application_is_rejected`, `test_a_later_configured_client_id_in_a_multi_client_deployment_is_accepted` |
 | Require a verified email address | `google_auth.verify_access_token`'s `email_verified` check | `test_an_unverified_email_is_rejected` |
-| Refuse an ambiguous or absent matching account | `mcp_views.resolve_google_user` | `test_no_matching_account_is_rejected`, `test_more_than_one_matching_account_is_rejected` |
+| Refuse an ambiguous or absent matching account | `google_auth.resolve_google_user` | `test_no_matching_account_is_rejected`, `test_more_than_one_matching_account_is_rejected` |
 | Refuse an embargoed account | `mcp_views.GoogleAuthView.post` (`is_user_embargoed`) | `test_an_embargoed_account_is_rejected` |
 | Restrict signin to a configured hosted domain | `google_auth._matches_hosted_domain` | `test_a_matching_hosted_domain_is_accepted`, `test_a_hosted_domain_differing_only_in_case_is_accepted`, `test_a_non_matching_hosted_domain_is_rejected`, `test_an_absent_hosted_domain_claim_is_rejected_when_a_restriction_is_configured`, `test_no_hosted_domain_claim_is_fine_when_no_restriction_is_configured` |
 | Identical rejection response for every Google-side refusal | `mcp_views.GOOGLE_REJECTION_BODY` (pre-existing, now tested) | `test_every_google_side_refusal_gives_the_same_response` |

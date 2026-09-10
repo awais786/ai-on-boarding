@@ -6,6 +6,7 @@ the resulting access token here. This project never holds the Google client secr
 
 import requests
 from django.conf import settings
+from django.contrib.auth.models import User
 
 TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo'
 TOKENINFO_TIMEOUT = 5
@@ -48,6 +49,19 @@ def verify_access_token(access_token):
         raise GoogleTokenError('Account is outside the permitted domain.')
 
     return claims
+
+
+def resolve_google_user(email):
+    """The single Django account a verified Google address signs in as, or None.
+
+    Refuses an ambiguous match: User.email carries no uniqueness constraint here, so
+    picking one of several candidates could hand the caller a token for an account
+    that is not theirs.
+    """
+    matches = list(User.objects.filter(email__iexact=email).order_by('pk')[:2])
+    if len(matches) != 1:
+        return None
+    return matches[0]
 
 
 def _matches_hosted_domain(claims, required_domain):

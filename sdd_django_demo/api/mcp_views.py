@@ -9,7 +9,7 @@ file to the account lifecycle (signup, signin, password reset) every caller uses
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiResponse
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
@@ -17,7 +17,7 @@ from rest_framework.response import Response
 
 from embargo.rules import is_user_embargoed
 
-from .google_auth import GoogleTokenError, verify_access_token
+from .google_auth import GoogleTokenError, resolve_google_user, verify_access_token
 from .serializers import (
     AdminChangePasswordSerializer,
     GoogleAuthSerializer,
@@ -73,7 +73,7 @@ class AdminChangePasswordView(generics.GenericAPIView):
         user.set_password(serializer.validated_data['password'])
         user.save(update_fields=['password'])
         Token.objects.filter(user=user).delete()
-        return Response({'detail': 'Password changed.'}, status=200)
+        return Response({'detail': 'Password changed.'}, status=status.HTTP_200_OK)
 
 
 class SelfChangePasswordView(generics.GenericAPIView):
@@ -95,24 +95,13 @@ class SelfChangePasswordView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         if not request.user.check_password(serializer.validated_data['current_password']):
-            return Response({'detail': 'Current password is incorrect.'}, status=400)
+            return Response(
+                {'detail': 'Current password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST
+            )
         request.user.set_password(serializer.validated_data['new_password'])
         request.user.save(update_fields=['password'])
         Token.objects.filter(user=request.user).delete()
-        return Response({'detail': 'Password changed.'}, status=200)
-
-
-def resolve_google_user(email):
-    """The single Django account a verified Google address signs in as, or None.
-
-    Refuses an ambiguous match: User.email carries no uniqueness constraint here, so
-    picking one of several candidates could hand the caller a token for an account
-    that is not theirs.
-    """
-    matches = list(User.objects.filter(email__iexact=email).order_by('pk')[:2])
-    if len(matches) != 1:
-        return None
-    return matches[0]
+        return Response({'detail': 'Password changed.'}, status=status.HTTP_200_OK)
 
 
 class GoogleAuthView(generics.GenericAPIView):
@@ -142,11 +131,11 @@ class GoogleAuthView(generics.GenericAPIView):
         try:
             claims = verify_access_token(serializer.validated_data['access_token'])
         except GoogleTokenError:
-            return Response(dict(GOOGLE_REJECTION_BODY), status=401)
+            return Response(dict(GOOGLE_REJECTION_BODY), status=status.HTTP_401_UNAUTHORIZED)
 
         user = resolve_google_user(claims['email'])
         if user is None or is_user_embargoed(user):
-            return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=403)
+            return Response(dict(GOOGLE_NO_ACCOUNT_BODY), status=status.HTTP_403_FORBIDDEN)
 
         token, _ = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key}, status=200)
+        return Response({'token': token.key}, status=status.HTTP_200_OK)
