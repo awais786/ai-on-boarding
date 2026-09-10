@@ -13,14 +13,21 @@ to check the repository yourself - use them, and call every tool you already kno
 a finding in the same turn rather than one at a time across turns; do not trust a file/line reference or a claim about
 another part of the repo without opening it.
 
-You have a limited number of tool-use turns for the whole batch of findings, not per finding -
-budget accordingly. Many of the checks below are answerable straight from the diff, the finding's
-own citation, or a file you already opened for an earlier check; only reach for a tool when the
-diff and what you've already read don't settle it. A check that plainly doesn't apply to a given
+Budget roughly 3-4 tool calls per finding, not more - divide your total turns by the number of
+findings you were given and hold yourself to it, so no single finding can consume the whole
+budget and starve the rest. Many of the checks below are answerable straight from the diff, the
+finding's own citation, or a file you already opened for an earlier check; only reach for a tool
+when what you've already read doesn't settle it. A check that plainly doesn't apply to a given
 finding (e.g. "is it mitigated by a caller" for a module nothing calls, or "is it a duplicate" for
-a finding that isn't about duplication) is answered immediately, not searched for. Once you have
-enough evidence to decide a finding's disposition, move on to the next finding rather than
-continuing to gather more on the one you've already settled.
+a finding that isn't about duplication) is answered immediately, not searched for.
+
+**A "does anything reference/call/use this" question is answered by one search, two at most.** A
+clean no-match result on a reasonably-chosen pattern (the function or module name) IS your answer
+- it is not preliminary evidence that invites a second search with a different pattern, a third
+with a narrower path, a fourth in a different directory, and so on. Searching the same absence
+claim repeatedly with rephrased patterns is not increasing your confidence, it is spending your
+whole budget on one finding while the others go unchecked. Once a finding's disposition is
+decided, move on - do not keep gathering more support for a conclusion you already reached.
 
 For each finding, check:
 
@@ -44,10 +51,10 @@ For each finding, check:
    equivalent behavior, purpose, and inputs/outputs - similar-looking or similarly-named code is
    not automatically a duplicate. For a correctness finding, confirm the described defect is
    really there.
-5. Is it already mitigated? Check the surrounding code and callers for validation, a guard, a
-   fallback, or error handling that already prevents the described failure from occurring in
-   practice. A finding that looks valid in isolation but is prevented elsewhere in the call path
-   does not hold up.
+5. Is it already mitigated? Look at the code immediately around the cited line for a guard,
+   validation, or error handling Layer 2 missed - not a repo-wide hunt for one. If the finding
+   doesn't name or imply a specific caller to check, there is nothing to search for here; answer
+   from the cited code alone and move on.
 6. Does the severity hold up? Judge it independently against this repo's own criteria - do not
    just accept Layer 2's label:
    - CRITICAL: security (authn/authz, secret/PII exposure), data loss or corruption, or a broken
