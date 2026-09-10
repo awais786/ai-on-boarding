@@ -1,0 +1,9 @@
+# Tools the dispatcher is permitted to execute. This gates dispatch only —
+# Bash is unrestricted at the command level, so it is not a capability sandbox.
+allowed_tools:
+  - Read
+  - Glob
+  - Grep
+  - Edit
+  - Write
+  - Bash
