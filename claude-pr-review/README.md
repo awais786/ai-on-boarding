@@ -101,21 +101,41 @@ consuming the shared budget and affecting every other finding in the same respon
 
 Splitting to one `agent.run()` call per finding removes the failure mode at the architecture
 level rather than continuing to word around it: each finding gets its own fresh
-`MAX_ITERATIONS`, a stuck or wrong verification on one finding cannot affect any other, and a
-finding that still fails (raises `agent.AgentError`) degrades to "drop just that finding, log it
-to stderr" instead of losing the whole run's output. `prompts/verify.md` was rewritten for a
-single finding per call to match - the batch-budgeting/starvation language is gone since the
-problem it addressed no longer exists in this shape.
+`MAX_ITERATIONS`, and a stuck or wrong verification on one finding cannot affect any other.
+`prompts/verify.md` was rewritten for a single finding per call to match - the batch-budgeting/
+starvation language is gone since the problem it addressed no longer exists in this shape. It was
+also restructured into two explicit, ordered questions (is the concern real, then separately is
+the citation good) after a fixture test showed a weak-but-real citation could drag a whole valid
+finding down with it - citation quality can now only ever edit a finding's `citation`/`severity`/
+`summary` fields, never remove it from the output.
+
+A finding whose verification call itself fails (a transient API error, or the loop exhausting
+`MAX_ITERATIONS`) is **kept**, not dropped - with `citation` cleared (so it can never block a
+merge on unverified grounds) and its summary prefixed `[UNVERIFIED - Layer 3 could not run]`. A
+five-file live test lost a real privilege-escalation finding to a transient 500 under the
+original "drop on error" policy; a random infrastructure hiccup is not evidence against a
+finding, so it now degrades to a visible, non-blocking nit instead of disappearing from the
+report. `file`/`line` anchors are preserved either way - `verify.py` never touches them, since
+Layer 4 renders a finding by them.
 
 ## Testing verify.py without a live PR
 
 `eval_verify.py` runs `verify.verify()` against a saved fixture (a directory with `diff.txt`,
-`rules.json`, `findings.json`) instead of a real PR - useful for iterating on `prompts/verify.md`
-without needing a paid CI cycle each time (it still spends real API money per trial - it's the
-round-trip through GitHub Actions and a throwaway PR that's avoided, not the API call itself).
-`fixtures/debug-files/` was captured from a real `judge.py` run against a throwaway smoke-test PR
-(three deliberately flawed files: a hardcoded secret, a plaintext-password print, a duplicated
-validator). Add more fixture directories in the same shape to cover other scenarios.
+`rules.json`, `findings.json`, and `files/`) instead of a real PR - useful for iterating on
+`prompts/verify.md` without needing a paid CI cycle each time (it still spends real API money
+per trial - it's the round-trip through GitHub Actions and a throwaway PR that's avoided, not the
+API call itself). `fixtures/debug-files/` was captured from a real `judge.py` run against a
+throwaway smoke-test PR (three deliberately flawed files: a hardcoded secret, a plaintext-password
+print, a duplicated validator). Add more fixture directories in the same shape to cover other
+scenarios.
+
+`files/` matters because Layer 3 reads the *working tree* through `tools.py`, not the fixture's
+own diff text - an early version of this harness shipped without it, so every `read_file` against
+a file the fixture's diff added returned "No such file", Layer 3 concluded the described code
+didn't exist, and dropped findings for that reason rather than any reason the fixture was written
+to test. `eval_verify.py` stages `files/`'s contents into the repo for the run and removes them
+afterward (refusing to overwrite anything that already exists there), so the tree Layer 3 sees
+matches the diff it was handed.
 
 ```bash
 .venv/bin/python eval_verify.py fixtures/debug-files --trials 3
@@ -143,6 +163,24 @@ validator). Add more fixture directories in the same shape to cover other scenar
 `.github/workflows/pr-review-agent.yml` runs all four layers on every PR (`opened`,
 `synchronize`) against `secrets.ANTHROPIC_API_KEY`, posts Layer 4's verdict as a PR comment via
 `gh pr comment`, and fails the check when the verdict is `no`.
+
+## What's been tested
+
+Local (`eval_verify.py fixtures/debug-files --trials 5`, valid fixture, 5 repeated trials): the
+CI-visible verdict (`Ready to merge: no`) was stable across all 5, with per-finding disposition
+varying underneath - the two CRITICAL security findings survived 5/5, the two MAJOR process
+findings 3/5-4/5, and zero `file`/`line` mutations.
+
+Live, end to end via `.github/workflows/pr-review-agent.yml` against a throwaway PR: Layer 2
+raised 4 findings, Layer 3 kept 3 with all iterations inside the 30-turn cap, and Layer 4 posted
+`Ready to merge: no` and failed the check, matching the local result on the same scenario.
+
+A second live-equivalent run against a hand-built five-file diff (three planted defects, one
+subtle authorization bug, one clean control file with no defect): Layer 2 flagged all four real
+issues, including `IsAuthenticated` on a view documented as admin-only, and raised nothing on the
+clean file. This run is also what caught the "drop on verification error" bug described above -
+a transient 500 deleted the authorization finding from the verdict on the first attempt; a
+clean re-run kept it, isolating the API hiccup as the cause rather than the finding itself.
 
 ## Not built yet
 
