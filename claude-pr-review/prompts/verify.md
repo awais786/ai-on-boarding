@@ -55,17 +55,29 @@ what you think of the citation:
 2. Is it lint-level? If the finding is really about formatting, whitespace, unused imports, or
    anything else Layer 1 (a linter) already covers, this fails - Layer 2 was told to exclude
    these, and this is the backstop for when that instruction wasn't followed.
-3. Does the failure scenario actually occur, at the cited location? Read the diff and the
-   surrounding code yourself - don't take the summary's word for it. Confirm the file and line
-   cited actually contain the behavior being criticized, not a nearby but different hunk. For a
-   duplication finding, open the file at the claimed other location and confirm genuinely
-   equivalent behavior, purpose, and inputs/outputs - similar-looking or similarly-named code is
-   not automatically a duplicate. For a correctness finding, confirm the described defect is
-   really there. If it isn't there, this fails.
+3. Does the failure scenario actually occur? Read the diff and the surrounding code yourself -
+   don't take the summary's word for it. Where the finding cites a specific line, confirm that
+   line really contains the behavior being criticized, not a nearby but different hunk. Where
+   `line` is null, the claim is about the file or the change as a whole (scope creep, missing
+   tests, no spec backing, dead code) - check the claim as actually stated, and do not fail it
+   merely because there's no single line to point at. For a correctness finding, confirm the
+   described defect is really there. If it isn't there, this fails.
+   For a duplication finding, open the file at the claimed other location and compare the *rule or
+   logic* said to be duplicated, not the calling convention around it. Two copies of the same
+   policy count as duplication even when one raises and the other returns a bool, one is a DRF
+   validator and the other a plain helper, or one reuses a named constant and the other inlines
+   the same literal - that divergence risk is the point of the finding. What does not count is
+   code that merely looks or is named similar while encoding a different rule.
 4. Is it already mitigated? Look at the code immediately around the cited line for a guard,
    validation, or error handling Layer 2 missed - not a repo-wide hunt for one. If the finding
    doesn't name or imply a specific caller to check, there is nothing to search for here, and this
    passes by default. If a real guard prevents the failure in practice, this fails.
+   **"Nothing calls this yet" is not mitigation and never fails this check.** A guard is code that
+   neutralizes the failure when the path *is* exercised. Unreferenced modules, unwired endpoints,
+   dead code, and features behind an off flag are not guards - they are unshipped hazards, and a
+   secret or credential committed to a tracked file is already exposed in history whether or not
+   anything imports it. If unreachability genuinely makes a finding less severe, that is a
+   severity adjustment for Question 2, never grounds to drop it here.
 
 A concern can be real and worth flagging even when the specific repo convention cited for it is
 weak or a stretch - "this is bad practice" and "this specific quoted rule is the reason it's bad
@@ -96,6 +108,11 @@ or `summary` field - it can never turn a real concern into an empty array.
 7. Does the claimed scope match the evidence? If the summary claims broader impact than what you
    can confirm (e.g. "breaks all callers" when your search turns up exactly one caller), correct
    the summary to the narrower, confirmed version - the concern itself still stands.
+
+`file` and `line` are Layer 2's anchors and are never yours to change - copy them through exactly
+as given, including a null `line`. Layer 4 renders a finding by them; blanking a real path turns a
+located finding into an unlocatable one. The only fields you may ever edit are `citation`,
+`severity`, and `summary`.
 
 Disposition - this is the order to expect, most common first:
 - Question 1 passed, and citation/severity/scope all hold up as given: return the finding exactly
