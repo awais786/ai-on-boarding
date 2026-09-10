@@ -1,8 +1,9 @@
-"""The vertical slice: task -> phases -> agent -> validation -> verdict.
+"""The vertical slice: task -> phases -> agent -> verification -> recovery -> verdict.
 
 Run via ./harness/run "<task>". Each phase is one Claude Code invocation with
 its own model and tool policy; the harness supplies the task, applies the
-policy, feeds each phase's output to the next, then validates and judges.
+policy, feeds each phase's output to the next, then verifies the result and
+hands failures back to the agent a bounded number of times before judging.
 It does not participate in the agent's loop.
 """
 from __future__ import annotations
@@ -15,7 +16,7 @@ import sys
 
 from . import session
 from .policy import build_agent_command, load_policy
-from .validate import run_tests
+from .validate import run_checks
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -30,10 +31,27 @@ def working_tree_state(repo_root: str) -> list[str]:
     return sorted(ln for ln in proc.stdout.splitlines() if ln.strip())
 
 
+def run_phase(phase, prompt: str) -> session.AgentResult:
+    command = build_agent_command(prompt, phase)
+    print(f"[{phase.name}]")
+    print(f"  model : {phase.model or '(agent default)'}")
+    print(f"  tools : {', '.join(phase.allowed_tools) or '(none)'}")
+
+    result = session.run(command, cwd=REPO_ROOT)
+    print(f"  ran on: {', '.join(result.models) or 'unreported'}")
+    print(f"  turns : {result.turns}   cost: ${result.cost_usd:.4f}")
+    if result.denials:
+        print(f"  denied: {len(result.denials)} tool call(s) blocked by policy")
+    if not result.ok:
+        print(f"  error : {result.error or 'agent reported failure'}")
+    print()
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="harness/run",
-        description="Run a coding task through the configured coding agent, then validate it.",
+        description="Run a coding task through the configured coding agent, then verify it.",
     )
     parser.add_argument("task", help='e.g. "Add login functionality"')
     parser.add_argument("--policy", default=None, help="path to a policy YAML file")
@@ -52,9 +70,14 @@ def main(argv: list[str] | None = None) -> int:
 
     policy = load_policy(args.policy)
     if args.model:
+
+        def on_model(phase):
+            return phase and dataclasses.replace(phase, model=args.model)
+
         policy = dataclasses.replace(
             policy,
-            phases=[dataclasses.replace(p, model=args.model) for p in policy.phases],
+            phases=[on_model(p) for p in policy.phases],
+            repair=on_model(policy.repair),
         )
 
     if not policy.phases:
@@ -62,53 +85,61 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     print(f"task   : {args.task}")
-    print(f"phases : {' -> '.join(p.name for p in policy.phases)}\n")
+    print(f"phases : {' -> '.join(p.name for p in policy.phases)}")
+    print(f"checks : {', '.join(c.name for c in policy.checks) or '(none)'}")
+    print(f"repair : up to {policy.max_repair_attempts} attempt(s)\n")
+
+    if args.dry_run:
+        for phase in policy.phases:
+            command = build_agent_command(phase.render(task=args.task), phase)
+            print(f"[{phase.name}]")
+            print(f"  model : {phase.model or '(agent default)'}")
+            print(f"  tools : {', '.join(phase.allowed_tools) or '(none)'}")
+            print(f"  cmd   : {' '.join(command)}\n")
+        print("dry run — agent not invoked")
+        return 0
 
     before = working_tree_state(REPO_ROOT)
     previous = ""
     total_cost = 0.0
 
     for phase in policy.phases:
-        prompt = phase.render(args.task, previous)
-        command = build_agent_command(prompt, phase)
-
-        print(f"[{phase.name}]")
-        print(f"  model : {phase.model or '(agent default)'}")
-        print(f"  tools : {', '.join(phase.allowed_tools) or '(none)'}")
-
-        if args.dry_run:
-            print(f"  cmd   : {' '.join(command)}\n")
-            continue
-
-        result = session.run(command, cwd=REPO_ROOT)
+        result = run_phase(phase, phase.render(task=args.task, previous=previous))
         total_cost += result.cost_usd
-        print(f"  ran on: {', '.join(result.models) or 'unreported'}")
-        print(f"  turns : {result.turns}   cost: ${result.cost_usd:.4f}")
-        if result.denials:
-            print(f"  denied: {len(result.denials)} tool call(s) blocked by policy")
         if not result.ok:
-            print(f"  error : {result.error or 'agent reported failure'}")
-            print("\nFAIL")
+            print("FAIL")
             return 1
-        print()
         previous = result.text
 
-    if args.dry_run:
-        print("dry run — agent not invoked")
-        return 0
+    failed: list = []
+    for attempt in range(policy.max_repair_attempts + 1):
+        print("verifying…")
+        results = run_checks(REPO_ROOT, policy.checks)
+        for check in results:
+            print(f"  {'ok  ' if check.ok else 'FAIL'} {check.name}: {check.summary}")
+        failed = [c for c in results if not c.ok]
+        print()
+
+        if not failed or not policy.repair or attempt == policy.max_repair_attempts:
+            break
+
+        print(f"repair attempt {attempt + 1} of {policy.max_repair_attempts}")
+        failures = "\n".join(f"- {c.name}: {c.summary}" for c in failed)
+        repair = run_phase(
+            policy.repair, policy.repair.render(task=args.task, failures=failures)
+        )
+        total_cost += repair.cost_usd
+        if not repair.ok:
+            break
 
     changed = [ln for ln in working_tree_state(REPO_ROOT) if ln not in before]
     print(f"changed: {len(changed)} path(s)")
     for line in changed:
         print(f"         {line}")
-
-    print("\nvalidating…")
-    validation = run_tests(REPO_ROOT)
-    print(f"tests  : {validation.summary}")
     print(f"cost   : ${total_cost:.4f}")
 
-    print(f"\n{'PASS' if validation.ok else 'FAIL'}")
-    return 0 if validation.ok else 1
+    print(f"\n{'PASS' if not failed else 'FAIL'}")
+    return 0 if not failed else 1
 
 
 if __name__ == "__main__":

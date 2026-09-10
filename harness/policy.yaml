@@ -18,6 +18,45 @@ allowed_tools:
 
 permission_mode: acceptEdits
 
+# Guardrail: how many times the harness hands failing checks back to the agent
+# before giving up. 0 disables recovery.
+max_repair_attempts: 1
+
+# Verification. Every check runs and all must pass. Multi-layered on purpose:
+# a green test suite does not catch a broken Django config or a spec that no
+# longer validates.
+#
+# Deliberately `--specs` rather than `--all`: `--all` also validates in-progress
+# changes under openspec/changes/, one of which is already failing for reasons
+# unrelated to anything the agent does, which would make every run report FAIL.
+checks:
+  - name: django
+    cwd: sdd_django_demo
+    command: [".venv/bin/python", "manage.py", "check"]
+  - name: specs
+    command: ["openspec", "validate", "--specs"]
+  - name: tests
+    cwd: sdd_django_demo
+    command: [".venv/bin/python", "-m", "pytest", "-q"]
+
+# Recovery: run when verification fails and attempts remain. {failures} is the
+# list of failing checks and their output.
+repair:
+  model: sonnet
+  prompt: |
+    Your changes for this task did not pass the project's checks.
+
+    The task was:
+
+    {task}
+
+    These checks failed:
+
+    {failures}
+
+    Fix them without changing the intent of the task. Do not disable, skip or
+    weaken a check to make it pass.
+
 # Each phase is one agent invocation. {task} is the developer's request;
 # {previous} is the preceding phase's output.
 phases:

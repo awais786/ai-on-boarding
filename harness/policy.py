@@ -15,7 +15,16 @@ from dataclasses import dataclass, field
 
 import yaml
 
+from .validate import Check
+
 DEFAULT_POLICY_PATH = os.path.join(os.path.dirname(__file__), "policy.yaml")
+
+
+class _Blanks(dict):
+    """Unsupplied prompt placeholders render empty rather than raising."""
+
+    def __missing__(self, key):
+        return ""
 
 
 @dataclass
@@ -29,13 +38,28 @@ class Phase:
     # of that list here would go stale.
     model: str | None = None
 
-    def render(self, task: str, previous: str = "") -> str:
-        return self.prompt.format(task=task, previous=previous).strip()
+    def render(self, **fields: str) -> str:
+        return self.prompt.format_map(_Blanks(fields)).strip()
 
 
 @dataclass
 class Policy:
     phases: list[Phase] = field(default_factory=list)
+    checks: list[Check] = field(default_factory=list)
+    # Guardrail: how many times the harness will hand failing checks back to
+    # the agent before giving up. 0 disables recovery entirely.
+    max_repair_attempts: int = 0
+    repair: Phase | None = None
+
+
+def _phase(entry: dict, tools: list[str], mode: str, model: str | None) -> Phase:
+    return Phase(
+        name=entry.get("name") or "phase",
+        prompt=entry.get("prompt") or "{task}",
+        allowed_tools=list(entry.get("allowed_tools") or tools),
+        permission_mode=entry.get("permission_mode") or mode,
+        model=entry.get("model") or model,
+    )
 
 
 def load_policy(path: str | None = None) -> Policy:
@@ -43,22 +67,24 @@ def load_policy(path: str | None = None) -> Policy:
     with open(resolved, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 
-    default_tools = list(raw.get("allowed_tools") or [])
-    default_mode = raw.get("permission_mode") or "acceptEdits"
-    default_model = raw.get("model") or None
+    tools = list(raw.get("allowed_tools") or [])
+    mode = raw.get("permission_mode") or "acceptEdits"
+    model = raw.get("model") or None
 
-    phases = []
-    for entry in raw.get("phases") or []:
-        phases.append(
-            Phase(
-                name=entry["name"],
-                prompt=entry.get("prompt") or "{task}",
-                allowed_tools=list(entry.get("allowed_tools") or default_tools),
-                permission_mode=entry.get("permission_mode") or default_mode,
-                model=entry.get("model") or default_model,
+    repair_entry = raw.get("repair")
+    return Policy(
+        phases=[_phase(e, tools, mode, model) for e in raw.get("phases") or []],
+        checks=[
+            Check(
+                name=c.get("name") or "check",
+                command=list(c.get("command") or []),
+                cwd=c.get("cwd") or ".",
             )
-        )
-    return Policy(phases=phases)
+            for c in raw.get("checks") or []
+        ],
+        max_repair_attempts=int(raw.get("max_repair_attempts") or 0),
+        repair=_phase(repair_entry, tools, mode, model) if repair_entry else None,
+    )
 
 
 def build_agent_command(

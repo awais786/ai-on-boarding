@@ -98,7 +98,63 @@ def test_configured_policy_is_used_not_hardcoded(tmp_path):
 def test_prompt_receives_the_task_and_the_previous_phase_output():
     phase = Phase("code", "task={task} previous={previous}", ["Read"])
 
-    assert phase.render("Add login", "the plan") == "task=Add login previous=the plan"
+    rendered = phase.render(task="Add login", previous="the plan")
+
+    assert rendered == "task=Add login previous=the plan"
+
+
+def test_unsupplied_placeholder_renders_empty_rather_than_raising():
+    """The repair prompt uses {failures}; the code prompt does not. A phase
+    must not explode because a placeholder it never uses went unsupplied."""
+    phase = Phase("code", "task={task} failures={failures}", ["Read"])
+
+    assert phase.render(task="Add login") == "task=Add login failures="
+
+
+def test_shipped_policy_defines_the_verification_layers():
+    names = [c.name for c in load_policy().checks]
+
+    assert names == ["django", "specs", "tests"]
+
+
+def test_spec_check_validates_specs_not_in_progress_changes():
+    """--all also validates openspec/changes/, where an unrelated failing
+    change would make every harness run report FAIL."""
+    specs = next(c for c in load_policy().checks if c.name == "specs")
+
+    assert "--specs" in specs.command
+    assert "--all" not in specs.command
+
+
+def test_shipped_policy_caps_repair_attempts():
+    policy = load_policy()
+
+    assert policy.max_repair_attempts == 1
+    assert policy.repair is not None
+
+
+def test_repair_phase_can_edit_and_run_the_suite():
+    repair = load_policy().repair
+
+    assert "Edit" in repair.allowed_tools
+    assert "Bash" in repair.allowed_tools
+
+
+def test_recovery_is_off_when_the_policy_says_so(tmp_path):
+    path = write_policy(
+        tmp_path,
+        """
+        allowed_tools: [Read]
+        phases:
+          - name: only
+            prompt: "{task}"
+        """,
+    )
+
+    policy = load_policy(path)
+
+    assert policy.max_repair_attempts == 0
+    assert policy.repair is None
 
 
 def test_empty_allowlist_omits_the_flag_rather_than_sending_nothing():
