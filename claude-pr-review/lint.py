@@ -15,6 +15,12 @@ from target import REPO_ROOT, changed_python_files
 PR_REVIEW_DIR = Path(__file__).resolve().parent
 
 
+class LintError(RuntimeError):
+    """ruff itself failed (bad config, crash, missing binary) - distinct from
+    finding lint violations, which is ruff exiting 1 and working correctly.
+    """
+
+
 def _ruff() -> str:
     # Prefer this dir's own .venv, then a console script beside the running
     # interpreter, then bare PATH lookup.
@@ -46,6 +52,17 @@ def run(files: list[str]) -> dict:
 
     if result.returncode == 0:
         return {"status": "pass", "findings": []}
+
+    # ruff's own convention: 1 means violations were found (the normal, expected
+    # "fail" case below); anything else (2 = tool/config error, or a missing
+    # binary surfacing as a non-standard code) is ruff not having run at all,
+    # which must not be silently reported as "zero findings" - that would let
+    # judge.py proceed believing Layer 1 covered files it never actually linted.
+    if result.returncode != 1:
+        raise LintError(
+            f"ruff exited {result.returncode} (expected 0 or 1) - it did not run "
+            f"successfully, so these files have no real lint coverage:\n{result.stderr}"
+        )
 
     violations = json.loads(result.stdout or "[]")
     findings = [

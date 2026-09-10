@@ -11,7 +11,12 @@ from pathlib import Path
 
 
 def _line(f: dict) -> str:
-    loc = f"{f['file']}:{f['line']}" if f.get("file") else "no location"
+    if not f.get("file"):
+        loc = "no location"
+    elif f.get("line") is None:
+        loc = f["file"]
+    else:
+        loc = f"{f['file']}:{f['line']}"
     return f"- [{f['severity']}] {f['summary']} ({loc})"
 
 

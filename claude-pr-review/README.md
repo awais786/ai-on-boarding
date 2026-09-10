@@ -1,6 +1,6 @@
 # pr-review-agent
 
-A three-layer automated PR review. Layer 1 is deterministic tooling; Layers 2 and 3 are Python
+A four-layer automated PR review. Layer 1 is deterministic tooling; Layers 2 and 3 are Python
 agents calling the Claude API directly (`anthropic` SDK) - not the Claude Code CLI.
 
 | Layer | What | Model | Where |

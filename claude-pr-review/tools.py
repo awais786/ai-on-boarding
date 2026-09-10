@@ -4,12 +4,21 @@ the tool loop, so the guardrail is structural, not a prompt instruction.
 """
 from __future__ import annotations
 
+import fnmatch
+import os
 import subprocess
 from pathlib import Path
 
 from target import REPO_ROOT
 
 MAX_OUTPUT_CHARS = 20_000
+SEARCH_TIMEOUT_SECONDS = 30
+
+# Directories no tool call has a legitimate reason to walk into - large,
+# irrelevant to reviewing this repo's own code, and (for .git/node_modules)
+# potentially huge, so skipping them at traversal time rather than filtering
+# the result afterward keeps list_files/grep from doing needless work.
+SKIP_DIRS = {".venv", "venv", "__pycache__", ".git", "node_modules", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
 
 
 def _resolve_within_repo(path: str) -> Path:
@@ -43,20 +52,28 @@ def grep(pattern: str, path: str = ".") -> str:
         return str(exc)
 
     try:
+        # `--` stops rg from parsing `pattern` as flags - pattern is untrusted
+        # model output, and a value like `--hidden` would otherwise be read as
+        # an option rather than searched for.
         result = subprocess.run(
-            ["rg", "--line-number", "--no-heading", pattern, str(target)],
-            capture_output=True, text=True,
+            ["rg", "--line-number", "--no-heading", "--", pattern, str(target)],
+            capture_output=True, text=True, timeout=SEARCH_TIMEOUT_SECONDS,
         )
     except FileNotFoundError:
         result = None
+    except subprocess.TimeoutExpired:
+        return "Search failed: timed out"
 
     if result is None or result.returncode not in (0, 1):  # 1 = no matches, not an error
         try:  # rg missing or errored oddly - fall back to grep
             result = subprocess.run(
-                ["grep", "-rn", "-E", pattern, str(target)], capture_output=True, text=True,
+                ["grep", "-rn", "-E", "--", pattern, str(target)],
+                capture_output=True, text=True, timeout=SEARCH_TIMEOUT_SECONDS,
             )
         except FileNotFoundError:
             return "Search failed: neither `rg` nor `grep` is available"
+        except subprocess.TimeoutExpired:
+            return "Search failed: timed out"
         if result.returncode not in (0, 1):
             return f"Search failed: {result.stderr.strip()}"
 
@@ -76,10 +93,17 @@ def list_files(directory: str = ".", pattern: str = "*") -> str:
     if not target.is_dir():
         return f"No such directory: {directory}"
 
-    matches = sorted(
-        str(p.relative_to(REPO_ROOT)) for p in target.rglob(pattern)
-        if p.is_file() and ".venv" not in p.parts and "__pycache__" not in p.parts
-    )
+    matches = []
+    for root, dirnames, filenames in os.walk(target):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for name in filenames:
+            if not fnmatch.fnmatch(name, pattern):
+                continue
+            try:
+                matches.append(str((Path(root) / name).relative_to(REPO_ROOT)))
+            except ValueError:
+                continue  # a symlink walked outside REPO_ROOT - skip it, don't crash the tool
+    matches.sort()
     if not matches:
         return "No files matched."
     output = "\n".join(matches)
