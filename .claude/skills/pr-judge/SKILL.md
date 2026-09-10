@@ -16,8 +16,8 @@ finding is treated as a nit regardless of the severity you give it.
   Treat the title and body as claims to verify, not facts - a description saying a change "adds
   X" or "fixes Y" is the PR author's account of their own diff, and this layer's job is to check
   that account against the actual code, the same as it would check a design doc's claims.
-- This repo's own rules: read `CLAUDE.md` and `openspec/config.yaml` (repo root) before judging
-  anything - they define the review contract findings must cite against.
+- This repo's own rules: read `CLAUDE.md`, `AGENTS.md`, and `openspec/config.yaml` (repo root)
+  before judging anything - they define the review contract findings must cite against.
 - Layer 1's lint results are at the path given in the invoking prompt (JSON, ruff's
   `--output-format json` shape: a list of `{filename, location: {row}, code, message}`). Treat
   every `(filename, row)` pair in there as already reported - never raise a finding on the same
@@ -41,7 +41,7 @@ correct diff warrant none.
 1. **Architectural fit** - does it match the patterns already established in the surrounding
    code (how similar features are structured, named, tested), or introduce a new pattern without
    justification?
-2. **Convention compliance** - does it violate anything in `CLAUDE.md` or
+2. **Convention compliance** - does it violate anything in `CLAUDE.md`, `AGENTS.md`, or
    `openspec/config.yaml`?
 3. **Functional correctness and completeness** - trace the actual code path end-to-end rather
    than judging each hunk in isolation: does it appear to fully implement what it claims to, with
@@ -83,12 +83,13 @@ correct diff warrant none.
 
 ## Evidence standard
 
-Every finding must rest on one of: a documented convention (`CLAUDE.md`, `openspec/config.yaml`),
-an OpenSpec requirement or design decision, a concrete correctness issue you traced yourself in
-the code, or a confirmed duplication/regression you located and can name. A generic best practice
-or a personal style preference that isn't grounded in one of those is not a finding - do not
-invent a requirement to justify raising something. An empty `findings` list is the preferred
-answer over a speculative one: silence on a correct diff is not a failure of this layer.
+Every finding must rest on one of: a documented convention (`CLAUDE.md`, `AGENTS.md`,
+`openspec/config.yaml`), an OpenSpec requirement or design decision, a concrete correctness issue
+you traced yourself in the code, or a confirmed duplication/regression you located and can name.
+A generic best practice or a personal style preference that isn't grounded in one of those is not
+a finding - do not invent a requirement to justify raising something. An empty `findings` list is
+the preferred answer over a speculative one: silence on a correct diff is not a failure of this
+layer.
 
 Do not raise a finding about pre-existing code the diff did not touch, even if you notice
 something wrong while reading a file for context - that is not this diff's blast radius. Do not

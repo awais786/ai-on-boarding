@@ -13,8 +13,8 @@ raise a new finding of your own, and don't invent a citation a finding lacked.
 - The PR number and repo are given in the invoking prompt.
 - Layer 2's findings are at the path given in the invoking prompt (default
   `build/judge_findings.json`), shaped `{"findings": [{severity, summary, citation, file, line}]}`.
-- This repo's own rules: `CLAUDE.md` and `openspec/config.yaml` (repo root) - the same contract
-  Layer 2 judged against.
+- This repo's own rules: `CLAUDE.md`, `AGENTS.md`, and `openspec/config.yaml` (repo root) - the
+  same contract Layer 2 judged against.
 - Get the diff yourself with `gh pr diff <number>` - don't take Layer 2's summaries as a
   substitute for reading it.
 
@@ -22,9 +22,9 @@ raise a new finding of your own, and don't invent a citation a finding lacked.
 
 1. **Does the citation hold up?** If `citation` is non-null, find it: does it name a real
    `### Requirement:` from a spec, a test that actually exists and actually fails for the stated
-   reason, or a sentence that genuinely appears in `CLAUDE.md` / `openspec/config.yaml`? A
-   citation that paraphrases or misapplies something real - quoting an actual rule but for a
-   concern that rule doesn't actually govern - does not hold up either.
+   reason, or a sentence that genuinely appears in `CLAUDE.md` / `AGENTS.md` /
+   `openspec/config.yaml`? A citation that paraphrases or misapplies something real - quoting an
+   actual rule but for a concern that rule doesn't actually govern - does not hold up either.
 2. **Does the failure scenario actually occur?** Read the diff and the surrounding code
    yourself. For a duplication finding, open the file at the claimed other location and confirm
    the logic is genuinely equivalent, not just similarly-named. For a call-site finding, open the
@@ -74,5 +74,10 @@ Omit a section entirely if it has nothing in it; if there are no findings at all
 of showing empty sections. `Ready to merge` is `no` if and only if at least one blocking finding
 remains - never leave the verdict implicit. For any surviving finding with both `file` and
 `line`, also post an inline comment via `mcp__github_inline_comment__create_inline_comment`
-(`confirmed: true`) in addition to the summary comment. Only post GitHub comments - don't submit
-review text as chat messages.
+(`confirmed: true`) in addition to the summary comment - but only when that `line` falls on a
+changed line in the diff you read; GitHub's API rejects (or the tool errors on) an inline comment
+anchored outside the diff, which happens for findings about existing callers, other files a
+change didn't touch, or citations to `CLAUDE.md`/`AGENTS.md`/a spec rather than the diff itself.
+For those, the summary comment's `(file:line)` is the only place the finding needs to appear -
+skip the inline-comment call rather than letting it fail. Only post GitHub comments - don't
+submit review text as chat messages.

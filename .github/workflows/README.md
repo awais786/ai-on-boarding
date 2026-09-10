@@ -50,18 +50,17 @@ this workflow doesn't use anyway (it only comments, never pushes commits).
   bills against Pro/Max quota instead of pay-per-token API usage - this is a learning exercise,
   not a system meant to run indefinitely against metered billing.
 - **Comments only, no write access to code.** Each step's `claude_args` scopes its tools to what
-  that layer needs: Layer 2 (judge) gets `Read`/`Grep`/`Glob`/`Write` and `gh pr diff`/`gh pr view`
-  to search the repo and write its findings file, but no comment tools - it never posts. Layer 3
-  (verify) gets the same read tools plus `gh pr comment` and the inline-comment MCP tool, since
-  it's the one that posts the verdict. Neither step can push commits.
+  that layer needs: Layer 2 (judge) gets `Read`/`Grep`/`Glob`/`Write(build/**)` (its findings file
+  only) and `gh pr diff`/`gh pr view` to search the repo, plus an explicit `--disallowedTools` for
+  the comment-posting tools - it never posts. Layer 3 (verify) gets the same read tools plus
+  `gh pr comment` and the inline-comment MCP tool, since it's the one that posts the verdict.
+  Neither step can push commits.
 - **Verify runs on a cheaper model.** Layer 3 is a bounded recheck of Layer 2's existing findings
   against the diff and rules, not open-ended judgment, so `--model claude-haiku-4-5-20251001`
   covers it without paying for Layer 2's model twice.
 - **Least-privilege permissions.** No `id-token: write` - that permission is only for OIDC
   federation to a cloud provider (Bedrock/Vertex), which this setup doesn't use; the OAuth token
   auths directly, so the job only needs `contents: read` and `pull-requests: write`.
-- **`track_progress: true`** posts a visible "reviewing..." comment that updates to the finished
-  review, instead of the PR going quiet until the whole run completes.
 - **Prompt-injection awareness.** The action already strips common hidden-instruction vectors
   (HTML comments, invisible characters) from PR content, but the prompt also explicitly tells
   Claude that the diff/comments it's reviewing are data, not instructions - belt-and-suspenders
@@ -73,5 +72,7 @@ this workflow doesn't use anyway (it only comments, never pushes commits).
   `anthropic_api_key`; with only an OAuth token, comments post directly and unconfirmed ones are
   not filtered out the same way.
 - No path-filtering, no separate handling for external contributors yet - every PR gets the same
-  full review. (Default access control still applies: only users with write access to the repo
-  can trigger the action via a `pull_request` event.)
+  full review, including PRs from forks (`pull_request` fires for them too). Fork PRs don't get
+  repo secrets by default, though, so `CLAUDE_CODE_OAUTH_TOKEN` is empty and Layers 2/3 fail
+  rather than silently skipping - there's no gate here that would give a fork PR a degraded (but
+  passing) review instead of a failed job.

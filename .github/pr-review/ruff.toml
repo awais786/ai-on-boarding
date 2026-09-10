@@ -3,6 +3,9 @@
 # problem to configure around here.
 src = ["sdd_django_demo"]
 extend-exclude = ["*/.venv/*", "*/node_modules/*", "*/migrations/*"]
+# The workflow passes changed files as explicit paths on the command line; ruff only applies
+# exclude/extend-exclude to files it discovers itself unless force-exclude says otherwise.
+force-exclude = true
 
 [lint]
 # E501 (line-too-long) is off: this codebase wraps prose comments by sentence, not by a fixed
