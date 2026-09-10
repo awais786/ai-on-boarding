@@ -18,7 +18,9 @@ def _admin_change_password_path(username):
 
 class UsersClient(AuthedClient):
     async def _get_users(self, country=None, username=None):
-        """The raw, unfiltered rows - id included. Internal use only."""
+        """The raw, unfiltered rows exactly as the backend returns them. Internal use
+        only - list_users below is what actually bounds what a caller sees, so this
+        stays correct even if the backend's own response shape changes."""
         params = {}
         if country:
             params['country'] = country
