@@ -1,0 +1,19 @@
+# Execution policy the harness applies to the coding agent.
+#
+# These are translated into the agent's own permission flags — the agent
+# enforces them, the harness sets them. Re-implementing the check here would
+# only create a second mechanism the real agent never consults.
+#
+# Note: a max_turns limit is not expressed here because the installed Claude
+# Code CLI (2.1.267) has no flag for it. Adding the key would be a policy the
+# harness silently fails to apply.
+
+allowed_tools:
+  - Read
+  - Glob
+  - Grep
+  - Edit
+  - Write
+  - Bash
+
+permission_mode: acceptEdits
