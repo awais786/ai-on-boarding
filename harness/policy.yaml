@@ -17,3 +17,9 @@ allowed_tools:
   - Bash
 
 permission_mode: acceptEdits
+
+# Which model the agent runs. An alias ('opus', 'sonnet', 'haiku', 'fable') or
+# a full name ('claude-fable-5'). Left unset so the agent keeps whatever it is
+# already configured with; set it here to pin a default for every run, or
+# switch per run with ./harness/run "<task>" --model opus
+# model: sonnet

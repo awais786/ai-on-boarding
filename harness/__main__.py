@@ -7,6 +7,7 @@ judges the result afterwards. It does not participate in the agent's loop.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import subprocess
 import sys
@@ -35,6 +36,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("task", help='e.g. "Add login functionality"')
     parser.add_argument("--policy", default=None, help="path to a policy YAML file")
     parser.add_argument(
+        "--model",
+        default=None,
+        help="run this task on a specific model, overriding the policy "
+        "(alias such as opus/sonnet/haiku, or a full model name)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="show the agent command and exit without invoking the agent",
@@ -42,11 +49,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     policy = load_policy(args.policy)
+    if args.model:
+        policy = dataclasses.replace(policy, model=args.model)
     command = build_agent_command(args.task, policy)
 
     print(f"task    : {args.task}")
     print(f"policy  : allowed_tools = {', '.join(policy.allowed_tools) or '(none)'}")
     print(f"          permission_mode = {policy.permission_mode}")
+    print(f"          model = {policy.model or '(agent default)'}")
     print(f"command : {' '.join(command)}")
     print()
 

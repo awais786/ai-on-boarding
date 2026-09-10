@@ -66,3 +66,27 @@ def test_empty_allowlist_omits_the_flag_rather_than_sending_nothing():
 
 def test_default_policy_path_points_at_the_shipped_file():
     assert DEFAULT_POLICY_PATH.endswith("harness/policy.yaml")
+
+
+def test_model_is_passed_through_when_set():
+    command = build_agent_command("Add login", Policy(allowed_tools=["Read"], model="opus"))
+
+    assert command[command.index("--model") + 1] == "opus"
+
+
+def test_no_model_flag_when_unset():
+    """Unset must mean 'leave the agent's own default alone', not 'pick one'."""
+    command = build_agent_command("Add login", Policy(allowed_tools=["Read"]))
+
+    assert "--model" not in command
+
+
+def test_shipped_policy_leaves_the_model_to_the_agent():
+    assert load_policy().model is None
+
+
+def test_model_is_read_from_the_policy_file(tmp_path):
+    policy_file = tmp_path / "policy.yaml"
+    policy_file.write_text("allowed_tools: [Read]\nmodel: haiku\n")
+
+    assert load_policy(str(policy_file)).model == "haiku"
