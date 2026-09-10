@@ -7,86 +7,106 @@ from __future__ import annotations
 
 import textwrap
 
-from harness.policy import DEFAULT_POLICY_PATH, Policy, build_agent_command, load_policy
+from harness.policy import DEFAULT_POLICY_PATH, Phase, build_agent_command, load_policy
 
 
-def test_shipped_policy_lists_the_six_permitted_tools():
+def write_policy(tmp_path, body: str) -> str:
+    path = tmp_path / "policy.yaml"
+    path.write_text(textwrap.dedent(body))
+    return str(path)
+
+
+def test_shipped_policy_runs_plan_then_code_then_tests():
     policy = load_policy()
 
-    assert policy.allowed_tools == ["Read", "Glob", "Grep", "Edit", "Write", "Bash"]
+    assert [p.name for p in policy.phases] == ["plan", "code", "tests"]
 
 
-def test_command_passes_the_allowlist_to_the_agent():
-    policy = Policy(allowed_tools=["Read", "Bash"])
+def test_shipped_policy_assigns_a_model_per_phase():
+    models = {p.name: p.model for p in load_policy().phases}
 
-    command = build_agent_command("Add login", policy)
+    assert models == {"plan": "opus", "code": "haiku", "tests": "sonnet"}
 
-    assert "--allowedTools" in command
+
+def test_planning_phase_cannot_edit_or_run_commands():
+    plan = next(p for p in load_policy().phases if p.name == "plan")
+
+    assert plan.allowed_tools == ["Read", "Glob", "Grep"]
+    for forbidden in ("Edit", "Write", "Bash"):
+        assert forbidden not in plan.allowed_tools
+
+
+def test_phases_inherit_the_default_allowlist_when_they_do_not_override():
+    code = next(p for p in load_policy().phases if p.name == "code")
+
+    assert code.allowed_tools == ["Read", "Glob", "Grep", "Edit", "Write", "Bash"]
+
+
+def test_command_passes_that_phases_allowlist_to_the_agent():
+    phase = Phase(name="code", prompt="{task}", allowed_tools=["Read", "Bash"])
+
+    command = build_agent_command("Add login", phase)
+
     index = command.index("--allowedTools")
     assert command[index + 1 : index + 3] == ["Read", "Bash"]
 
 
-def test_command_carries_the_task_in_print_mode():
-    command = build_agent_command("Add login", Policy(allowed_tools=["Read"]))
+def test_command_carries_the_prompt_in_print_mode():
+    command = build_agent_command("Add login", Phase("code", "{task}", ["Read"]))
 
     assert command[0] == "claude"
     assert "-p" in command
     assert "Add login" in command
 
 
-def test_configured_allowlist_is_used_not_hardcoded(tmp_path):
-    """A policy file naming a different set must produce different flags."""
-    policy_file = tmp_path / "policy.yaml"
-    policy_file.write_text(
-        textwrap.dedent(
-            """
-            allowed_tools:
-              - Read
-            permission_mode: plan
-            """
-        )
-    )
-
-    policy = load_policy(str(policy_file))
-    command = build_agent_command("Add login", policy)
-
-    assert policy.allowed_tools == ["Read"]
-    index = command.index("--allowedTools")
-    assert command[index + 1] == "Read"
-    assert "Bash" not in command
-    assert command[command.index("--permission-mode") + 1] == "plan"
-
-
-def test_empty_allowlist_omits_the_flag_rather_than_sending_nothing():
-    """An empty --allowedTools would be a malformed invocation, not a lockdown."""
-    command = build_agent_command("Add login", Policy(allowed_tools=[]))
-
-    assert "--allowedTools" not in command
-
-
-def test_default_policy_path_points_at_the_shipped_file():
-    assert DEFAULT_POLICY_PATH.endswith("harness/policy.yaml")
-
-
 def test_model_is_passed_through_when_set():
-    command = build_agent_command("Add login", Policy(allowed_tools=["Read"], model="opus"))
+    phase = Phase("code", "{task}", ["Read"], model="opus")
+
+    command = build_agent_command("Add login", phase)
 
     assert command[command.index("--model") + 1] == "opus"
 
 
 def test_no_model_flag_when_unset():
     """Unset must mean 'leave the agent's own default alone', not 'pick one'."""
-    command = build_agent_command("Add login", Policy(allowed_tools=["Read"]))
+    command = build_agent_command("Add login", Phase("code", "{task}", ["Read"]))
 
     assert "--model" not in command
 
 
-def test_shipped_policy_leaves_the_model_to_the_agent():
-    assert load_policy().model is None
+def test_configured_policy_is_used_not_hardcoded(tmp_path):
+    """A different policy file must produce different phases and flags."""
+    path = write_policy(
+        tmp_path,
+        """
+        allowed_tools: [Read]
+        phases:
+          - name: only
+            model: haiku
+            prompt: "{task}"
+        """,
+    )
+
+    policy = load_policy(path)
+    command = build_agent_command("Add login", policy.phases[0])
+
+    assert [p.name for p in policy.phases] == ["only"]
+    assert command[command.index("--model") + 1] == "haiku"
+    assert "Bash" not in command
 
 
-def test_model_is_read_from_the_policy_file(tmp_path):
-    policy_file = tmp_path / "policy.yaml"
-    policy_file.write_text("allowed_tools: [Read]\nmodel: haiku\n")
+def test_prompt_receives_the_task_and_the_previous_phase_output():
+    phase = Phase("code", "task={task} previous={previous}", ["Read"])
 
-    assert load_policy(str(policy_file)).model == "haiku"
+    assert phase.render("Add login", "the plan") == "task=Add login previous=the plan"
+
+
+def test_empty_allowlist_omits_the_flag_rather_than_sending_nothing():
+    """An empty --allowedTools would be a malformed invocation, not a lockdown."""
+    command = build_agent_command("Add login", Phase("code", "{task}", []))
+
+    assert "--allowedTools" not in command
+
+
+def test_default_policy_path_points_at_the_shipped_file():
+    assert DEFAULT_POLICY_PATH.endswith("harness/policy.yaml")
