@@ -54,26 +54,38 @@ def run(
     client,
     model: str,
     system: str,
-    user_content: str,
+    stable_content: str,
+    variable_content: str = "",
     output_schema: dict = FINDINGS_SCHEMA,
     task_budget: int | None = None,
 ) -> dict:
-    """Run the tool-use loop. `task_budget`, if given, is a total token
-    ceiling (>= MIN_TASK_BUDGET_TOKENS) for the whole loop - the server
-    tracks spend across iterations from the resent history, so leave it
-    None on a model that doesn't support the beta.
+    """Run the tool-use loop. `stable_content` is cached and expected to be
+    byte-identical across repeated calls that share it (e.g. the same
+    diff/rules verified once per finding) - `variable_content` is the part
+    that actually differs per call, appended uncached after it, so callers
+    that invoke run() many times against the same stable prefix only pay
+    full price for the small varying part, not the whole thing each time.
+    `task_budget`, if given, is a total token ceiling (>= MIN_TASK_BUDGET_TOKENS)
+    for the whole loop - the server tracks spend across iterations from the
+    resent history, so leave it None on a model that doesn't support the beta.
     """
     if task_budget is not None and task_budget < MIN_TASK_BUDGET_TOKENS:
         raise ValueError(f"task_budget must be at least {MIN_TASK_BUDGET_TOKENS} tokens")
 
-    # cache_control here caches tools + system prompt + this message together.
-    # As the loop appends tool calls/results, the marker moves to the newest
-    # block each iteration (and is cleared off the old one, to stay under the
-    # 4-breakpoint cap) - otherwise only turn 1 would ever be cached, and
-    # every later turn would resend the whole growing tail at full price.
-    first_block = {"type": "text", "text": user_content, "cache_control": {"type": "ephemeral"}}
-    messages = [{"role": "user", "content": [first_block]}]
-    cached_block = first_block
+    # cache_control here caches tools + system prompt + stable_content together
+    # - callers that invoke run() repeatedly with the same stable_content (one
+    # call per finding, all sharing the same diff+rules) get a cache hit on
+    # everything but variable_content each time. Within one call, as the loop
+    # appends tool calls/results, the marker moves to the newest block each
+    # iteration (cleared off the old one, to stay under the 4-breakpoint cap)
+    # - otherwise only turn 1 would ever be cached, and every later turn
+    # would resend the whole growing tail at full price.
+    stable_block = {"type": "text", "text": stable_content, "cache_control": {"type": "ephemeral"}}
+    content = [stable_block]
+    if variable_content:
+        content.append({"type": "text", "text": variable_content})
+    messages = [{"role": "user", "content": content}]
+    cached_block = stable_block
 
     for iteration in range(1, MAX_ITERATIONS + 1):
         if task_budget is None:
