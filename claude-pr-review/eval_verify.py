@@ -40,7 +40,12 @@ def main() -> int:
     client = anthropic.Anthropic()
 
     for trial in range(1, args.trials + 1):
-        result = verify.verify(client, diff, rules, findings)
+        try:
+            result = verify.verify(client, diff, rules, findings)
+        except Exception as exc:
+            print(f"=== {args.fixture.name} trial {trial}/{args.trials}: CRASHED: {exc} ===",
+                  file=sys.stderr)
+            continue
         print(f"=== {args.fixture.name} trial {trial}/{args.trials}: "
               f"{len(result['findings'])}/{len(findings.get('findings', []))} findings kept ===")
         print(json.dumps(result, indent=2))

@@ -45,7 +45,7 @@ def verify(client, diff: str, rules: dict, findings: dict) -> dict:
         variable_content = json.dumps({"finding": finding})
         try:
             result = agent.run(client, MODEL, SYSTEM_PROMPT, stable_content, variable_content)
-        except agent.AgentError as exc:
+        except (agent.AgentError, anthropic.APIError) as exc:
             print(
                 f"[verify] could not verify finding, dropping it: {exc}\n"
                 f"  {finding.get('file')}:{finding.get('line')} - {finding.get('summary', '')[:120]}",
