@@ -7,8 +7,9 @@ A live test (PR #7, run 34456550640) showed the batched version had no way
 to stop one hard finding from consuming the entire tool-use budget and
 starving the rest - splitting per-finding bounds that structurally: a stuck
 or wrong verification on one finding can't affect any other, each gets its
-own fresh MAX_ITERATIONS budget, and a failure on one finding (see verify()'s
-except clause) drops just that finding rather than losing the whole run.
+own fresh MAX_ITERATIONS budget, and a failure on one finding costs only
+that finding's verification (see verify()'s except clause - it is kept as
+an unverified nit, never silently dropped) rather than the whole run.
 The diff+rules content is identical across every call for one PR, so
 it's passed as agent.run()'s cached stable_content and only the one
 finding being checked varies per call - see agent.py's cache_control
@@ -46,11 +47,21 @@ def verify(client, diff: str, rules: dict, findings: dict) -> dict:
         try:
             result = agent.run(client, MODEL, SYSTEM_PROMPT, stable_content, variable_content)
         except (agent.AgentError, anthropic.APIError) as exc:
+            # Verification failed to run at all - a transient API error, or the
+            # loop giving up. That is not evidence against the finding, so it is
+            # kept rather than dropped: a live test lost a real privilege-
+            # escalation finding to a transient 500 when this dropped instead.
+            # Citation is cleared so an unverified finding can never block a
+            # merge, and the summary is marked so a human can see why.
             print(
-                f"[verify] could not verify finding, dropping it: {exc}\n"
+                f"[verify] verification failed, keeping finding as an unverified nit: {exc}\n"
                 f"  {finding.get('file')}:{finding.get('line')} - {finding.get('summary', '')[:120]}",
                 file=sys.stderr,
             )
+            unverified = dict(finding)
+            unverified["citation"] = None
+            unverified["summary"] = f"[UNVERIFIED - Layer 3 could not run] {finding.get('summary', '')}"
+            verified.append(unverified)
             continue
         verified.extend(result.get("findings", []))
     return {"findings": verified}
