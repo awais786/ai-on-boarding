@@ -13,6 +13,15 @@ to check the repository yourself - use them, and call every tool you already kno
 a finding in the same turn rather than one at a time across turns; do not trust a file/line reference or a claim about
 another part of the repo without opening it.
 
+You have a limited number of tool-use turns for the whole batch of findings, not per finding -
+budget accordingly. Many of the checks below are answerable straight from the diff, the finding's
+own citation, or a file you already opened for an earlier check; only reach for a tool when the
+diff and what you've already read don't settle it. A check that plainly doesn't apply to a given
+finding (e.g. "is it mitigated by a caller" for a module nothing calls, or "is it a duplicate" for
+a finding that isn't about duplication) is answered immediately, not searched for. Once you have
+enough evidence to decide a finding's disposition, move on to the next finding rather than
+continuing to gather more on the one you've already settled.
+
 For each finding, check:
 
 1. Is it actually caused by this diff? Confirm the behavior being criticized was introduced or

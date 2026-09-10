@@ -5,6 +5,7 @@ SDK's beta tool_runner so output_config and tools can be combined safely.
 from __future__ import annotations
 
 import json
+import sys
 
 import tools
 
@@ -74,7 +75,7 @@ def run(
     messages = [{"role": "user", "content": [first_block]}]
     cached_block = first_block
 
-    for _ in range(MAX_ITERATIONS):
+    for iteration in range(1, MAX_ITERATIONS + 1):
         if task_budget is None:
             response = client.messages.create(
                 model=model,
@@ -104,6 +105,12 @@ def run(
             raise AgentError(f"Model declined: {response.stop_details}")
 
         if response.stop_reason == "tool_use":
+            calls = [b for b in response.content if b.type == "tool_use"]
+            print(
+                f"[agent] iteration {iteration}/{MAX_ITERATIONS}: "
+                + ", ".join(f"{c.name}({c.input})" for c in calls),
+                file=sys.stderr,
+            )
             messages.append({"role": "assistant", "content": response.content})
             tool_results = [
                 {
@@ -111,8 +118,7 @@ def run(
                     "tool_use_id": block.id,
                     "content": tools.execute(block.name, block.input),
                 }
-                for block in response.content
-                if block.type == "tool_use"
+                for block in calls
             ]
             messages.append({"role": "user", "content": tool_results})
 
