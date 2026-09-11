@@ -169,7 +169,21 @@ def post_review(ctx: PullRequestContext, inline_findings: list[Finding], summary
     post_general_comment(ctx, summary_body)
 
 
-def run(repo: str, pr_number: int, findings_path: Path) -> int:
+def run(
+    repo: str,
+    pr_number: int,
+    findings_path: Path,
+    *,
+    skills: list[str] | None = None,
+    always_summarize: bool = False,
+) -> int:
+    """`skills` and `always_summarize` exist for the AI-assisted path (Phase 3): the
+    spec requires exactly one summary per AI-assisted review run, even when every
+    skill found nothing new to report - unlike Ruff's automatic path (Phase 2),
+    which should stay silent on an unchanged, already-clean run. `skills` names
+    which skills the orchestrator actually dispatched, since a zero-finding run has
+    no surviving Finding objects to infer that from.
+    """
     owner, repo_name = repo.split("/", 1)
     ctx = fetch_pull_request_context(owner, repo_name, pr_number)
 
@@ -193,19 +207,19 @@ def run(repo: str, pr_number: int, findings_path: Path) -> int:
     final = redact_findings(new_candidates)
     inline, fallback = partition(final, ctx)
 
-    if not inline and not fallback:
+    if not inline and not fallback and not always_summarize:
         print(
             f"Nothing to post - {skipped_already_posted} already posted, "
             f"{skipped_duplicates} duplicate(s) collapsed to zero new findings."
         )
         return 0
 
-    sources = sorted({f.source for f in final})
+    sources = skills if skills else sorted({f.source for f in final})
     summary = format_summary(len(final), skipped_duplicates, skipped_already_posted, sources)
 
     if inline:
         post_review(ctx, inline, summary)
-    else:
+    elif fallback or always_summarize:
         post_general_comment(ctx, summary)
 
     for finding in fallback:
@@ -226,12 +240,25 @@ def main(argv: list[str] | None = None) -> int:
         "--repo", default=os.environ.get("GITHUB_REPOSITORY"), help="owner/repo, defaults to $GITHUB_REPOSITORY"
     )
     parser.add_argument("--input", type=Path, required=True, help="Findings JSON file")
+    parser.add_argument(
+        "--skills",
+        default="",
+        help="Comma-separated list of skills the caller dispatched, for the summary's "
+        "'Sources:' line when there are no surviving findings to infer it from",
+    )
+    parser.add_argument(
+        "--always-summarize",
+        action="store_true",
+        help="Post a summary even when there is nothing new to report (required for an "
+        "AI-assisted review run; leave unset for Ruff's automatic runs)",
+    )
     args = parser.parse_args(argv)
 
     if not args.repo:
         parser.error("--repo is required (or set GITHUB_REPOSITORY)")
 
-    return run(args.repo, args.pr, args.input)
+    skills = [s.strip() for s in args.skills.split(",") if s.strip()] or None
+    return run(args.repo, args.pr, args.input, skills=skills, always_summarize=args.always_summarize)
 
 
 if __name__ == "__main__":

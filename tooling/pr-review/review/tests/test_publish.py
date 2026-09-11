@@ -211,3 +211,55 @@ def test_nothing_to_post_when_all_findings_are_already_posted(tmp_path, fake_git
     assert result == 0
     assert fake_github.posted_reviews == []
     assert fake_github.issue_comments == []
+
+
+def test_always_summarize_posts_a_summary_even_with_zero_findings(tmp_path, fake_github):
+    """The spec requires exactly one summary per AI-assisted review run, even when
+    nothing new was found - unlike Ruff's automatic runs, which should stay silent.
+    """
+    path = _write_findings(tmp_path, [])
+
+    result = publish_module.run(
+        "owner/repo", 1, path, skills=["security-review", "code-quality"], always_summarize=True
+    )
+
+    assert result == 0
+    assert fake_github.posted_reviews == []
+    assert len(fake_github.issue_comments) == 1
+    body = fake_github.issue_comments[0]["body"]
+    assert "0 finding(s) posted" in body
+    assert "security-review, code-quality" in body
+
+
+def test_without_always_summarize_zero_findings_posts_nothing(tmp_path, fake_github):
+    path = _write_findings(tmp_path, [])
+
+    result = publish_module.run("owner/repo", 1, path)
+
+    assert result == 0
+    assert fake_github.posted_reviews == []
+    assert fake_github.issue_comments == []
+
+
+def test_skills_list_names_sources_even_when_no_findings_survive_to_infer_it(tmp_path, fake_github):
+    """Without an explicit skills list, `sources` would be inferred from surviving
+    findings - impossible when every candidate was deduped or already posted, even
+    though the run genuinely dispatched skills and should still say so.
+    """
+    finding = Finding(
+        category="security", severity="major", file="a.py", line=1,
+        title="Hardcoded secret", explanation="explains it", source="security-review",
+    )
+    fake_github.files = [{"filename": "a.py", "patch": "@@ -1,1 +1,1 @@\n line1"}]
+    fake_github.review_comments = [
+        {"body": f"<!-- pr-review-fingerprint: {fingerprint(finding)} -->"}
+    ]
+    path = _write_findings(tmp_path, [finding])
+
+    publish_module.run(
+        "owner/repo", 1, path, skills=["security-review"], always_summarize=True
+    )
+
+    assert len(fake_github.issue_comments) == 1
+    assert "security-review" in fake_github.issue_comments[0]["body"]
+    assert "1 already posted" in fake_github.issue_comments[0]["body"]

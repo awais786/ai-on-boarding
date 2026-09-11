@@ -111,49 +111,73 @@ phase's implementation tasks in the same run.
 
 ## 7. Phase 3 - Skills and subagents
 
-- [ ] 7.1 Create `.claude/skills/pr-review-common/SKILL.md`: the content/instruction-separation
+- [x] 7.1 Create `.claude/skills/pr-review-common/SKILL.md`: the content/instruction-separation
       rule, the diff-scope rule, the no-secrets rule, and the required single-trailing-JSON-block
       output format referencing `schema.py`'s `Finding` shape
-- [ ] 7.2 Create `.claude/skills/security-review-checklist/SKILL.md`,
+- [x] 7.2 Create `.claude/skills/security-review-checklist/SKILL.md`,
       `architecture-review-checklist/SKILL.md`, `optimization-checklist/SKILL.md`, and
       `code-quality-checklist/SKILL.md`, each with its rubric (`code-quality-checklist`
       explicitly excluding anything Ruff already covers)
-- [ ] 7.3 Create `.claude/agents/security-review.md` and `architecture-review.md` (model: opus),
+- [x] 7.3 Create `.claude/agents/security-review.md` and `architecture-review.md` (model: opus),
       `optimization.md` (model: sonnet), and `code-quality.md` (model: haiku), each restricted to
       `Read` and `Skill` tools, each instructing the subagent to load `pr-review-common` and its
       own checklist skill by name and apply them to an orchestrator-supplied file list
-- [ ] 7.4 Verify each agent definition file is well-formed (valid frontmatter, references an
-      existing skill name) by inspection or a lint script
+- [x] 7.4 Verify each agent definition file is well-formed (valid frontmatter, references an
+      existing skill name) by inspection or a lint script (formalized as
+      `test_agent_definitions.py`, not just a one-off check)
 
 ## 8. Phase 3 - Orchestrator and trigger
 
-- [ ] 8.1 Write `tooling/pr-review/orchestrator_prompt.md`: how to decide which skills apply from
+- [x] 8.1 Write `tooling/pr-review/orchestrator_prompt.md`: how to decide which skills apply from
       the requester's comment and the changed files, how to dispatch the relevant subagents in
       parallel, how to extract and validate each subagent's JSON block (retry once on failure),
       and how to invoke `publish.py` with the collected findings
-- [ ] 8.2 Add `.github/workflows/claude-pr-review.yml`: trigger on `issue_comment` /
+- [x] 8.2 Add `.github/workflows/claude-pr-review.yml`: trigger on `issue_comment` /
       `pull_request_review_comment` containing the trigger phrase, authenticate with
-      `CLAUDE_CODE_OAUTH_TOKEN`, gate on the commenter's `author_association`
-      (OWNER/MEMBER/COLLABORATOR only), set a concurrency group keyed by pull request number, and
-      restrict the orchestrator's own tools to Read/Grep/Glob/Task plus Bash scoped only to
-      invoking `publish.py`
-- [ ] 8.3 Document, as a task for the user to perform outside of code (not something this list
+      `CLAUDE_CODE_OAUTH_TOKEN`, and restrict the orchestrator's own tools to
+      Read/Grep/Glob/Task plus Bash scoped only to invoking `publish.py`; set a concurrency group
+      keyed by pull request number. **Corrected from the original task wording after reading
+      claude-code-action's actual docs** (not assumed): collaborator-only triggering does not
+      need a hand-rolled `author_association` check - the action enforces write-access-only
+      triggering itself by default (docs/security.md). More importantly, the workflow must NOT
+      set the `prompt` input - doing so switches the action into "automation mode," which runs
+      unconditionally on every qualifying event and ignores the trigger phrase entirely
+      (docs/faq.md), which would have violated the "on request only" requirement. Uses
+      `claude_args: --append-system-prompt` instead, which points Claude at
+      `orchestrator_prompt.md` while keeping mention-gated (interactive) mode intact.
+- [x] 8.3 Document, as a task for the user to perform outside of code (not something this list
       can complete automatically), that a repository maintainer needs to generate a Claude Code
       OAuth token (`claude setup-token`) and add it as the `CLAUDE_CODE_OAUTH_TOKEN` repository
-      secret before Phase 3 can be exercised
+      secret before Phase 3 can be exercised. **No GitHub App is required** - by explicit user
+      decision, this workflow authenticates to GitHub using only the repository's own default
+      `secrets.GITHUB_TOKEN` (passed as `claude-code-action`'s `github_token` input, which the
+      action's own docs describe as the supported alternative to a GitHub App, not a workaround),
+      the same token `publish.py` already uses. **Required, not previously documented**:
+      `.claude/agents/`, `.claude/skills/`, and this workflow are read from the pull request's
+      BASE branch specifically (whatever branch the PR targets), not the PR's own branch
+      (confirmed via docs/security.md) - so a manual-verification pull request must target a base
+      that already has Phase 3 committed to it (e.g. `claude-code-action-pr-reviewer`, once this
+      phase is committed there, same as Phases 1-2), not `main`, unless Phase 3 is merged to
+      `main` first.
 
 ## 9. Phase 3 - Tests
 
-- [ ] 9.1 List the pr-review spec requirements this phase covers (collaborator-only triggering,
+- [x] 9.1 List the pr-review spec requirements this phase covers (collaborator-only triggering,
       skill selection, concurrent execution, isolated findings, summary comment, duplicate
       suppression across sources, content-not-instructions, no-secrets disclosure,
       advisory-only)
-- [ ] 9.2 Where automatable, write tests from that list - for example, any orchestrator-side JSON
-      extraction/parsing helper introduced in this phase, validated against `schema.py` - and
-      verify `pytest tooling/pr-review/review/tests -q` still passes
-- [ ] 9.3 Prepare a small "golden" pull request fixture (a synthetic diff with a planted security
+- [x] 9.2 Where automatable, write tests from that list - `test_agent_definitions.py` (model
+      pinning, tool restriction, skill references - all structurally checkable) and
+      `publish.py`'s new `--skills`/`--always-summarize` behaviour the "summary comment" and
+      "duplicate suppression across sources" requirements actually depend on; most of this
+      phase's behaviour (subagent dispatch, model selection in practice, skill content quality)
+      is not unit-testable and is left to task 10's manual verification instead of forcing
+      artificial tests around it; verified `pytest tooling/pr-review/review/tests -q` passes
+- [x] 9.3 Prepare a small "golden" pull request fixture (a synthetic diff with a planted security
       issue, a planted architecture issue, and a planted style issue) as a documented manual-
       evaluation aid for the checkpoint below, since subagent prompt quality is not unit-testable
+      (`review/tests/fixtures/golden_pr_snippet.py` + `golden_pr_README.md`; confirmed the
+      fixture itself trips zero Ruff violations, so any finding on it can only come from a skill)
 
 ## 10. Phase 3 - Manual verification (final - full end-to-end confirmation)
 
