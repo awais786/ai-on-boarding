@@ -27,6 +27,12 @@ load_dotenv()
 # and every hosted secret-entry page link. ---
 MCP_BASE_URL = os.environ.get('MCP_BASE_URL', 'http://localhost:8100')
 
+# --- What this process itself binds to. Defaults suit running it directly;
+# behind a reverse proxy terminating TLS, set MCP_HOST=127.0.0.1 so the
+# plaintext port isn't also reachable directly. ---
+MCP_HOST = os.environ.get('MCP_HOST', '0.0.0.0')
+MCP_PORT = int(os.environ.get('MCP_PORT', '8100'))
+
 # --- Backend API (clients/) ---
 BACKEND_API_BASE = os.environ.get('BACKEND_API_BASE', 'http://localhost:8000/api')
 BACKEND_REQUEST_TIMEOUT = float(os.environ.get('BACKEND_REQUEST_TIMEOUT', '10'))
