@@ -16,7 +16,7 @@ from fastmcp import FastMCP
 from starlette.responses import HTMLResponse
 
 from auth import BackendGoogleProvider
-from config import MCP_BASE_URL
+from config import MCP_BASE_URL, MCP_HOST, MCP_PORT
 from elicitation import get as get_pending, render_done, render_error, render_form, render_gone
 from middleware import ToolCallLogger
 from tools import load_tools
@@ -63,4 +63,4 @@ async def secret_page(request):
 
 
 if __name__ == '__main__':
-    mcp.run(transport='http', host='0.0.0.0', port=8100)
+    mcp.run(transport='http', host=MCP_HOST, port=MCP_PORT)
