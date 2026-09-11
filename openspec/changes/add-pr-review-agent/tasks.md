@@ -63,37 +63,51 @@ phase's implementation tasks in the same run.
 
 ## 4. Phase 2 - Ruff CI integration
 
-- [ ] 4.1 Add a Ruff configuration scoped to `sdd_django_demo/` (the only Python application code
+- [x] 4.1 Add a Ruff configuration scoped to `sdd_django_demo/` (the only Python application code
       in this repo) and verify `ruff check sdd_django_demo` runs and reports a result
-- [ ] 4.2 Implement `review/ruff_adapter.py`: convert `ruff check --output-format json` output
+      (`sdd_django_demo/ruff.toml`; migrations excluded; calibrated against the real codebase -
+      14 violations, 3 safely auto-fixable, with Ruff's own default rule set)
+- [x] 4.2 Implement `review/ruff_adapter.py`: convert `ruff check --output-format json` output
       into `Finding` objects (category `code-quality`, source `ruff`), skipping any violation
       marked safely auto-fixable; verify against a sample Ruff JSON fixture containing both
       autofixable and non-autofixable violations
-- [ ] 4.3 Add `.github/workflows/ruff.yml`: on `pull_request`, install dependencies, run
+- [x] 4.3 Add `.github/workflows/ruff.yml`: on `pull_request`, install dependencies, run
       `ruff check --output-format json`, run `ruff_adapter.py`, then call `publish.py` with the
       result; grant the workflow's token `pull-requests: write`; verify the workflow YAML is
-      valid and its steps succeed in a local dry run where feasible
+      valid and its steps succeed in a local dry run where feasible (also grants `issues: write`,
+      needed by `publish.py`'s fallback/summary posting; validated with `actionlint`, and the
+      Ruff-to-findings conversion dry-run locally against the real codebase's real violations).
+      Scoped to the PR's changed Python files under `sdd_django_demo/` (via
+      `gh pr diff --name-only`), not the whole directory - found while setting up task 6's
+      manual verification: a whole-directory scan would report this repo's 14 pre-existing
+      violations as unattachable (fallback) comments on every PR regardless of what it touches.
+      Shell logic (null-delimited `xargs -0`, portable across BSD/GNU) verified locally against
+      both an empty and a non-empty changed-files case before relying on it in CI.
 
 ## 5. Phase 2 - Tests
 
-- [ ] 5.1 List the pr-review spec requirements this phase covers (automatic lint check on every
+- [x] 5.1 List the pr-review spec requirements this phase covers (automatic lint check on every
       pull request, posting non-autofixable violations as inline comments, autofixable
       violations not posted)
-- [ ] 5.2 Write `review/tests/test_ruff_adapter.py` from that list; verify
+- [x] 5.2 Write `review/tests/test_ruff_adapter.py` from that list; verify
       `pytest tooling/pr-review/review/tests -q` still passes
-- [ ] 5.3 Break the autofixable-skip logic on purpose, confirm the relevant test goes red, then
+- [x] 5.3 Break the autofixable-skip logic on purpose, confirm the relevant test goes red, then
       restore it, and verify the suite is green again
 
 ## 6. Phase 2 - Manual verification (STOP - confirm before starting Phase 3)
 
-- [ ] 6.1 Open or update a real test pull request with at least one deliberate non-autofixable
+- [x] 6.1 Open or update a real test pull request with at least one deliberate non-autofixable
       Ruff violation and one autofixable violation - to be performed and confirmed by the user,
-      not checked off automatically
-- [ ] 6.2 Confirm: the Ruff CI check runs automatically and reports the correct pass/fail status,
+      not checked off automatically (confirmed against
+      https://github.com/ibtisam-saeed/ai-on-boarding/pull/4)
+- [x] 6.2 Confirm: the Ruff CI check runs automatically and reports the correct pass/fail status,
       an inline comment appears for the non-autofixable violation on the correct line, no comment
       appears for the autofixable violation, and pushing an additional commit without fixing the
       violation does not duplicate the existing comment - to be confirmed by the user, not
-      checked off automatically
+      checked off automatically (confirmed - initial run posted exactly 1 inline comment on the
+      correct line for RUF012, none for the autofixable I001, and correctly failed the check;
+      a re-run with no code change reported "Nothing to post - 1 already posted", confirming
+      idempotency; user confirmed the summary comment's content)
 
 ## 7. Phase 3 - Skills and subagents
 
