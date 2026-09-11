@@ -13,6 +13,8 @@ account and users), and every environment-driven value lives in config.py.
 import os
 
 from fastmcp import FastMCP
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse
 
 from auth import BackendGoogleProvider
@@ -63,4 +65,14 @@ async def secret_page(request):
 
 
 if __name__ == '__main__':
-    mcp.run(transport='http', host=MCP_HOST, port=MCP_PORT)
+    # Browser-based clients (MCP Inspector, web-hosted clients) call this server
+    # cross-origin; the SDK's own OAuth discovery routes wrap CORS themselves,
+    # but the /mcp transport route doesn't, so it's added here.
+    cors = Middleware(
+        CORSMiddleware,
+        allow_origins=['*'],
+        allow_methods=['*'],
+        allow_headers=['*'],
+        expose_headers=['WWW-Authenticate'],
+    )
+    mcp.run(transport='http', host=MCP_HOST, port=MCP_PORT, middleware=[cors])
