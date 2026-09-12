@@ -150,3 +150,28 @@ this file exists to catch. All phases are now complete.
   (37 tests) passes. **Not yet re-verified against a real trigger** - per-run cost (~$0.65-0.70,
   ~4 points of the account's 5-hour usage window each) means further `@claude` triggers on this
   PR are deliberately paused until there is a specific reason to run one; see tasks.md task 10.4.
+- **Fifth bug, and a failed first fix attempt at the third bug above**: re-triggering `@claude`
+  after that third-bug fix landed on `main` reproduced the exact same symptom - only
+  claude-code-action's generic tracking comment, `publish.py` never invoked (`Bash(gh pr
+  diff:*)` ran once; no `python -m review.publish` call anywhere in the log; `num_turns: 7`,
+  clean `success`). Diagnosed by correlating each background `Task` dispatch's `task_id`/
+  `tool_use_id` back to its `subagent_type` to get the true notification order:
+  `security-review` (10:23:56) -> `code-quality` (10:24:16.85) -> `architecture-review`
+  (10:24:17.79, the actually-last notification). The orchestrator's final turn (10:24:18.29,
+  right after that last notification) read: "Code-quality agent completed. Still waiting on
+  architecture-review." - misattributing the just-arrived result to the wrong skill and
+  wrongly believing one was still outstanding, then making no further tool call. This shows the
+  third bug's fix (instructing the orchestrator to "recheck your dispatch list before writing a
+  status message") was insufficient in practice: the failure isn't a missing instruction, it's
+  the orchestrator's own running narrative about which skills have reported drifting from the
+  actual transcript, and trusting that narrative instead of re-deriving the count. Fixed by
+  rewriting step 4's opening to require re-counting from the actual subagent messages in the
+  transcript on every turn, not from the orchestrator's own prior status text, with an explicit
+  warning against the exact failure mode observed (misattributing which notification just
+  arrived). **Not yet re-verified against a real trigger** - this is now the second attempt at
+  fixing this class of bug; if a third attempt is needed, the async background-dispatch model
+  itself (step 3's "one `Task` call per skill in a single message") should be reconsidered against
+  the spec's "run selected skills concurrently" requirement - e.g. dispatching sequentially would
+  mean at most one outstanding result at a time, structurally eliminating the multi-notification
+  attribution race this bug and the third bug both stem from, at the cost of no longer running
+  skills concurrently.

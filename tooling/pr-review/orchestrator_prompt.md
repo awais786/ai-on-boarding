@@ -68,15 +68,22 @@ far - you will need this list in step 4.
 
 ## 4. Collect and validate each subagent's findings
 
-**The moment every skill you dispatched has reported back** (or failed twice, per the retry rule
-below), proceed through the rest of this step and step 5 in that same turn - do not end a turn
-with only a status update ("X is in, still waiting on Y") once you have actually received all of
-them. Your session ends the instant you stop making tool calls; if that happens before you
-invoke `publish.py`, nothing is posted to the pull request at all, not even the summary. If a
-result is still genuinely missing, a brief status note is fine - but re-check your dispatch list
-against every result you've received so far each time a new one arrives. A status message that
-says you're still waiting on a skill whose result you already have is a sign you missed it
-arriving; recount before writing that message, not after.
+**On every turn from here on, before writing anything else, recount from scratch: scroll back
+through the actual conversation and count how many of your dispatched skills now have a message
+containing a fenced ```json block, by re-reading each one's content - not from what you said in
+your own previous status update.** A prior run of this orchestrator narrated "X just completed,
+still waiting on Y" in its final turn when Y's result had, in fact, already arrived - it
+misattributed which notification had just come in and trusted its own earlier running tally
+instead of re-deriving the count from the transcript. Don't repeat that: your own past status
+messages are not a reliable source for this count, only the actual subagent messages are.
+
+The instant your fresh recount shows every dispatched skill has a result (or has failed twice,
+per the retry rule below), proceed through the rest of this step and step 5 in that same turn -
+do not end a turn with only a status update once the recount says you have all of them. Your
+session ends the instant you stop making tool calls; if that happens before you invoke
+`publish.py`, nothing is posted to the pull request at all, not even the summary. Only write a
+"still waiting on X" status update when your fresh recount - not your memory of prior turns -
+actually shows X missing.
 
 Each subagent's final message should end with exactly one fenced ```json block containing an
 array of findings (schema below, matching `tooling/pr-review/review/schema.py`'s `Finding`
