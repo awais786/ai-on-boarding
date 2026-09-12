@@ -127,3 +127,26 @@ this file exists to catch. All phases are now complete.
   run cut off mid-collection may have posted something outside the normal step-5 path rather than
   failing silently the way PR #11 did) - to be confirmed on the next real run before
   `show_full_output` is reverted.
+- **Fourth bug from real Phase 3 verification, PR #11 on `ibtisam-saeed/ai-on-boarding`**: after
+  the async-collection fix above was merged and re-triggered twice on the same, unchanged PR, the
+  first run posted 5 findings correctly; the second run correctly recognised 2 of 4 candidates as
+  already-posted but reposted the other 2 as new. Both reposted findings were reworded/re-scoped
+  versions of architecture-review findings from the first run at the same location: "Raw SQL
+  cursor bypasses the ORM layer this project standardises on" vs. "Hand-written SQL data access
+  bypasses the ORM pattern used throughout this project" (title similarity 0.568), and "Debug
+  scratch module added to the application package with no backing spec or change" vs.
+  "Review-tooling scratch fixture added to the Django application package, duplicating an
+  existing fixture" (0.610 - the second run's architecture-review subagent had consolidated two
+  of the first run's separate findings into one). Both fell at or below the existing
+  `dedupe.TITLE_SIMILARITY_THRESHOLD` of 0.6 - exactly the risk `design.md`'s "Risks" entry on
+  this heuristic flagged as needing validation against real examples, confirmed here with real
+  production pairs rather than curated fixtures. Fixed by lowering the threshold to `0.5`
+  (`review/dedupe.py`), chosen for real margin on both sides: it sits below `test_dedupe.py`'s
+  existing "distinct titles" (0.208) and "very differently worded duplicate" (0.320) fixtures,
+  which must stay unmatched, while clearing both real pairs above. Added
+  `test_real_reworded_pair_from_pr11_is_recognised_as_duplicate` and
+  `test_real_rescoped_pair_from_pr11_is_recognised_as_duplicate` to `test_dedupe.py`, using the
+  exact real titles, exercising both `collapse_duplicates` and `find_match` directly; full suite
+  (37 tests) passes. **Not yet re-verified against a real trigger** - per-run cost (~$0.65-0.70,
+  ~4 points of the account's 5-hour usage window each) means further `@claude` triggers on this
+  PR are deliberately paused until there is a specific reason to run one; see tasks.md task 10.4.

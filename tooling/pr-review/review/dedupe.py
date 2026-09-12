@@ -17,7 +17,12 @@ from difflib import SequenceMatcher
 from review.schema import SEVERITY_RANK, Finding
 
 LINE_WINDOW = 3
-TITLE_SIMILARITY_THRESHOLD = 0.6
+# Lowered from 0.6 after two real reworded/re-scoped duplicates from an independent subagent
+# re-run (PR #11 on ibtisam-saeed/ai-on-boarding) scored 0.568 and 0.610 against their originals
+# and were reposted instead of recognised as already-handled - see traceability.md. 0.5 leaves
+# clear margin below both the "distinct titles" (0.208) and "very differently worded duplicate"
+# (0.320) cases already covered by test_dedupe.py, while catching both real pairs.
+TITLE_SIMILARITY_THRESHOLD = 0.5
 
 
 def _title_similarity(a: str, b: str) -> float:

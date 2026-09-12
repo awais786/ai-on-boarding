@@ -15,7 +15,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(HERE))
 
-from review.dedupe import collapse_duplicates  # noqa: E402
+from review.dedupe import collapse_duplicates, find_match  # noqa: E402
 from review.schema import Finding  # noqa: E402
 
 
@@ -83,3 +83,51 @@ def test_known_limitation_very_differently_worded_duplicates_are_not_caught():
     b = _finding(title="SECRET_KEY should not be committed to source", category="code-quality", source="code-quality")
     survivors = collapse_duplicates([a, b])
     assert len(survivors) == 2
+
+
+def test_real_reworded_pair_from_pr11_is_recognised_as_duplicate():
+    """Real titles from two independent architecture-review subagent runs on the same
+    unchanged code (PR #11, ibtisam-saeed/ai-on-boarding) describing the same raw-SQL
+    finding. Similarity is 0.568 - below the old 0.6 threshold, which is why this pair
+    was reposted instead of recognised as already-handled. See traceability.md.
+    """
+    a = _finding(
+        title="Raw SQL cursor bypasses the ORM layer this project standardises on",
+        category="architecture",
+        source="architecture-review",
+        line=25,
+    )
+    b = _finding(
+        title="Hand-written SQL data access bypasses the ORM pattern used throughout this project",
+        category="architecture",
+        source="architecture-review",
+        line=25,
+    )
+    survivors = collapse_duplicates([a, b])
+    assert len(survivors) == 1
+    assert find_match(b, [a]) is not None
+
+
+def test_real_rescoped_pair_from_pr11_is_recognised_as_duplicate():
+    """Same real run: the second architecture-review call consolidated two of the
+    first run's separate findings (a placement concern and a duplicated-fixture
+    concern) into one reworded finding at the same location. Similarity is 0.610 -
+    just over the old 0.6 threshold, yet this was still reposted in production
+    (see traceability.md), so the threshold needed real margin, not just a pass.
+    """
+    a = _finding(
+        title="Debug scratch module added to the application package with no backing spec or change",
+        category="architecture",
+        source="architecture-review",
+        line=1,
+    )
+    b = _finding(
+        title="Review-tooling scratch fixture added to the Django application package, "
+        "duplicating an existing fixture",
+        category="architecture",
+        source="architecture-review",
+        line=1,
+    )
+    survivors = collapse_duplicates([a, b])
+    assert len(survivors) == 1
+    assert find_match(b, [a]) is not None

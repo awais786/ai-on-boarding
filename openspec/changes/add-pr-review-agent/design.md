@@ -117,7 +117,14 @@ collaborator-only triggering, which limits who can attempt this at all.
 both under-merge differently worded descriptions of the same issue and over-merge unrelated
 findings that share generic phrasing near each other.
 → Mitigation: validated against a curated fixture set of real near-duplicate and real
-false-positive pairs in Phase 1's tests, before any production use.
+false-positive pairs in Phase 1's tests, before any production use. This risk materialised in
+real Phase 3 verification (PR #11): two independent architecture-review re-runs produced titles
+for the same underlying issues that scored 0.568 and 0.610 against the 0.6 threshold, and both
+were reposted. The threshold was lowered to 0.5 with real margin on both sides (confirmed against
+the existing "distinct titles" and "very differently worded" fixtures, which still correctly stay
+unmatched at 0.208 and 0.320) - see `review/dedupe.py` and `traceability.md`. Still a character-
+based heuristic, not a semantic one; under-merging differently-worded duplicates remains possible
+and is the documented, accepted limitation in `test_dedupe.py`.
 
 [Risk] A skill's output is not guaranteed-valid JSON, since the OAuth-token auth path cannot use
 the raw Anthropic API's enforced `output_format` feature.
