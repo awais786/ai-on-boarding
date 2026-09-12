@@ -61,7 +61,22 @@ each subagent: the pull request's changed file list (so it knows what's in scope
 `Read`), and enough context about the request to focus its review (e.g. "the requester
 specifically asked about X" when applicable).
 
+These dispatches run as background subagents: each one's findings arrive as a separate
+notification in a later turn, not as an immediate return value from this step. Keep track,
+across turns, of exactly which skills you dispatched and which of them have reported back so
+far - you will need this list in step 4.
+
 ## 4. Collect and validate each subagent's findings
+
+**The moment every skill you dispatched has reported back** (or failed twice, per the retry rule
+below), proceed through the rest of this step and step 5 in that same turn - do not end a turn
+with only a status update ("X is in, still waiting on Y") once you have actually received all of
+them. Your session ends the instant you stop making tool calls; if that happens before you
+invoke `publish.py`, nothing is posted to the pull request at all, not even the summary. If a
+result is still genuinely missing, a brief status note is fine - but re-check your dispatch list
+against every result you've received so far each time a new one arrives. A status message that
+says you're still waiting on a skill whose result you already have is a sign you missed it
+arriving; recount before writing that message, not after.
 
 Each subagent's final message should end with exactly one fenced ```json block containing an
 array of findings (schema below, matching `tooling/pr-review/review/schema.py`'s `Finding`

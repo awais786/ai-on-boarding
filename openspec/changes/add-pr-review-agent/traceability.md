@@ -101,3 +101,29 @@ this file exists to catch. All phases are now complete.
   structural guarantee. Worth being explicit that this is a real, if narrow, gap relative to how
   the design was described before this run: see the header comment in `claude-pr-review.yml` for
   the corrected description.
+- **Third bug from real Phase 3 verification, PR #11 on `ibtisam-saeed/ai-on-boarding`**: a
+  `@claude review this PR` run left only claude-code-action's own generic tracking comment ("I'll
+  analyze this and get back to you") - no findings, no summary. Diagnosed from the unredacted job
+  log (`show_full_output: true`, run `34642254814`, still enabled from the PR #5 investigation
+  above): `orchestrator_prompt.md` step 3 dispatches all selected skills via `Task` in one
+  message, and step 4 was written as if each subagent's result comes back synchronously from that
+  call. In the real run, all three subagents (`security-review`, `architecture-review`,
+  `code-quality`) executed as background tasks whose results arrived as separate notifications
+  across later turns - matching Claude Code's own fork/background-task model, not a single
+  blocking exchange. The orchestrator correctly logged each arrival ("Security review is in...
+  still waiting on architecture and code-quality", then "...still waiting on code-quality"), but
+  its final turn repeated "waiting on code-quality" after code-quality's result had already
+  arrived (confirmed from log timestamps: the `task_notification` for code-quality preceded that
+  message), then made no further tool call. The session ended there (`num_turns: 7`, `is_error:
+  false`, `subtype: success` - a clean exit, not a crash or turn-limit error) without ever
+  reaching step 4's JSON extraction or step 5's `publish.py` invocation, even though every
+  subagent had, in fact, already finished. Fixed by adding an explicit "track dispatched skills
+  across turns" note to step 3 and a hard rule at the top of step 4: the instant every dispatched
+  skill has reported, proceed through steps 4-5 in that same turn rather than ending it with a
+  status update, and re-check the dispatch list against received results before writing any
+  "still waiting" message (a stale reference to an already-reported skill is the tell that one
+  was missed). Not yet re-verified against a real trigger - see tasks.md task 10.3.
+  Plausibly the same root cause as the still-unresolved "missing `_Location:` line" bug above (a
+  run cut off mid-collection may have posted something outside the normal step-5 path rather than
+  failing silently the way PR #11 did) - to be confirmed on the next real run before
+  `show_full_output` is reverted.
