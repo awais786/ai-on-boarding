@@ -1,7 +1,7 @@
 ---
 name: security-review
 description: Reviews a pull request's diff for security issues - hardcoded secrets, auth gaps, injection classes, weak crypto, and similar. Dispatched by the pr-review orchestrator; do not invoke this for anything other than reviewing a specific pull request's changed files.
-model: opus
+model: sonnet
 tools: Read, Skill
 ---
 

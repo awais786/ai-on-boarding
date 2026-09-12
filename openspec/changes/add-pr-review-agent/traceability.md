@@ -125,8 +125,12 @@ this file exists to catch. All phases are now complete.
   was missed). Not yet re-verified against a real trigger - see tasks.md task 10.3.
   Plausibly the same root cause as the still-unresolved "missing `_Location:` line" bug above (a
   run cut off mid-collection may have posted something outside the normal step-5 path rather than
-  failing silently the way PR #11 did) - to be confirmed on the next real run before
-  `show_full_output` is reverted.
+  failing silently the way PR #11 did) - not separately confirmed either way. `show_full_output`
+  has since been reverted (`claude-pr-review.yml`) now that the async-collection bug it was
+  enabled to investigate is fixed and verified; the original "missing `_Location:` line" report
+  itself was never independently reproduced or diagnosed, and stays an open, undiagnosed report
+  rather than a closed bug - worth re-enabling `show_full_output` temporarily again if it
+  resurfaces.
 - **Fourth bug from real Phase 3 verification, PR #11 on `ibtisam-saeed/ai-on-boarding`**: after
   the async-collection fix above was merged and re-triggered twice on the same, unchanged PR, the
   first run posted 5 findings correctly; the second run correctly recognised 2 of 4 candidates as
@@ -247,3 +251,18 @@ this file exists to catch. All phases are now complete.
   re-verified against a real trigger.** This was caught without spending on another live trigger -
   pulling the actual posted comment bodies via `gh api` and reasoning through the matching code
   directly was enough; worth doing that first before assuming a new drift axis next time too.
+- **Cost optimization from real Phase 3 usage data, not a bug**: real `@claude` run logs (job
+  results' `total_cost_usd` and the SDK's `unifiedWindows.five_hour.utilization` deltas) showed
+  each trigger costing roughly $0.65-0.70 and ~4 percentage points of the account's 5-hour usage
+  window, dominated by two Opus subagent calls (`security-review`, `architecture-review`) per
+  run - confirmed from the `claude-opus-5` model tags appearing 15-20 times per run in the job
+  logs, versus a handful of Haiku calls for `code-quality`. With no overage allowed on this
+  account (`overageStatus: "rejected"`, `overageDisabledReason: "org_level_disabled"`), repeated
+  manual-verification triggers were a real, observed constraint on how much testing could be done
+  in one session. Moved `security-review` and `architecture-review` from `opus` to `sonnet`
+  (`.claude/agents/security-review.md`, `architecture-review.md`, and the corresponding row in
+  `orchestrator_prompt.md`'s skill table) - all three non-`code-quality` skills now run on Sonnet.
+  This is a quality/cost trade-off, not a correctness fix: it has not been re-validated against
+  the golden PR fixture (`review/tests/fixtures/golden_pr_snippet.py`) or a real trigger to confirm
+  finding quality holds at the cheaper tier - worth doing before relying on it for anything other
+  than cost.

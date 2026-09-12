@@ -16,9 +16,11 @@ request, without forcing every PR through an expensive AI review it may not need
   naming a concern, e.g. "review this for security") on a pull request. Comments from non-
   collaborators do not trigger anything.
 - Four specialised review skills exist - security, architecture, optimization, code quality -
-  each running on a specific Claude model (security and architecture on Opus, optimization on
-  Sonnet, code quality on Haiku). Only the skills relevant to the request and to the files the
-  PR touches run; the system does not run all four on every request.
+  each running on a specific Claude model (security, architecture, and optimization on Sonnet;
+  code quality on Haiku - security and architecture originally ran on Opus, moved to Sonnet after
+  real usage data showed it was the dominant cost driver, see traceability.md). Only the skills
+  relevant to the request and to the files the PR touches run; the system does not run all four
+  on every request.
 - Relevant skills run concurrently rather than one after another.
 - Every finding, from Ruff or from a Claude skill, is posted as its own inline PR review comment
   attached to the relevant file and line whenever the position is part of the diff; a finding

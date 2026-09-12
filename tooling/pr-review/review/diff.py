@@ -11,11 +11,30 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from dataclasses import dataclass, field
 
 import requests
 
 API_ROOT = "https://api.github.com"
+
+# Transient failure modes worth a retry, since this pipeline runs unattended in CI:
+# GitHub's own server errors, and its secondary rate limit (a 403 with this header,
+# distinct from the primary rate limit's 429 - both are safe to retry, unlike a 403
+# from an actual permissions problem, which this header would not be present on).
+_RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
+_MAX_ATTEMPTS = 4
+_BACKOFF_SECONDS = 1.0
+
+
+def _is_retryable(response: requests.Response) -> bool:
+    if response.status_code in _RETRYABLE_STATUS_CODES:
+        return True
+    return response.status_code == 403 and "retry-after" in response.headers
+
+
+def _sleep(seconds: float) -> None:
+    time.sleep(seconds)
 
 
 class GitHubError(RuntimeError):
@@ -37,14 +56,34 @@ def _headers() -> dict[str, str]:
     }
 
 
+def _request_with_retry(method, path: str, url: str, **kwargs) -> requests.Response:
+    """A single HTTP call, retried on transient failures (rate limits, 5xx) with a
+    short backoff so a brief GitHub API blip doesn't fail an entire unattended CI
+    run - previously, any such blip meant nothing was posted at all, not even the
+    summary, indistinguishable from a real error to whoever is watching the job.
+    A non-transient failure (404, a real 403, a malformed request) still raises
+    immediately, unretried - retrying those would only delay an inevitable failure.
+    """
+    last_response: requests.Response | None = None
+    for attempt in range(_MAX_ATTEMPTS):
+        response = method(url, headers=_headers(), timeout=30, **kwargs)
+        if response.status_code < 400:
+            return response
+        if not _is_retryable(response) or attempt == _MAX_ATTEMPTS - 1:
+            raise GitHubError(f"{path} failed: {response.status_code} {response.text}")
+        last_response = response
+        retry_after = last_response.headers.get("Retry-After")
+        delay = float(retry_after) if retry_after else _BACKOFF_SECONDS * (2**attempt)
+        _sleep(delay)
+    raise AssertionError("unreachable - loop always returns or raises")
+
+
 def github_get(path: str, params: dict | None = None) -> list | dict:
     """GET against the GitHub API, following pagination for list responses."""
     url = f"{API_ROOT}{path}"
     results: list = []
     while url:
-        response = requests.get(url, headers=_headers(), params=params, timeout=30)
-        if response.status_code >= 400:
-            raise GitHubError(f"GET {path} failed: {response.status_code} {response.text}")
+        response = _request_with_retry(requests.get, path, url, params=params)
         payload = response.json()
         if not isinstance(payload, list):
             return payload
@@ -56,9 +95,7 @@ def github_get(path: str, params: dict | None = None) -> list | dict:
 
 def github_post(path: str, json: dict) -> dict:
     url = f"{API_ROOT}{path}"
-    response = requests.post(url, headers=_headers(), json=json, timeout=30)
-    if response.status_code >= 400:
-        raise GitHubError(f"POST {path} failed: {response.status_code} {response.text}")
+    response = _request_with_retry(requests.post, path, url, json=json)
     return response.json()
 
 

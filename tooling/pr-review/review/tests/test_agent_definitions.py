@@ -17,8 +17,8 @@ AGENTS_DIR = REPO_ROOT / ".claude" / "agents"
 SKILLS_DIR = REPO_ROOT / ".claude" / "skills"
 
 EXPECTED = {
-    "security-review.md": ("opus", "security-review-checklist"),
-    "architecture-review.md": ("opus", "architecture-review-checklist"),
+    "security-review.md": ("sonnet", "security-review-checklist"),
+    "architecture-review.md": ("sonnet", "architecture-review-checklist"),
     "optimization.md": ("sonnet", "optimization-checklist"),
     "code-quality.md": ("haiku", "code-quality-checklist"),
 }

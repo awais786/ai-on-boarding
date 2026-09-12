@@ -122,6 +122,10 @@ phase's implementation tasks in the same run.
       `optimization.md` (model: sonnet), and `code-quality.md` (model: haiku), each restricted to
       `Read` and `Skill` tools, each instructing the subagent to load `pr-review-common` and its
       own checklist skill by name and apply them to an orchestrator-supplied file list
+      (**updated after Phase 3 real-world cost data**: `security-review` and `architecture-review`
+      moved from `opus` to `sonnet` - real run logs showed the two Opus subagents were the
+      dominant cost driver, ~$0.65-0.70 and ~4 points of the account's 5-hour usage window per
+      `@claude` trigger; see traceability.md)
 - [x] 7.4 Verify each agent definition file is well-formed (valid frontmatter, references an
       existing skill name) by inspection or a lint script (formalized as
       `test_agent_definitions.py`, not just a one-off check)
@@ -182,9 +186,13 @@ phase's implementation tasks in the same run.
 ## 10. Phase 3 - Manual verification (final - full end-to-end confirmation)
 
 - [ ] 10.1 Set up the `CLAUDE_CODE_OAUTH_TOKEN` secret per 8.3 - to be performed by the user
-- [ ] 10.2 On a real test pull request, comment `@claude` from a non-collaborator account (or
+- [x] 10.2 On a real test pull request, comment `@claude` from a non-collaborator account (or
       simulate one) and confirm no review starts - to be confirmed by the user, not checked off
-      automatically
+      automatically (confirmed 2026-09-12 against PR #11: a comment from a second, non-collaborator
+      account produced no review and no posted comments; the workflow run itself fails with
+      "Actor does not have write permissions to the repository" rather than silently no-opping -
+      expected per claude-code-action's built-in check, design.md Decision 8; costs nothing since
+      it's rejected before any Claude session starts - see run 34692737096)
 - [ ] 10.3 On the same pull request, comment `@claude` from a collaborator account naming a
       specific concern (e.g. "review for security"), and confirm only the matching skill(s) run,
       inline comments appear isolated per finding and attached to the correct file/line where
@@ -194,9 +202,13 @@ phase's implementation tasks in the same run.
 - [ ] 10.4 Comment `@claude` again on the same, unfixed pull request and confirm previously
       posted findings are not reposted - to be confirmed by the user, not checked off
       automatically
-- [ ] 10.5 Confirm Ruff-sourced comments (from Phase 2) and Claude-sourced comments coexist on
+- [x] 10.5 Confirm Ruff-sourced comments (from Phase 2) and Claude-sourced comments coexist on
       the same pull request without duplicating each other - to be confirmed by the user, not
-      checked off automatically
+      checked off automatically (confirmed 2026-09-12 against PR #11: a deliberately planted F841
+      violation was posted by Ruff's automatic `pull_request` workflow - `Source: ruff`, comment
+      3996181404 - and sits alongside 17+ Claude-sourced comments with no overlap or duplication
+      between the two sources; `find_match`'s category recovery correctly maps `ruff` to
+      `code-quality` via `SOURCE_TO_CATEGORY`)
 - [ ] 10.6 Once all of the above are confirmed, ensure a GitHub issue exists for this change and
       post the proposal and full delta spec to it, per this project's convention - confirm with
       the user before posting, since this writes to a shared, visible location outside the repo

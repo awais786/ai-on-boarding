@@ -35,8 +35,8 @@ Available skills, each a subagent with its own model:
 
 | Skill | Model | Concern |
 |---|---|---|
-| `security-review` | Opus | secrets, auth, injection, crypto, CSRF |
-| `architecture-review` | Opus | separation of concerns, duplication, coupling, fit with existing patterns |
+| `security-review` | Sonnet | secrets, auth, injection, crypto, CSRF |
+| `architecture-review` | Sonnet | separation of concerns, duplication, coupling, fit with existing patterns |
 | `optimization` | Sonnet | N+1 queries, blocking calls, missing caching/indexing |
 | `code-quality` | Haiku | naming, dead code, confusing logic, missing security-sensitive tests (never anything Ruff already covers) |
 

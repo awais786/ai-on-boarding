@@ -76,16 +76,10 @@ def _parse_posted_finding(body: str) -> Finding | None:
     against new candidates. Returns None for anything that isn't one of our own
     finding comments - the summary, or a human's own comment on the pull request.
 
-    Category was previously hardcoded to "code-quality" here, which was harmless
-    while `find_match` only compared titles, but silently broke its later
-    same-category matching path (dedupe.find_match): a reconstructed finding's
-    category was never the finding's real one unless that real category also
-    happened to be "code-quality" - see traceability.md for the real run that
-    caught this (two independent architecture-review findings went unmatched
-    against three already-posted architecture findings at the same location,
-    because every reconstructed "already posted" finding compared as category
-    "code-quality", not "architecture"). Recovered here from the `_Source:` line
-    `format_comment` always includes, via `SOURCE_TO_CATEGORY`.
+    Category matters here because `dedupe.find_match` treats a shared category as
+    sufficient for a location match (see that function's docstring) - so it must
+    reflect the finding's real category, not a placeholder. Recovered from the
+    `_Source:` line `format_comment` always includes, via `SOURCE_TO_CATEGORY`.
     """
     title_match = TITLE_RE.search(body)
     location_match = LOCATION_RE.search(body)

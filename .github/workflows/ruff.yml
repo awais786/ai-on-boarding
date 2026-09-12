@@ -17,6 +17,16 @@ permissions:
   pull-requests: write
   issues: write
 
+# Shared with claude-pr-review.yml's group name deliberately: both workflows end by
+# calling the same publish.py against the same pull request, and each starts with a
+# collect_existing() snapshot of what's already posted. Without a shared group, a
+# push (triggering this workflow) and an `@claude` comment (triggering the other)
+# landing close together could run both publishing calls concurrently, each working
+# from a pool that doesn't yet include the other's about-to-be-posted comments.
+concurrency:
+  group: pr-review-publish-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   ruff:
     runs-on: ubuntu-latest
