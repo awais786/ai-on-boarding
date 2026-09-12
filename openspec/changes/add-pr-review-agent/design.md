@@ -122,9 +122,16 @@ real Phase 3 verification (PR #11): two independent architecture-review re-runs 
 for the same underlying issues that scored 0.568 and 0.610 against the 0.6 threshold, and both
 were reposted. The threshold was lowered to 0.5 with real margin on both sides (confirmed against
 the existing "distinct titles" and "very differently worded" fixtures, which still correctly stay
-unmatched at 0.208 and 0.320) - see `review/dedupe.py` and `traceability.md`. Still a character-
-based heuristic, not a semantic one; under-merging differently-worded duplicates remains possible
-and is the documented, accepted limitation in `test_dedupe.py`.
+unmatched at 0.208 and 0.320) - see `review/dedupe.py` and `traceability.md`. A third real re-trigger produced a third independent
+wording that again fell through this threshold (0.507 vs. a stricter prior wording, 0.386 vs. a
+looser one) - proving threshold-tuning alone cannot converge against unbounded independent
+rewording. Fixed properly by changing what `find_match` (the cross-run already-posted check) uses
+as its matching signal: same location + same category is now sufficient on its own, not title
+similarity - see `review/dedupe.py`'s `find_match` docstring and `traceability.md`'s sixth bug.
+`collapse_duplicates` (within-run dedup) is deliberately left on the title-based heuristic, since
+two distinct concerns from one skill at nearby lines in a single run is a real case worth keeping
+separate. Under-merging differently-worded duplicates *across categories* remains the documented,
+accepted limitation in `test_dedupe.py`.
 
 [Risk] A skill's output is not guaranteed-valid JSON, since the OAuth-token auth path cannot use
 the raw Anthropic API's enforced `output_format` feature.

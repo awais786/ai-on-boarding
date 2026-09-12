@@ -1,11 +1,17 @@
 """Collapses findings that describe the same underlying issue - both within a single
 batch of new candidates (`collapse_duplicates`) and against what a pull request
-already carries (`find_match`, used by publish.py's already-posted check). The same
-location+title-similarity heuristic serves both: a second, independent LLM call
-reviewing unchanged code will not reproduce a finding's title byte-for-byte, so
-publish.py cannot rely on exact identity alone once findings come from a model
-rather than a deterministic tool like Ruff - see openspec/changes/
-add-pr-review-agent/traceability.md for the real run that proved this.
+already carries (`find_match`, used by publish.py's already-posted check). Both
+share the same location heuristic (same file, line within `LINE_WINDOW`), but use
+different signals for "is this the same issue": `collapse_duplicates` requires
+title similarity, since it dedupes findings generated together in one run, where
+two genuinely distinct concerns at nearby lines are a real case to preserve.
+`find_match` additionally treats a shared category as sufficient on its own,
+because repeated independent LLM calls reviewing unchanged code do not just fail
+to reproduce a title byte-for-byte - they can drift far enough, round over round,
+that no fixed title-similarity threshold reliably catches every pair. See
+openspec/changes/add-pr-review-agent/traceability.md for the real runs that proved
+this (title similarity across three independent rewordings of the same finding:
+0.568, 0.386, 0.507 - never consistently above any one cutoff).
 
 See openspec/changes/add-pr-review-agent/design.md - Decision 5 and the "Risks" entry
 on this heuristic needing validation against real examples before it is trusted.
@@ -39,14 +45,32 @@ def _same_location(a: Finding, b: Finding) -> bool:
 
 def find_match(candidate: Finding, pool: list[Finding]) -> Finding | None:
     """The first finding in `pool` that appears to describe the same underlying
-    issue as `candidate` (same location, similar title), or None. Used against
-    already-posted findings reconstructed from a pull request's existing comments -
-    unlike `collapse_duplicates`, there is no "survivor" to pick here, since an
-    already-posted finding always wins: the candidate is simply not reposted.
+    issue as `candidate` (same location, and either a similar title or the same
+    category), or None. Used against already-posted findings reconstructed from a
+    pull request's existing comments - unlike `collapse_duplicates`, there is no
+    "survivor" to pick here, since an already-posted finding always wins: the
+    candidate is simply not reposted.
+
+    Matching on category (not title similarity alone) once location matches is
+    deliberate: three independent real re-triggers on the same unchanged code (PR
+    #11 on ibtisam-saeed/ai-on-boarding) produced three different rewordings of the
+    same finding whose pairwise title similarity - 0.568, 0.386, 0.507 - never
+    reliably cleared any single fixed threshold, each round drifting a different
+    amount from each prior wording. No fixed character-similarity cutoff converges
+    against unbounded independent rewording, so for this specific check (has this
+    skill already told us about this location before?) same-location-and-category
+    is treated as sufficient on its own. Title similarity is kept as an additional,
+    looser path so a same-titled finding from a *different* category can still be
+    caught (the cross-category case remains a documented limitation - see
+    test_dedupe.py). This is deliberately not applied to collapse_duplicates, which
+    dedupes findings *within* one run: two distinct concerns from the same skill at
+    nearby lines in a single call are a real, if uncommon, case that should not be
+    silently merged just because they share a category - see traceability.md.
     """
     for other in pool:
         if _same_location(candidate, other) and (
-            _title_similarity(candidate.title, other.title) >= TITLE_SIMILARITY_THRESHOLD
+            candidate.category == other.category
+            or _title_similarity(candidate.title, other.title) >= TITLE_SIMILARITY_THRESHOLD
         ):
             return other
     return None

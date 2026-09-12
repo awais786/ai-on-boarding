@@ -108,6 +108,46 @@ def test_real_reworded_pair_from_pr11_is_recognised_as_duplicate():
     assert find_match(b, [a]) is not None
 
 
+def test_real_third_rewording_from_pr11_is_recognised_via_category_not_title():
+    """A third independent architecture-review run on the same unchanged PR #11
+    code produced a third wording of the raw-SQL finding. Its title similarity
+    against the *second* run's wording is 0.386 - well below any threshold that
+    still keeps the "distinct titles" and "known limitation" fixtures unmatched -
+    proving title similarity alone cannot converge across repeated independent
+    rewordings. `find_match` must instead catch this via same location + same
+    category (`review/dedupe.py`'s deliberate design for this specific check).
+    """
+    posted = _finding(
+        title="Hand-written SQL data access bypasses the ORM pattern used throughout this project",
+        category="architecture",
+        source="architecture-review",
+        line=25,
+    )
+    candidate = _finding(
+        title="Raw SQL cursor reimplements ORM query and bypasses the project's data-access pattern",
+        category="architecture",
+        source="architecture-review",
+        line=25,
+    )
+    assert find_match(candidate, [posted]) is not None
+
+
+def test_find_match_still_respects_category_for_cross_category_low_similarity():
+    """The category-based path must not become a blanket "same location matches
+    anything" rule: a genuinely different category at the same location, with low
+    title similarity, must still be treated as a distinct, not-yet-posted finding -
+    the same cross-category limitation `test_known_limitation_...` documents for
+    `collapse_duplicates` applies here too, deliberately unchanged.
+    """
+    posted = _finding(title="Hardcoded secret in settings.py", category="security")
+    candidate = _finding(
+        title="SECRET_KEY should not be committed to source",
+        category="code-quality",
+        source="code-quality",
+    )
+    assert find_match(candidate, [posted]) is None
+
+
 def test_real_rescoped_pair_from_pr11_is_recognised_as_duplicate():
     """Same real run: the second architecture-review call consolidated two of the
     first run's separate findings (a placement concern and a duplicated-fixture

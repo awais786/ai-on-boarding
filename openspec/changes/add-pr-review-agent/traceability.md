@@ -175,3 +175,28 @@ this file exists to catch. All phases are now complete.
   mean at most one outstanding result at a time, structurally eliminating the multi-notification
   attribution race this bug and the third bug both stem from, at the cost of no longer running
   skills concurrently.
+- **Sixth bug: the fifth bug's fix worked, exposing a second failed fix attempt at the third
+  bug (dedupe)**: re-triggering `@claude` after the fifth-bug fix landed confirmed
+  `publish.py` was finally reached correctly on the first try, but 2 of the 3 findings it posted
+  were, again, reworded duplicates of already-posted findings (raw-SQL-bypasses-ORM at line 25,
+  and the scratch-module/duplicated-fixture finding at line 1) - only 2 of the 4 real candidates
+  were recognised as already-posted. This is a *third* independent architecture-review wording of
+  each: measuring title similarity across all three real wordings of the raw-SQL finding gave
+  0.568 (run 1 vs run 2), 0.386 (run 2 vs run 3), and 0.507 (run 1 vs run 3, only just above the
+  0.5 threshold from the third bug's fix) - no single fixed cutoff reliably separates this
+  cluster from the "distinct titles" (0.208) and "known limitation" (0.320) fixtures, because each
+  independent rewording drifts a different, unpredictable amount from every prior one. Character-
+  similarity threshold-tuning was the wrong kind of fix, not just miscalibrated (a second explored
+  alternative, comparing full explanation text instead of title, was *worse*: the same real
+  explanation pairs scored 0.056-0.071, since long free-form LLM prose shares almost no exact
+  character runs even when describing the identical code path). Fixed by changing `find_match`
+  (the cross-run already-posted check only, not `collapse_duplicates`'s within-run dedup) to treat
+  same-location-and-same-category as sufficient on its own, keeping title similarity only as an
+  additional path for a same-titled cross-category match. Rationale: an independent subsequent run
+  reporting from the same skill at the same location on unchanged code is reliably the same
+  underlying point, regardless of wording, while two genuinely distinct concerns from one skill at
+  nearby lines *within a single run* (the case `collapse_duplicates` still guards, unchanged) is a
+  real, separate scenario worth preserving. Added
+  `test_real_third_rewording_from_pr11_is_recognised_via_category_not_title` and
+  `test_find_match_still_respects_category_for_cross_category_low_similarity` to `test_dedupe.py`;
+  full suite (39 tests) passes. **Not yet re-verified against a real trigger.**
