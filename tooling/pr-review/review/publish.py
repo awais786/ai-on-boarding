@@ -34,6 +34,19 @@ from review.secrets_scan import redact
 FINGERPRINT_RE = re.compile(r"<!-- pr-review-fingerprint: ([0-9a-f]{16}) -->")
 TITLE_RE = re.compile(r"\*\*[^\n]*? - (.+?)\*\*")
 LOCATION_RE = re.compile(r"_Location: (.+?):(\d+|N/A)_")
+SOURCE_RE = re.compile(r"_Source: (.+?)_")
+
+# Each source's category is fixed (see orchestrator_prompt.md's skill table and
+# ruff_adapter.py), so the real category can be recovered from the `_Source:` line
+# `format_comment` always includes. Falls back to "code-quality" for anything
+# unrecognised, matching the previous unconditional placeholder.
+SOURCE_TO_CATEGORY = {
+    "security-review": "security",
+    "architecture-review": "architecture",
+    "optimization": "optimization",
+    "code-quality": "code-quality",
+    "ruff": "code-quality",
+}
 
 SEVERITY_LABEL = {
     "blocker": "\U0001f534 Blocker",
@@ -59,17 +72,30 @@ def load_findings(path: Path) -> tuple[list[Finding], list[str]]:
 
 def _parse_posted_finding(body: str) -> Finding | None:
     """Best-effort reconstruction of a previously-posted finding's identity (file,
-    line, title) from its comment body, for fuzzy duplicate matching against new
-    candidates. Returns None for anything that isn't one of our own finding
-    comments - the summary, or a human's own comment on the pull request.
+    line, title, category) from its comment body, for fuzzy duplicate matching
+    against new candidates. Returns None for anything that isn't one of our own
+    finding comments - the summary, or a human's own comment on the pull request.
+
+    Category was previously hardcoded to "code-quality" here, which was harmless
+    while `find_match` only compared titles, but silently broke its later
+    same-category matching path (dedupe.find_match): a reconstructed finding's
+    category was never the finding's real one unless that real category also
+    happened to be "code-quality" - see traceability.md for the real run that
+    caught this (two independent architecture-review findings went unmatched
+    against three already-posted architecture findings at the same location,
+    because every reconstructed "already posted" finding compared as category
+    "code-quality", not "architecture"). Recovered here from the `_Source:` line
+    `format_comment` always includes, via `SOURCE_TO_CATEGORY`.
     """
     title_match = TITLE_RE.search(body)
     location_match = LOCATION_RE.search(body)
     if not title_match or not location_match:
         return None
+    source_match = SOURCE_RE.search(body)
+    category = SOURCE_TO_CATEGORY.get(source_match.group(1), "code-quality") if source_match else "code-quality"
     line_text = location_match.group(2)
     return Finding(
-        category="code-quality",
+        category=category,
         severity="info",
         source="posted",
         file=location_match.group(1),

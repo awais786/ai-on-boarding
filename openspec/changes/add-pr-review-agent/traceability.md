@@ -223,3 +223,27 @@ this file exists to catch. All phases are now complete.
   matching rule's shape itself (e.g. anchoring on the subagent-reported enclosing function/symbol
   name, which is stable across runs on unchanged code, rather than a raw line number), not add a
   sixth heuristic tweak.
+- **Eighth bug: not a fifth drift axis after all, but a real defect in the sixth bug's own fix**.
+  A fifth real trigger posted two architecture findings that were, again, already-posted
+  duplicates (the scratch-module/duplicated-fixture concern, now a fourth and fifth independent
+  wording). Investigated by pulling the PR's actual comment bodies directly (`gh api
+  .../pulls/11/comments`) rather than retriggering again. Root cause: `_parse_posted_finding`
+  (which reconstructs an "already posted" pseudo-`Finding` from a comment's body, for
+  `find_match` to compare against) has always hardcoded `category="code-quality"` - harmless
+  while `find_match` only compared titles, but the sixth bug's fix added
+  `candidate.category == other.category` as a match path without updating this reconstruction, so
+  `other.category` was *never* a finding's real category unless that real category also happened
+  to be "code-quality". Every already-posted architecture finding therefore compared as category
+  "code-quality", not "architecture", so the category path silently never fired for
+  architecture (or security, or optimization) findings at all - it happened to look like it was
+  working in the sixth and seventh bugs' verification runs only because those specific titles
+  still cleared the similarity threshold by coincidence. Fixed by parsing the real source from the
+  comment's `_Source: {source}_` line (`format_comment` always includes it) and mapping it to a
+  category via a fixed table (`SOURCE_TO_CATEGORY` in `review/publish.py`, mirroring
+  `orchestrator_prompt.md`'s skill table), instead of a hardcoded placeholder. Added
+  `test_category_recovered_from_posted_comment_matches_far_reworded_title` to `test_publish.py`,
+  using two real title wordings (similarity 0.347, confirmed red without the fix, reproducing the
+  exact observed symptom, then green with it); full suite (41 tests) passes. **Not yet
+  re-verified against a real trigger.** This was caught without spending on another live trigger -
+  pulling the actual posted comment bodies via `gh api` and reasoning through the matching code
+  directly was enough; worth doing that first before assuming a new drift axis next time too.

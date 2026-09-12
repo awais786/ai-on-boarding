@@ -165,6 +165,49 @@ def test_reworded_finding_from_an_independent_run_is_not_reposted(tmp_path, fake
     assert len(fake_github.posted_reviews) == 1  # no second review posted
 
 
+def test_category_recovered_from_posted_comment_matches_far_reworded_title(tmp_path, fake_github):
+    """Regression test for a real bug (PR #11 on ibtisam-saeed/ai-on-boarding, Phase 3
+    manual verification): `_parse_posted_finding` hardcoded `category="code-quality"`
+    for every reconstructed already-posted finding, which was harmless while
+    `find_match` only compared titles, but silently broke its later same-category
+    matching path once dedupe.find_match started comparing category too - a
+    reconstructed finding's category was never its real one unless that real
+    category also happened to be "code-quality". A fourth independent
+    architecture-review wording of the same finding then went unmatched even though
+    it shared a category and location with three already-posted architecture
+    findings, because every one of them reconstructed as category "code-quality".
+    Titles below are the real observed wording (first vs. a later, far more
+    reworded run - similarity 0.347, well below the title-similarity threshold), so
+    this only passes if category is correctly recovered from the `_Source:` line.
+    """
+    fake_github.files = [{"filename": "a.py", "patch": "@@ -1,1 +1,1 @@\n line1"}]
+    first_run_finding = Finding(
+        category="architecture", severity="major", file="a.py", line=1,
+        title="Debug scratch module added to the application package with no backing spec or change",
+        explanation="explains it", source="architecture-review",
+    )
+    path = _write_findings(tmp_path, [first_run_finding])
+    publish_module.run("owner/repo", 1, path)
+    assert len(fake_github.posted_reviews) == 1
+
+    fake_github.review_comments = [
+        {"path": "a.py", "line": 1, "body": c["body"]}
+        for c in fake_github.posted_reviews[0]["comments"]
+    ]
+
+    later_run_finding = Finding(
+        category="architecture", severity="major", file="a.py", line=1,
+        title="File duplicates an existing fixture verbatim instead of reusing it",
+        explanation="explains it, worded very differently", source="architecture-review",
+    )
+    path2 = _write_findings(tmp_path, [later_run_finding])
+
+    result = publish_module.run("owner/repo", 1, path2)
+
+    assert result == 0
+    assert len(fake_github.posted_reviews) == 1  # no second review posted
+
+
 def test_near_duplicate_findings_produce_only_one_comment(tmp_path, fake_github):
     fake_github.files = [{"filename": "a.py", "patch": "@@ -1,1 +1,1 @@\n line1"}]
     a = Finding(
