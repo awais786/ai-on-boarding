@@ -1,0 +1,12 @@
+description: >
+  Plan case 6 - a citation quoting CLAUDE.md text that does not exist there.
+  The quoted rule ("every tunable threshold must be read from Django settings")
+  is invented; nothing like it appears in rules.json. citations.precheck()
+  must REJECT it deterministically, which strips the citation without dropping
+  the finding: a model hallucinating a citation on a real concern should lose
+  the citation, not the concern. The finding therefore survives as
+  non-blocking and the verdict is "yes" despite a MAJOR being present.
+  Fully deterministic - costs no model call.
+base_sha: frozen-fixture
+head_sha: frozen-fixture
+plan_case: 6

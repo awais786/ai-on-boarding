@@ -1,0 +1,11 @@
+diff --git a/sdd_django_demo/api/rate_limit.py b/sdd_django_demo/api/rate_limit.py
+new file mode 100644
+index 0000000..1a2b3c4
+--- /dev/null
++++ b/sdd_django_demo/api/rate_limit.py
+@@ -0,0 +1,5 @@
++DEFAULT_WINDOW_SECONDS = 60
++
++
++def is_rate_limited(attempts, window=DEFAULT_WINDOW_SECONDS):
++    return len(attempts) > 5
