@@ -22,7 +22,14 @@ from difflib import SequenceMatcher
 
 from review.schema import SEVERITY_RANK, Finding
 
-LINE_WINDOW = 3
+# Widened from 3 after a fourth real re-trigger (PR #11) anchored the same raw-SQL finding to
+# line 20 (the `def get_user_orders(user_id):` line) instead of line 25 (the `cursor.execute(...)`
+# line inside it) that all three prior runs had used - a 5-line drift for the identical
+# underlying, function-level issue, which the old window rejected before category matching in
+# find_match ever ran. Unlike title wording, a function's span in an unchanged file doesn't grow
+# between runs, so this drift is bounded, not open-ended - 8 gives real margin over the observed
+# 5-line spread for a typical small function. See traceability.md.
+LINE_WINDOW = 8
 # Lowered from 0.6 after two real reworded/re-scoped duplicates from an independent subagent
 # re-run (PR #11 on ibtisam-saeed/ai-on-boarding) scored 0.568 and 0.610 against their originals
 # and were reposted instead of recognised as already-handled - see traceability.md. 0.5 leaves

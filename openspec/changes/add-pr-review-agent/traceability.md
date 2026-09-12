@@ -200,3 +200,26 @@ this file exists to catch. All phases are now complete.
   `test_real_third_rewording_from_pr11_is_recognised_via_category_not_title` and
   `test_find_match_still_respects_category_for_cross_category_low_similarity` to `test_dedupe.py`;
   full suite (39 tests) passes. **Not yet re-verified against a real trigger.**
+- **Seventh bug: the sixth bug's fix worked, but a fourth real trigger drifted on a different
+  axis - location, not title**: re-triggering after the sixth-bug fix landed confirmed the
+  category-based match works (the security and code-quality candidates were correctly recognised
+  as already-posted), but a fourth independent wording of the raw-SQL finding was anchored to line
+  20 (the `def get_user_orders(user_id):` line) instead of line 25 (the `cursor.execute(...)` call
+  inside it) that all three prior runs had used - a 5-line drift for the identical function-level
+  issue. `find_match`'s location gate (`LINE_WINDOW = 3`) rejected the pair before category
+  matching ever ran, so the sixth bug's fix never got a chance to apply. Unlike title wording,
+  this drift is bounded, not open-ended: the function's physical span in an unchanged file cannot
+  grow between runs. Fixed by widening `LINE_WINDOW` from 3 to 8 - real margin over the observed
+  5-line spread for a small function - safe against over-merging because the sixth bug's
+  category-gating already does the discriminating work for `find_match`, so a wider window mostly
+  just gives category-matching more candidates to correctly accept or reject, rather than
+  reintroducing false positives. Added
+  `test_real_fourth_rewording_from_pr11_anchored_to_a_different_line_in_the_same_function` to
+  `test_dedupe.py`; full suite (40 tests) passes. **Not yet re-verified against a real trigger.**
+  Four real triggers in a row have each surfaced a genuine, previously-unseen bug (permission
+  scope, dedupe threshold, async bookkeeping, dedupe category, dedupe location) - worth treating
+  as a signal in its own right: if a fifth trigger surfaces yet another independent-axis drift in
+  this same matching logic, that is the point to stop patching individual axes and reconsider the
+  matching rule's shape itself (e.g. anchoring on the subagent-reported enclosing function/symbol
+  name, which is stable across runs on unchanged code, rather than a raw line number), not add a
+  sixth heuristic tweak.

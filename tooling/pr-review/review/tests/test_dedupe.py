@@ -148,6 +148,29 @@ def test_find_match_still_respects_category_for_cross_category_low_similarity():
     assert find_match(candidate, [posted]) is None
 
 
+def test_real_fourth_rewording_from_pr11_anchored_to_a_different_line_in_the_same_function():
+    """A fourth independent architecture-review run on the same unchanged PR #11 code
+    anchored the same raw-SQL finding to line 20 (the function's `def` line) instead
+    of line 25 (the `cursor.execute(...)` call inside it) that all three prior runs
+    used - a 5-line drift for the identical function-level issue, which the old
+    LINE_WINDOW of 3 rejected before category matching ever ran. See
+    traceability.md.
+    """
+    posted = _finding(
+        title="Raw SQL cursor reimplements ORM query and bypasses the project's data-access pattern",
+        category="architecture",
+        source="architecture-review",
+        line=25,
+    )
+    candidate = _finding(
+        title="Raw SQL data access in a free-standing module, bypassing the ORM and the app's layering",
+        category="architecture",
+        source="architecture-review",
+        line=20,
+    )
+    assert find_match(candidate, [posted]) is not None
+
+
 def test_real_rescoped_pair_from_pr11_is_recognised_as_duplicate():
     """Same real run: the second architecture-review call consolidated two of the
     first run's separate findings (a placement concern and a duplicated-fixture
