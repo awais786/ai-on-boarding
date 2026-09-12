@@ -11,30 +11,43 @@ from __future__ import annotations
 
 import os
 import re
-import time
 from dataclasses import dataclass, field
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 API_ROOT = "https://api.github.com"
 
-# Transient failure modes worth a retry, since this pipeline runs unattended in CI:
-# GitHub's own server errors, and its secondary rate limit (a 403 with this header,
-# distinct from the primary rate limit's 429 - both are safe to retry, unlike a 403
-# from an actual permissions problem, which this header would not be present on).
-_RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
-_MAX_ATTEMPTS = 4
-_BACKOFF_SECONDS = 1.0
+# GET is idempotent, so a transient failure (a 5xx, or either of GitHub's rate limits)
+# can be safely retried; POST is not, so it is deliberately excluded (urllib3's own
+# default `allowed_methods` already excludes it) - retrying a POST that actually
+# succeeded server-side before a delayed/dropped response would create a duplicate PR
+# comment, which nothing downstream would catch (publish.py's dedupe only looks across
+# separate runs, not within one run's own retry). 403 is included alongside 429/5xx
+# because GitHub's secondary rate limit uses 403 with a Retry-After header, which
+# `respect_retry_after_header` (on by default) honours; a persistent, non-rate-limit
+# 403 just retries a few times against unchanging input before failing the same way it
+# always would have, at the cost of a bounded few seconds. Connection-level failures
+# (a dropped connection, a timeout before any response exists) are retried too - this
+# is real urllib3 behaviour, not just status-code matching, unlike the hand-rolled
+# version this replaced, which only ever inspected `response.status_code` and so
+# never engaged for a failure that occurred before a response existed at all.
+_RETRY = Retry(
+    total=4,
+    backoff_factor=1.0,
+    status_forcelist=[403, 429, 502, 503, 504],
+    respect_retry_after_header=True,
+    retry_after_max=60,  # this pipeline runs in CI; do not sleep through an entire job budget
+)
 
-
-def _is_retryable(response: requests.Response) -> bool:
-    if response.status_code in _RETRYABLE_STATUS_CODES:
-        return True
-    return response.status_code == 403 and "retry-after" in response.headers
-
-
-def _sleep(seconds: float) -> None:
-    time.sleep(seconds)
+_session = requests.Session()
+# Mounted for both schemes - the real API is always https, but mounting http:// too
+# costs nothing in production and lets tests exercise the real retry policy against
+# a local HTTP server rather than mocking around it.
+_adapter = HTTPAdapter(max_retries=_RETRY)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
 
 
 class GitHubError(RuntimeError):
@@ -56,26 +69,21 @@ def _headers() -> dict[str, str]:
     }
 
 
-def _request_with_retry(method, path: str, url: str, **kwargs) -> requests.Response:
-    """A single HTTP call, retried on transient failures (rate limits, 5xx) with a
-    short backoff so a brief GitHub API blip doesn't fail an entire unattended CI
-    run - previously, any such blip meant nothing was posted at all, not even the
-    summary, indistinguishable from a real error to whoever is watching the job.
-    A non-transient failure (404, a real 403, a malformed request) still raises
-    immediately, unretried - retrying those would only delay an inevitable failure.
+def _request(method: str, path: str, url: str, **kwargs) -> requests.Response:
+    """A single HTTP call through `_session`, so it picks up `_RETRY`. Retries that
+    exhaust, and connection-level failures, surface from `_session` as a
+    `requests.RequestException` (not a response object) - caught here and converted
+    to the one error type this module raises, so callers only ever handle
+    `GitHubError`, regardless of whether the failure was transient-then-exhausted or
+    immediate.
     """
-    last_response: requests.Response | None = None
-    for attempt in range(_MAX_ATTEMPTS):
-        response = method(url, headers=_headers(), timeout=30, **kwargs)
-        if response.status_code < 400:
-            return response
-        if not _is_retryable(response) or attempt == _MAX_ATTEMPTS - 1:
-            raise GitHubError(f"{path} failed: {response.status_code} {response.text}")
-        last_response = response
-        retry_after = last_response.headers.get("Retry-After")
-        delay = float(retry_after) if retry_after else _BACKOFF_SECONDS * (2**attempt)
-        _sleep(delay)
-    raise AssertionError("unreachable - loop always returns or raises")
+    try:
+        response = _session.request(method, url, headers=_headers(), timeout=30, **kwargs)
+    except requests.RequestException as exc:
+        raise GitHubError(f"{path} failed: {exc}") from exc
+    if response.status_code >= 400:
+        raise GitHubError(f"{path} failed: {response.status_code} {response.text}")
+    return response
 
 
 def github_get(path: str, params: dict | None = None) -> list | dict:
@@ -83,7 +91,7 @@ def github_get(path: str, params: dict | None = None) -> list | dict:
     url = f"{API_ROOT}{path}"
     results: list = []
     while url:
-        response = _request_with_retry(requests.get, path, url, params=params)
+        response = _request("GET", path, url, params=params)
         payload = response.json()
         if not isinstance(payload, list):
             return payload
@@ -95,7 +103,7 @@ def github_get(path: str, params: dict | None = None) -> list | dict:
 
 def github_post(path: str, json: dict) -> dict:
     url = f"{API_ROOT}{path}"
-    response = _request_with_retry(requests.post, path, url, json=json)
+    response = _request("POST", path, url, json=json)
     return response.json()
 
 

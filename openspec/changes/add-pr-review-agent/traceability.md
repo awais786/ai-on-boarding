@@ -266,3 +266,26 @@ this file exists to catch. All phases are now complete.
   the golden PR fixture (`review/tests/fixtures/golden_pr_snippet.py`) or a real trigger to confirm
   finding quality holds at the cheaper tier - worth doing before relying on it for anything other
   than cost.
+- **`/code-review` finding, blocking**: the hand-rolled retry logic added for the transient-
+  GitHub-API-failure improvement above (`diff.py`'s `_request_with_retry`) retried `github_post`
+  on the same status-code logic as reads, but comment/review-creation POSTs are not idempotent -
+  a 502/503/504 arriving after the write already committed server-side would cause a blind
+  re-POST and a duplicate PR comment, which nothing downstream catches (the dedupe/fingerprint
+  logic only compares across separate runs, not within one run's own retry). The same review pass
+  also found the custom retry only inspected `response.status_code`, so a connection-level failure
+  (no `Response` object exists yet) was never retried at all despite the code's own stated
+  purpose, and a non-numeric `Retry-After` (an HTTP-date, valid per RFC 9110) would crash with an
+  unhandled `ValueError` instead of a clean `GitHubError`. Fixed by replacing the ~50-line custom
+  implementation with `urllib3.util.retry.Retry` mounted via `requests.adapters.HTTPAdapter` on a
+  module-level `Session` - `allowed_methods` excludes POST by default (eliminating the duplicate-
+  comment risk structurally, not just by convention), connection-level failures are retried by
+  urllib3 itself (real transport-layer behaviour, not status-code matching), and `Retry-After`
+  parsing (including the HTTP-date form) is handled by urllib3's own implementation instead of a
+  bare `float()` call. Also added `retry_after_max=60` so a CI job can't sleep through its own
+  budget on an unbounded server-supplied wait. Testing this required a real local HTTP server
+  (`_ScriptedServer` in `test_diff.py`) rather than monkeypatching `requests.get`/`.post` directly,
+  since the retry loop now lives inside urllib3's connection handling, invisible to a mock at that
+  level - 8 new tests, including one that specifically proves a POST is never retried regardless
+  of status (the exact case the finding was about). Two related nits from the same review pass
+  (no logging on retry; the shared error message dropping the GET/POST prefix) were left open -
+  not part of this fix. Full suite (48 tests) passes.
