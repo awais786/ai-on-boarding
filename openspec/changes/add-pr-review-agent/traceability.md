@@ -289,3 +289,21 @@ this file exists to catch. All phases are now complete.
   of status (the exact case the finding was about). Two related nits from the same review pass
   (no logging on retry; the shared error message dropping the GET/POST prefix) were left open -
   not part of this fix. Full suite (48 tests) passes.
+- **Ninth entry: live re-verification of the eighth bug's fix, PR #12 on
+  `ibtisam-saeed/ai-on-boarding`, closing the dedupe bug trail (task 10.3/10.4)**: three
+  consecutive real `@claude` triggers on a fresh test PR (a JS fixture rather than PR #11's Python
+  code, deliberately a different file type) confirmed the category+location `find_match` fix
+  (sixth bug) and the category-recovery fix (eighth bug) work correctly together, live. Run 1
+  posted 4 findings. Run 2 matched all 4 candidates to already-posted (no repost) and posted
+  exactly 1 genuinely new finding the first run had missed. Run 3 matched all 4 back to
+  already-posted/collapsed-duplicate and posted 0, with the summary reading "1 duplicate(s)
+  collapsed 3 already posted and skipped." Verified against the real comment/review bodies via
+  `gh api repos/.../pulls/12/comments` and `/reviews`, not just the workflow's own summary text.
+  This closes the "not yet re-verified against a real trigger" caveat carried by the sixth,
+  seventh, and eighth bug entries above. Task 10.3's other sub-checks - isolated per-finding
+  comments correctly attached to file/line, and exactly one summary per run with no finding text
+  repeated - are also confirmed by this same run; naming a specific concern to confirm only the
+  matching skill(s) run, and the fallback-comment path for an unattachable finding, were not
+  exercised (every trigger used a generic "review this PR" and every finding was attachable) and
+  remain open per tasks.md 10.3. Per explicit user decision, task 10.6 (posting this change to a
+  GitHub issue) is being skipped rather than performed.

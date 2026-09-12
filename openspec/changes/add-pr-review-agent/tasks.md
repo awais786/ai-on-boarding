@@ -198,10 +198,24 @@ phase's implementation tasks in the same run.
       inline comments appear isolated per finding and attached to the correct file/line where
       possible, a fallback general comment appears for any unattachable finding, and exactly one
       summary comment/review is posted without repeating finding text - to be confirmed by the
-      user, not checked off automatically
-- [ ] 10.4 Comment `@claude` again on the same, unfixed pull request and confirm previously
+      user, not checked off automatically (partially confirmed 2026-09-12 against PR #12: a plain
+      `@claude review this PR` trigger produced isolated inline comments each attached to the
+      correct file/line - `notify-slack.js:5,18,19,21,25` - and exactly one summary review per
+      run ("Automated review: N finding(s) posted") with no finding text repeated in the summary;
+      confirmed via `gh api repos/.../pulls/12/comments` and `/reviews`. Still unverified: naming
+      a specific concern to confirm only the matching skill(s) run (all triggers used a generic
+      "review this PR", not a scoped concern), and the fallback general-comment path for an
+      unattachable finding (every finding this run was attachable to a real file/line))
+- [x] 10.4 Comment `@claude` again on the same, unfixed pull request and confirm previously
       posted findings are not reposted - to be confirmed by the user, not checked off
-      automatically
+      automatically (confirmed 2026-09-12 against PR #12 across three consecutive real triggers:
+      run 1 posted 4 findings; run 2 matched all 4 as already-posted and posted exactly 1
+      genuinely new finding; run 3 matched all 4 back to already-posted/collapsed-duplicate and
+      posted 0 - summary read "1 duplicate(s) collapsed 3 already posted and skipped". Verified
+      via `gh api repos/.../pulls/12/comments` and `/reviews`, not just the workflow summary text.
+      This is the category+location `find_match` fix from the dedupe bug trail working correctly
+      live - see `traceability.md` and the `pr_review_dedupe_heuristic_gap` memory for the fix
+      history)
 - [x] 10.5 Confirm Ruff-sourced comments (from Phase 2) and Claude-sourced comments coexist on
       the same pull request without duplicating each other - to be confirmed by the user, not
       checked off automatically (confirmed 2026-09-12 against PR #11: a deliberately planted F841
@@ -209,6 +223,8 @@ phase's implementation tasks in the same run.
       3996181404 - and sits alongside 17+ Claude-sourced comments with no overlap or duplication
       between the two sources; `find_match`'s category recovery correctly maps `ruff` to
       `code-quality` via `SOURCE_TO_CATEGORY`)
-- [ ] 10.6 Once all of the above are confirmed, ensure a GitHub issue exists for this change and
+- [x] 10.6 Once all of the above are confirmed, ensure a GitHub issue exists for this change and
       post the proposal and full delta spec to it, per this project's convention - confirm with
       the user before posting, since this writes to a shared, visible location outside the repo
+      (skipped by explicit user decision 2026-09-12: not posting to a GitHub issue for this
+      change)
