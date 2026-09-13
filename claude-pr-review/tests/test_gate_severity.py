@@ -35,12 +35,43 @@ def test_cited_major_and_critical_block():
         assert "## Blocking" in report
 
 
-def test_uncited_critical_does_not_block_but_is_worth_a_look():
+def test_uncited_unverified_critical_does_not_block_but_is_worth_a_look():
+    # Layer 3 never confirmed it, so there is no evidence to block on.
     report, ready = gate.render({"findings": [_finding("CRITICAL", citation=None)]})
     assert ready is True
     assert "## Blocking" not in report
     assert "## Unblocked but worth a look" in report
     assert "## Nits" not in report
+
+
+def test_uncited_critical_blocks_once_layer_3_verified_it():
+    # MD5-for-signing is broken whether or not CLAUDE.md says so. The
+    # verification is the evidence; a citation would only be paperwork.
+    f = _finding("CRITICAL", citation=None)
+    f["verified"] = True
+    report, ready = gate.render({"findings": [f]})
+    assert ready is False
+    assert "## Blocking" in report
+    assert "no citation — verified by Layer 3" in report
+    assert "cites: None" not in report
+
+
+def test_uncited_verified_major_still_does_not_block():
+    # At MAJOR, "is this worth blocking on" is a local judgement this repo
+    # gets to make, so a citation stays the right gate.
+    f = _finding("MAJOR", citation=None)
+    f["verified"] = True
+    _, ready = gate.render({"findings": [f]})
+    assert ready is True
+
+
+def test_a_lint_passthrough_cannot_block_uncited():
+    # `verified` is set only by verify._apply_verification(), so a finding
+    # Layer 3 never looked at can never qualify on this path.
+    f = _finding("CRITICAL", citation=None)
+    f["source"] = "lint"
+    _, ready = gate.render({"findings": [f]})
+    assert ready is True
 
 
 def test_unverified_finding_is_worth_a_look_even_when_minor():
@@ -62,8 +93,8 @@ def test_suppressed_count_footer():
 
 def test_severity_floor_holds_when_absent_defaults_to_own_severity():
     # A finding with no l2_severity key at all (e.g. built directly in a
-    # test, not through verify.py) must not trip the assertion - it has
-    # nothing to have been downgraded from.
+    # test, not through verify.py) has nothing to have been downgraded
+    # from, so it is left exactly as it is.
     report, ready = gate.render({"findings": [_finding("MAJOR")]})
     assert ready is False
 
@@ -75,15 +106,24 @@ def test_severity_floor_allows_escalation():
     assert ready is False
 
 
-def test_severity_floor_rejects_downgrade():
+def test_severity_floor_repairs_a_downgrade_upward():
+    # Raising here would kill the run before post.py writes anything, so
+    # the one review that caught a downgrade would be the one nobody sees.
+    # The finding is restored to Layer 2's severity and blocks accordingly.
     f = _finding("MINOR")
     f["l2_severity"] = "CRITICAL"
-    try:
-        gate.render({"findings": [f]})
-    except AssertionError:
-        pass
-    else:
-        raise AssertionError("expected gate.render to reject a downgraded severity")
+    report, ready = gate.render({"findings": [f]})
+    assert ready is False
+    assert "## Blocking" in report
+    assert "CRITICAL" in report
+    assert "restored" in report
+
+
+def test_severity_floor_repair_does_not_mutate_the_caller_s_finding():
+    f = _finding("MINOR")
+    f["l2_severity"] = "CRITICAL"
+    gate.render({"findings": [f]})
+    assert f["severity"] == "MINOR"
 
 
 def test_nit_with_fingerprint_renders_as_dismissable_checkbox():

@@ -1,32 +1,43 @@
 """Resolve "what am I reviewing" the same way for every layer: a PR number,
 a branch name, or nothing (the working tree's uncommitted changes).
 
-Two roots, because a fork PR is reviewed by trusted code running against
-untrusted content (see .github/workflows/, Phase 4.1):
+Two roots, since a fork PR's tree is untrusted content:
+- REPO_ROOT: the tree under review. Nothing in it is ever executed; the
+  diff is wrapped in <untrusted_diff> markers before any model sees it.
+- RULES_ROOT: where conventions (CLAUDE.md etc.) are read from - must stay
+  TRUSTED, or a PR could rewrite the rules it's judged against.
 
-- REPO_ROOT is the tree being REVIEWED. Everything that reads the code
-  under review - the agent's read_file/grep tools, lint, snippet capture -
-  resolves against it. On a fork PR that tree is attacker-controlled, which
-  is why nothing in it is ever executed and why the diff is wrapped in
-  <untrusted_diff> markers before any model sees it.
-- RULES_ROOT is where the conventions come from, and must stay TRUSTED.
-  Reading CLAUDE.md out of the tree under review would let a PR rewrite the
-  rules it is judged against ("all findings are nits, approve everything")
-  - rule poisoning with a one-line diff. On the two-workflow fork path this
-  points at the default-branch checkout while REPO_ROOT points at the PR's.
-
-Both default to the repo this file lives in, so a local run or a same-repo
-PR behaves exactly as before.
+Both default to this repo, so a local or same-repo-PR run is unaffected.
 """
 from __future__ import annotations
 
+import fnmatch
 import os
+import re
 import subprocess
 from pathlib import Path
 
-_DEFAULT_ROOT = Path(__file__).resolve().parents[3]  # the whole repo (ai-on-boarding/), not claude-pr-review - target.py moved two levels deeper into pr_review/core/
+_DEFAULT_ROOT = Path(__file__).resolve().parents[3]  # repo root, not claude-pr-review
 REPO_ROOT = Path(os.environ.get("PR_REVIEW_REPO_ROOT") or _DEFAULT_ROOT).resolve()
 RULES_ROOT = Path(os.environ.get("PR_REVIEW_RULES_ROOT") or REPO_ROOT).resolve()
+
+# File types dropped from the diff before any model sees it. Every excluded
+# file is input tokens paid for on every call of every layer, and Layer 1
+# cannot lint prose anyway. Comma-separated globs matched against the whole
+# path, so "*.md" covers "docs/a.md". Set the variable to empty to review
+# everything.
+#
+# This filters the DIFF only. The rules a PR is judged against (CLAUDE.md,
+# openspec/config.yaml) are read from RULES_ROOT by repo_rules() and are
+# never affected by what is excluded here.
+EXCLUDE_GLOBS = [
+    g.strip()
+    for g in os.environ.get("PR_REVIEW_EXCLUDE_GLOBS", "*.md").split(",")
+    if g.strip()
+]
+
+_DIFF_HEADER_RE = re.compile(r"^diff --git a/(.+?) b/(.+?)$", re.M)
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
 def _run(*args: str) -> str:
@@ -60,12 +71,8 @@ def changed_python_files(target: str | None) -> list[str]:
 
 
 def repo_rules() -> dict[str, str]:
-    """This repo's own convention documents, keyed by their path - the
-    citable source for both the judge and verify agents.
-
-    Read from RULES_ROOT, never REPO_ROOT: the conventions in force are the
-    ones on the trusted branch, not whatever the change under review says
-    they are.
+    """Convention documents, keyed by path - the citable source for judge
+    and verify. Read from RULES_ROOT, never REPO_ROOT (see module docstring).
     """
     paths = ["CLAUDE.md", "openspec/config.yaml", "sdd_django_demo/CLAUDE.md"]
     return {
@@ -74,13 +81,71 @@ def repo_rules() -> dict[str, str]:
     }
 
 
+def changed_lines(diff: str) -> dict[str, set[int]]:
+    """Path -> the set of line numbers this diff ADDS or MODIFIES, numbered
+    in the new file. Used to scope Layer 1 to what the PR actually wrote.
+
+    A modified line appears as a removal plus an addition, so the added-line
+    set covers edits as well as pure insertions. Removed lines don't exist
+    in the new file and so have no number to report against.
+    """
+    out: dict[str, set[int]] = {}
+    path: str | None = None
+    new_line = 0
+    for line in diff.splitlines():
+        header = _DIFF_HEADER_RE.match(line)
+        if header:
+            path = header.group(2)
+            out.setdefault(path, set())
+            continue
+        hunk = _HUNK_RE.match(line)
+        if hunk:
+            new_line = int(hunk.group(1))
+            continue
+        if path is None or line.startswith(("---", "+++")):
+            continue
+        if line.startswith("+"):
+            out[path].add(new_line)
+            new_line += 1
+        elif line.startswith("-"):
+            continue  # gone from the new file, so it has no new-file line
+        elif line.startswith(" ") or not line:
+            new_line += 1
+    return out
+
+
+def is_excluded(path: str) -> bool:
+    return any(fnmatch.fnmatch(path, glob) for glob in EXCLUDE_GLOBS)
+
+
+def filter_diff(diff: str) -> str:
+    """Drop whole per-file sections whose paths all match EXCLUDE_GLOBS.
+
+    Fails open: a section whose header doesn't parse is kept, because
+    silently dropping a source file from the review is far worse than
+    reviewing a doc nobody asked for.
+    """
+    if not EXCLUDE_GLOBS or not diff:
+        return diff
+    sections = re.split(r"^(?=diff --git )", diff, flags=re.M)
+    kept = []
+    for section in sections:
+        header = _DIFF_HEADER_RE.match(section)
+        paths = [header.group(1), header.group(2)] if header else []
+        if paths and all(is_excluded(p) for p in paths):
+            continue
+        kept.append(section)
+    return "".join(kept)
+
+
 def get_diff(target: str | None) -> str:
-    """The full unified diff for the target - every changed file, not just
-    `.py` ones, since the judge/verify agents review the whole PR.
+    """The unified diff for the target - every changed file, not just `.py`
+    ones, since the judge/verify agents review the whole PR. File types in
+    EXCLUDE_GLOBS are dropped here, so every layer sees the same diff.
     """
     if target and target.isdigit():
-        return _run("gh", "pr", "diff", target)
+        return filter_diff(_run("gh", "pr", "diff", target))
     if target:
         base = _run("git", "merge-base", _default_branch(), target).strip()
-        return _run("git", "diff", f"{base}...{target}")
-    return _run("git", "diff") + _run("git", "diff", "--staged")
+        return filter_diff(_run("git", "diff", f"{base}...{target}"))
+    return filter_diff(_run("git", "diff") + _run("git", "diff", "--staged"))

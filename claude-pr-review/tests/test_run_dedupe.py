@@ -199,6 +199,42 @@ def test_does_not_mutate_its_inputs():
     assert fresh[0]["status"] == "open"
 
 
+# --- run.log_usage(): what the review cost, to the CI log only ---
+
+def _captured_usage_log(**usage):
+    import io
+    import sys as _sys
+
+    from pr_review.core import agent
+    original_usage, original_err = dict(agent.USAGE), _sys.stderr
+    agent.USAGE.update(usage)
+    _sys.stderr = io.StringIO()
+    try:
+        run.log_usage()
+        return _sys.stderr.getvalue()
+    finally:
+        _sys.stderr = original_err
+        agent.USAGE.clear()
+        agent.USAGE.update(original_usage)
+
+
+def test_log_usage_reports_calls_tokens_and_estimated_cost():
+    out = _captured_usage_log(
+        calls=9, input_tokens=1234, output_tokens=567,
+        cache_read_input_tokens=8900, cache_creation_input_tokens=12, usd=0.0432,
+    )
+    assert "9 model call(s)" in out
+    assert "1,234 in / 567 out" in out
+    assert "8,900 cached read" in out
+    assert "$0.0432" in out
+    assert "estimate" in out
+
+
+def test_log_usage_says_nothing_when_no_model_call_was_made():
+    # A lint-only run (Layer 2 unavailable) spent nothing - no cost line.
+    assert _captured_usage_log(calls=0) == ""
+
+
 TESTS = [v for k, v in list(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

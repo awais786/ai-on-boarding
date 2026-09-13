@@ -14,10 +14,8 @@ from pr_review.core.target import REPO_ROOT
 MAX_OUTPUT_CHARS = 20_000
 SEARCH_TIMEOUT_SECONDS = 30
 
-# Directories no tool call has a legitimate reason to walk into - large,
-# irrelevant to reviewing this repo's own code, and (for .git/node_modules)
-# potentially huge, so skipping them at traversal time rather than filtering
-# the result afterward keeps list_files/grep from doing needless work.
+# Skipped at traversal time (not filtered after) so list_files/grep don't
+# do needless work walking these large, irrelevant directories.
 SKIP_DIRS = {".venv", "venv", "__pycache__", ".git", "node_modules", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
 
 
@@ -51,13 +49,18 @@ def read_file(path: str) -> str:
 
 def grep(pattern: str, path: str = ".") -> str:
     target = _resolve_within_repo(path)
+    # Same exclusions list_files applies. Without them a search walks .venv,
+    # .git and __pycache__ - burning the output budget on vendored code and
+    # reporting "Binary file ... matches" hits the model can't act on.
+    rg_excludes = [arg for d in SKIP_DIRS for arg in ("--glob", f"!{d}/")]
+    grep_excludes = [f"--exclude-dir={d}" for d in SKIP_DIRS]
 
     try:
         # `--` stops rg from parsing `pattern` as flags - pattern is untrusted
         # model output, and a value like `--hidden` would otherwise be read as
         # an option rather than searched for.
         result = subprocess.run(
-            ["rg", "--line-number", "--no-heading", "--", pattern, str(target)],
+            ["rg", "--line-number", "--no-heading", *rg_excludes, "--", pattern, str(target)],
             capture_output=True, text=True, timeout=SEARCH_TIMEOUT_SECONDS,
         )
     except FileNotFoundError:
@@ -68,7 +71,7 @@ def grep(pattern: str, path: str = ".") -> str:
     if result is None or result.returncode not in (0, 1):  # 1 = no matches, not an error
         try:  # rg missing or errored oddly - fall back to grep
             result = subprocess.run(
-                ["grep", "-rn", "-E", "--", pattern, str(target)],
+                ["grep", "-rnI", "-E", *grep_excludes, "--", pattern, str(target)],
                 capture_output=True, text=True, timeout=SEARCH_TIMEOUT_SECONDS,
             )
         except FileNotFoundError:
@@ -169,16 +172,12 @@ DISPATCH = {"read_file": read_file, "grep": grep, "list_files": list_files}
 def execute(name: str, tool_input: dict) -> tuple[str, bool]:
     """Run a tool call. Returns (content, is_error).
 
-    The flag matters: a failed call must come back as a `tool_result` with
-    `is_error: true`, not as ordinary content. Returning "No such file:
-    x.py" as a normal result reads to the model as a fact about the
-    repository rather than a failed call, and a verifier that believes a
-    file is missing drops findings for that reason alone - a failure mode
-    seen for real, and the reason evals/fixture_tree.py stages a fixture's
-    files into the tree before Layer 3 reads it.
+    is_error matters: "No such file: x.py" returned as ordinary content
+    reads to the model as fact rather than a failed call, and a verifier
+    that believes a file is missing drops findings for that reason alone.
 
-    "No matches." and "No files matched." are results, not errors: the
-    search ran and the answer is empty.
+    "No matches."/"No files matched." are results, not errors - the search
+    ran and the answer is empty.
     """
     handler = DISPATCH.get(name)
     if handler is None:

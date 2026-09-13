@@ -32,9 +32,13 @@ Spec-driven development here is run through [OpenSpec](https://github.com/Fissio
 sections apply to every change, in every directory. The part most relevant to code review,
 inlined here so it's never missed — **the review contract** (from `operations.apply.guidance`):
 
-- A finding blocks merge only if it cites a requirement (a `### Requirement:` from a spec), a
+- A finding blocks merge if it cites a requirement (a `### Requirement:` from a spec), a
   specific named failing test, or a documented convention (`openspec/config.yaml`, this file, or
-  `AGENTS.md`). Anything else is a nit: recorded, never blocking.
+  `AGENTS.md`) — or if it is a CRITICAL that the automated reviewer's Layer 3 independently
+  verified, which blocks on that verification whether or not a convention covers it. Some
+  defects are true without this repo having written them down; requiring a citation for those
+  made the reviewer able to block only on process rules, never on engineering ones. Anything
+  else is a nit: recorded, never blocking.
 - Review runs at most two passes on a given piece of work: an initial pass, and one follow-up
   after fixes. The follow-up checks only what the first pass raised, plus anything the fixes
   broke — it does not go hunting for new material.

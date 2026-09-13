@@ -3,14 +3,9 @@ no imports from judge.py or verify.py.
 """
 from __future__ import annotations
 
-# Every prefix here must be one ruff.toml actually selects, or it is a
-# severity tier the linter is never asked to produce - which is what made
-# `S -> CRITICAL` decoration until S was selected. test_lint_layer.py
-# asserts the two stay in sync.
-#
-# `W` (pycodestyle warnings) and `N` (pep8-naming) are deliberately absent:
-# both would map to MINOR, which is already what severity_for_ruff()
-# returns for an unrecognised code, so listing them changes nothing.
+# Every prefix must be one ruff.toml actually selects - test_lint_layer.py
+# asserts the two stay in sync. `W`/`N` are absent since they'd map to
+# MINOR anyway, same as an unrecognized code.
 RUFF_SEVERITY = {
     "S": "CRITICAL",      # bandit / security - hardcoded secrets, eval, injection
     "F82": "MAJOR",       # undefined name
@@ -22,6 +17,32 @@ RUFF_SEVERITY = {
 }
 
 RANK = {"MINOR": 1, "MAJOR": 2, "CRITICAL": 3}
+
+BLOCKING_SEVERITIES = {"CRITICAL", "MAJOR"}
+
+
+def is_blocking(finding: dict) -> bool:
+    """Whether this finding fails the merge gate. Lives here so gate.py
+    (which renders the verdict) and state.py (which refuses to let a
+    checkbox waive one) can never drift apart on what "blocking" means.
+
+    Two ways to qualify, because a citation and a verification are evidence
+    of different things:
+
+    - CITED, at CRITICAL or MAJOR. The citation shows some rule this repo
+      actually agreed on is being broken.
+    - UNCITED, but CRITICAL and independently confirmed by Layer 3. Some
+      defects are true without this repo having written them down; for
+      those the verification is the evidence and a citation would only be
+      paperwork. `verified` is set solely by verify._apply_verification(),
+      so a lint passthrough or a finding Layer 3 never saw can't qualify.
+    """
+    severity_value = finding.get("severity")
+    if severity_value not in BLOCKING_SEVERITIES:
+        return False
+    if finding.get("citation"):
+        return True
+    return severity_value == "CRITICAL" and finding.get("verified") is True
 
 
 def severity_for_ruff(code: str) -> str:

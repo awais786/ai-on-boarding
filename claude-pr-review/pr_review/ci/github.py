@@ -1,14 +1,5 @@
-"""Every call that leaves this tool for GitHub, in one place.
-
-It was previously split: run.py and post.py each carried their own copy of
-the same `gh api` helper and each fetched the PR's comments separately, so
-one review made two identical round-trips and a test that stubbed one
-module silently left the other making real calls.
-
-Keeping the surface here means there is a single place to stub in tests, a
-single place to add rate-limit handling, and one answer to "what does this
-tool do to a repository" - which for a bot with `pull-requests: write` is
-worth being able to answer by reading one file.
+"""Every call that leaves this tool for GitHub, in one place - a single
+place to stub in tests and to answer "what does this bot do to a repo".
 """
 from __future__ import annotations
 
@@ -40,15 +31,40 @@ def pr_file_blobs(repo: str, pr: str) -> dict[str, str]:
 
 
 def update_comment(repo: str, comment_id, body: str) -> None:
-    # capture_output, because `gh api` echoes the entire comment object on
-    # success - several KB of JSON, including the whole verdict body we just
-    # wrote, dumped into the CI log on every single run.
+    # capture_output: `gh api` echoes the whole comment object on success,
+    # which would dump several KB into the CI log every run.
     result = subprocess.run(
         ["gh", "api", f"repos/{repo}/issues/comments/{comment_id}", "-X", "PATCH", "--input", "-"],
         input=json.dumps({"body": body}), text=True, capture_output=True,
     )
     if result.returncode != 0:
         raise GitHubError(f"updating comment {comment_id} failed: {result.stderr}")
+
+
+def pr_review_comments(repo: str, pr: str) -> list[dict]:
+    """Inline (file/line-anchored) comments, as opposed to pr_comments()'s
+    conversation-level ones. Used to avoid re-posting a finding every push.
+    """
+    return _gh_json("api", f"repos/{repo}/pulls/{pr}/comments", "--paginate")
+
+
+def create_review_comment(repo: str, pr: str, commit_sha: str, path: str, line: int, body: str) -> None:
+    """Anchor one finding to the line it is about.
+
+    GitHub rejects a comment on a line outside the diff, so the caller must
+    be ready for this to fail - the finding is still listed in the summary
+    comment, which is the complete record.
+    """
+    payload = json.dumps({
+        "body": body, "commit_id": commit_sha, "path": path,
+        "line": line, "side": "RIGHT",
+    })
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repo}/pulls/{pr}/comments", "--input", "-"],
+        input=payload, text=True, capture_output=True,
+    )
+    if result.returncode != 0:
+        raise GitHubError(f"inline comment on {path}:{line} failed: {result.stderr.strip()}")
 
 
 def create_comment(pr: str, body: str) -> None:

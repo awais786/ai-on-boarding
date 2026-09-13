@@ -1,11 +1,8 @@
 """Content-addressed finding identity, so a finding the author already
-answered can be recognized across pushes even as line numbers drift. Pure -
-no I/O, no model calls.
+answered can be recognized across pushes even as line numbers drift.
 
-No line number in the key deliberately: a line number shifts when anything
-above it changes, and a fingerprint that changes on every unrelated edit is
-not a fingerprint. `line` is carried alongside as a re-anchoring hint (see
-state.py's resolve()), never part of the identity itself.
+No line number in the key: it shifts on unrelated edits above it, so it's
+carried alongside only as a re-anchoring hint (see state.py's resolve()).
 """
 from __future__ import annotations
 
@@ -21,11 +18,8 @@ def normalize_snippet(s: str) -> str:
 
 
 def fingerprint(finding: dict, snippet: str) -> str:
-    """Every component is coerced to a string: Layer 2's schema allows a
-    null `file` (a finding about the change as a whole) and a null `line`
-    (which yields an empty snippet), and neither may crash identity
-    computation - a repo-level finding still needs a stable identity to be
-    carried across pushes and dismissed.
+    """Coerces null `file`/`line` (a repo-level finding) to empty strings so
+    it still gets a stable identity instead of crashing.
     """
     key = "|".join([
         finding.get("source") or "model",

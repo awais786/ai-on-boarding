@@ -197,6 +197,53 @@ def test_apply_dismissals_dismisses_every_entry_sharing_the_fingerprint():
     assert [f["status"] for f in result] == ["dismissed", "dismissed"]
 
 
+def test_a_tick_cannot_dismiss_a_blocking_finding():
+    # SECURITY. Fingerprints are derived from the PR author's own code, so
+    # anyone can precompute the id of a finding the agent is about to raise
+    # and pre-tick it in a comment. gate.py only ever renders a checkbox
+    # for a nit, so a tick naming a blocking finding was hand-added, and
+    # honouring it would clear the merge gate outright.
+    for blocking_severity in ("CRITICAL", "MAJOR"):
+        findings = [{"fp": "a1b2c3d4e5f6a1b2", "status": "open",
+                     "severity": blocking_severity, "citation": "ruff:S105"}]
+        [out] = state.apply_dismissals("- [x] `a1b2c3d4` x", findings)
+        assert out["status"] == "open", f"a tick waived a cited {blocking_severity}"
+
+
+def test_a_blocker_dismissed_earlier_as_a_nit_is_flagged_resurfaced():
+    findings = [{"fp": "a1b2c3d4e5f6a1b2", "status": "dismissed", "severity": "CRITICAL",
+                 "citation": "ruff:S105", "dismissed_at_severity": "MINOR"}]
+    [out] = state.apply_dismissals("- [x] `a1b2c3d4` x", findings)
+    assert out["status"] == "open"
+    assert out["resurfaced"] is True
+
+
+def test_a_hand_added_tick_on_a_never_dismissed_blocker_is_not_resurfaced():
+    # Nothing was ever legitimately waived here, so there is nothing to
+    # explain as having come back - it simply never left.
+    findings = [{"fp": "a1b2c3d4e5f6a1b2", "status": "open", "severity": "CRITICAL",
+                 "citation": "ruff:S105"}]
+    [out] = state.apply_dismissals("- [x] `a1b2c3d4` x", findings)
+    assert out["status"] == "open"
+    assert "resurfaced" not in out
+
+
+def test_a_tick_still_dismisses_an_uncited_critical():
+    # An uncited CRITICAL never blocked (gate.py files it under "worth a
+    # look"), so waiving it takes nothing away from the merge gate.
+    findings = [{"fp": "a1b2c3d4e5f6a1b2", "status": "open",
+                 "severity": "CRITICAL", "citation": None}]
+    [out] = state.apply_dismissals("- [x] `a1b2c3d4` x", findings)
+    assert out["status"] == "dismissed"
+
+
+def test_a_tick_still_dismisses_a_cited_nit():
+    findings = [{"fp": "a1b2c3d4e5f6a1b2", "status": "open",
+                 "severity": "MINOR", "citation": "CLAUDE.md"}]
+    [out] = state.apply_dismissals("- [x] `a1b2c3d4` x", findings)
+    assert out["status"] == "dismissed"
+
+
 def test_render_preserves_dismissed_tick():
     findings = [{"fp": "a1b2c3d4e5f6a1b2", "status": "dismissed", "severity": "MINOR",
                  "file": "a.py", "line": 1, "summary": "a nit"}]

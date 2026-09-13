@@ -10,7 +10,7 @@ in milliseconds.
 """
 from __future__ import annotations
 
-from pr_review.ci import post, run
+from pr_review.ci import github, post, run
 from pr_review.lib import state
 
 
@@ -25,13 +25,22 @@ class _FakeGitHub:
     the helper that lived in run.py.
     """
 
+    GitHubError = github.GitHubError
+
     def __init__(self):
         self.comments: list[dict] = []
+        self.inline: list[dict] = []
         self.post_count = 0
         self.patch_count = 0
 
     def pr_comments(self, repo, pr):
         return self.comments
+
+    def pr_review_comments(self, repo, pr):
+        return self.inline
+
+    def create_review_comment(self, repo, pr, commit_sha, path, line, body):
+        self.inline.append({"path": path, "line": line, "body": body})
 
     def update_comment(self, repo, comment_id, body):
         for c in self.comments:

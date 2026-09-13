@@ -17,22 +17,49 @@ from pr_review.pipeline import gate, judge
 
 def _patched_judge(run_impl, lint_findings=None):
     """Run judge() with the model call and Layer 1 both stubbed."""
-    originals = (judge.agent.run, judge.lint.run, judge.target.changed_python_files,
-                 judge.target.get_diff, judge.target.repo_rules, agent.time.sleep)
+    originals = (judge.agent.run, judge.lint.run,
+                 judge.target.changed_python_files, agent.time.sleep)
     judge.agent.run = run_impl
     judge.lint.run = lambda files: {"status": "fail", "findings": lint_findings or []}
     judge.target.changed_python_files = lambda t: []
-    judge.target.get_diff = lambda t: "diff"
-    judge.target.repo_rules = lambda: {}
     agent.time.sleep = lambda *_: None
     try:
-        return judge.judge(object(), "1")
+        return judge.judge(object(), "1", "diff", {})
     finally:
-        (judge.agent.run, judge.lint.run, judge.target.changed_python_files,
-         judge.target.get_diff, judge.target.repo_rules, agent.time.sleep) = originals
+        (judge.agent.run, judge.lint.run,
+         judge.target.changed_python_files, agent.time.sleep) = originals
 
 
 _LINT = [{"file": "a.py", "line": 1, "code": "S105", "message": "hardcoded password"}]
+
+
+def test_an_exhausted_iteration_budget_is_not_retried():
+    # A live run paid for two full 30-turn loops this way: a model that
+    # spent every turn wandering does the same on a fresh attempt, unlike
+    # a transient 500. Failing closed is cheaper and just as safe.
+    attempts = []
+
+    def always_exhausts(*a, **k):
+        attempts.append(1)
+        raise agent.IterationLimitError("Exceeded 15 tool-use iterations")
+
+    result = _patched_judge(always_exhausts)
+    assert len(attempts) == 1, f"retried an exhausted loop {len(attempts)} times"
+    assert result["layer2_error"]
+
+
+def test_a_transient_api_failure_is_still_retried():
+    attempts = []
+
+    def fails_twice_then_works(*a, **k):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise agent.AgentError("Hit max_tokens before producing a final answer")
+        return {"findings": []}
+
+    result = _patched_judge(fails_twice_then_works)
+    assert len(attempts) == 3
+    assert "layer2_error" not in result
 
 
 def test_a_failing_layer_2_does_not_raise():

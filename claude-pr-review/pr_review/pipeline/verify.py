@@ -1,39 +1,28 @@
-"""Layer 3: independently re-check Layer 2's findings before any of them can
-block a merge - confirms each citation is real and each failure scenario
-actually holds. Verification and classification are different jobs: Layer 3
-can only confirm/reject a citation and upgrade a severity, never assign or
+"""Layer 3: independently re-check Layer 2's findings before any can block
+a merge - confirms each citation is real and each failure scenario holds.
+Can only confirm/reject a citation and upgrade a severity, never assign or
 lower one - see agent.VERIFICATION_SCHEMA and _apply_verification().
 
-Two of the three citation forms (a ruff code, a quoted convention string, a
+Two of three citation forms (a ruff code, a quoted convention string, a
 named test) are mechanically checkable - precheck() does that in code,
-deterministically, for free (folded in from what used to be citations.py:
-its only caller was this module). Only a citation precheck can't resolve
-(NEEDS_MODEL) spends a real agent.run() call. On a typical PR that cuts
-Layer 3's call volume by roughly a third.
+for free, cutting model call volume by roughly a third. Only what precheck
+can't resolve (NEEDS_MODEL) spends a real agent.run() call.
 
-The model is never told Layer 2's severity - a verifier told "this is
-CRITICAL" tends to find reasons it's critical; asked to independently assess
-and only optionally escalate, it doesn't inherit the bias. CRITICAL-severity
-findings route to Sonnet rather than Haiku (MODEL_FOR_SEVERITY): getting a
-CRITICAL verdict wrong is the expensive direction to be wrong in, and the
-citation precheck's cut to call volume is what makes that affordable.
+The model is never told Layer 2's severity, so it doesn't inherit the bias
+of confirming a label it's shown. Every verification runs on the strong
+model (MODEL) - see the comment there for why a weak verifier is worse than
+none.
 
-Verifies one finding per agent.run() call, not the whole batch in one call.
-A live test (PR #7, run 34456550640) showed the batched version had no way
-to stop one hard finding from consuming the entire tool-use budget and
-starving the rest - splitting per-finding bounds that structurally: a stuck
-or wrong verification on one finding can't affect any other, each gets its
-own fresh MAX_ITERATIONS budget.
+Verifies one finding per agent.run() call, not the whole batch at once -
+a live test showed a batched call let one hard finding consume the whole
+tool-use budget and starve the rest.
 
-Fails closed: agent.call_with_retries() exhausting its attempts is not
-evidence against the finding, so severity and citation are preserved as-is
-(marked `unverified: true` for a human to see) rather than stripping the
-citation and letting infrastructure flake unblock a merge.
+Fails closed: exhausted retries are not evidence against the finding, so
+severity/citation are preserved as-is (marked `unverified: true`) rather
+than stripping the citation and letting infra flake unblock a merge.
 
-The diff+rules content is identical across every call for one PR, so
-it's passed as agent.run()'s cached stable_content and only the one
-finding being checked varies per call - see agent.py's cache_control
-handling for why that keeps the repeated-call cost down.
+The diff+rules content is identical across calls for one PR, so it's
+passed as agent.run()'s cached stable_content; only the finding varies.
 """
 from __future__ import annotations
 
@@ -50,16 +39,19 @@ import anthropic
 from pr_review.core import agent, target, tools
 from pr_review.lib import severity
 
-MODEL_HAIKU = "claude-haiku-4-5"
-MODEL_SONNET = "claude-sonnet-5"
-# Haiku doesn't support the task_budget beta (agent.py's TASK_BUDGET_BETA),
-# so only the Sonnet route gets one; Haiku relies on MAX_ITERATIONS alone,
-# same as before this table existed - now explicit per route rather than
-# uniform across all of Layer 3.
-MODEL_FOR_SEVERITY = {"CRITICAL": MODEL_SONNET, "MAJOR": MODEL_HAIKU, "MINOR": MODEL_HAIKU}
-SONNET_TASK_BUDGET = agent.MIN_TASK_BUDGET_TOKENS
+# Every verification runs on the strong model, at every severity - this is
+# the gate, and a weak verifier is worse than none: it drops real findings
+# with the same confidence it drops invented ones. A live run with Haiku
+# here rejected 4 of 5 model findings, including a genuine cross-file
+# password-policy regression that Layer 2 had correctly found.
+#
+# Affordable because most findings never reach a model call at all: lint
+# findings pass straight through, and precheck() settles the rest of the
+# citations in code.
+MODEL = "claude-sonnet-5"
+TASK_BUDGET = agent.MIN_TASK_BUDGET_TOKENS
 
-PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"  # claude-pr-review/prompts/, not beside this file
+PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 SYSTEM_PROMPT = (PROMPTS_DIR / "verify.md").read_text()
 
 _TEST_DEF_RE = re.compile(r"^\s*def (test_[A-Za-z0-9_]+)", re.M)
@@ -69,10 +61,8 @@ _TEST_NAME_RE = re.compile(r"\btest_[A-Za-z0-9_]+\b")
 
 # --- citation precheck (pure - no I/O, no model call) -----------------------
 #
-# `ctx` (below, _Context) exposes convention_text and test_index. Note what
-# it deliberately does NOT carry: Layer 1's raw per-location ruff codes -
-# see precheck()'s `ruff:` branch for why looking them up would weaken the
-# citation contract rather than complete it.
+# `ctx` (below, _Context) exposes convention_text and test_index - not
+# Layer 1's raw ruff codes; see precheck()'s `ruff:` branch for why.
 
 class Precheck(Enum):
     CONFIRMED = "confirmed"      # skip the model, citation is valid
@@ -102,19 +92,29 @@ def precheck(finding: dict, ctx) -> Precheck:
 
     cit = (finding.get("citation") or "").strip()
     if not cit:
+        # Checked on its own merits rather than discarded. Some defects are
+        # objectively true without this repo having written them down - MD5
+        # for signing is broken whether or not CLAUDE.md says so - and for
+        # those a citation is paperwork, not evidence. Layer 3's `verified`
+        # answer IS the evidence, which is why the schema asks it
+        # independently of `citation_holds`.
+        #
+        # MAJOR comes here too, so `escalate_to` can actually fire. Layer 2
+        # under-rates security findings: a live run called two disagreeing
+        # password policies on the same User model a MAJOR, which - being
+        # uncited - was dropped here without ever reaching the one mechanism
+        # designed to promote it. It still only BLOCKS if Layer 3 escalates
+        # it to CRITICAL, so the bar is unchanged; what changes is that an
+        # under-rated finding now gets the chance to be re-rated.
+        if finding.get("l2_severity") in severity.BLOCKING_SEVERITIES:
+            return Precheck.NEEDS_MODEL
         return Precheck.REJECTED
 
     if cit.startswith("ruff:"):
-        # Reaching here means a MODEL finding claimed a ruff code, because a
+        # Reaching here means a MODEL finding claimed a ruff code - a
         # genuine one arrives as source == "lint" and was confirmed above.
-        # If ruff had actually flagged that code at that location,
-        # judge._lint_as_findings() would have produced the finding and
-        # judge.merge_lint_and_model() would have folded any nearby model
-        # finding into it - carrying source == "lint" with it. So what's
-        # left is a ruff code the linter did not produce here: misapplied
-        # or invented either way, and not something to confirm on the
-        # model's say-so. The finding itself survives with citation set to
-        # null, so nothing is lost by rejecting.
+        # So this is misapplied or invented either way; reject the
+        # citation (the finding itself survives with citation set to null).
         return Precheck.REJECTED
 
     quote = extract_quoted(cit)
@@ -130,15 +130,8 @@ def precheck(finding: dict, ctx) -> Precheck:
 
 
 class _Context:
-    """precheck()'s ctx.
-
-    `test_index` is a whole-repo scan - every .py file read to find test
-    function names - so it is built lazily on first use rather than per
-    verify() call. Most PRs never reach it: a finding is only checked
-    against it when its citation names a test, and lint-sourced or
-    quote-citing findings resolve without ever touching it. Eagerly
-    scanning meant paying for a full tree walk on every run, including
-    runs with nothing but lint findings.
+    """precheck()'s ctx. `test_index` is a whole-repo scan, built lazily on
+    first use since most PRs never need it (only findings citing a test do).
     """
 
     def __init__(self, convention_text: str):
@@ -182,6 +175,15 @@ def _redact_for_model(finding: dict) -> str:
 
 def _apply_verification(finding: dict, verdict: dict) -> list[dict]:
     if not verdict.get("verified", False):
+        # Log the reasoning: a drop is the one outcome that leaves no trace
+        # in the verdict, so without this a real finding lost here is
+        # indistinguishable from one that was never raised.
+        print(
+            f"[verify] DROPPED {finding.get('file')}:{finding.get('line')} - "
+            f"{(finding.get('summary') or '')[:90]}\n"
+            f"         reason: {(verdict.get('reasoning') or '(none given)')[:300]}",
+            file=sys.stderr,
+        )
         return []  # the claimed failure scenario doesn't actually hold
 
     out = dict(finding)
@@ -195,21 +197,17 @@ def _apply_verification(finding: dict, verdict: dict) -> list[dict]:
 
 
 def _verify_one(client, stable_content: str, finding: dict) -> list[dict]:
-    model = MODEL_FOR_SEVERITY.get(finding.get("l2_severity"), MODEL_HAIKU)
-    task_budget = SONNET_TASK_BUDGET if model == MODEL_SONNET else None
     variable_content = _redact_for_model(finding)
 
     verdict, error = agent.call_with_retries(lambda: agent.run(
-        client, model, SYSTEM_PROMPT, stable_content, variable_content,
-        output_schema=agent.VERIFICATION_SCHEMA, task_budget=task_budget,
+        client, MODEL, SYSTEM_PROMPT, stable_content, variable_content,
+        output_schema=agent.VERIFICATION_SCHEMA, task_budget=TASK_BUDGET,
     ))
     if error is None:
         return _apply_verification(finding, verdict)
 
     # Every retry failed. Not evidence against the finding - keep it as-is
-    # (severity and citation untouched, never downgraded) so infrastructure
-    # flake can't unblock a merge; gate.py's blocking condition is unchanged,
-    # so this only blocks if the original finding already would have.
+    # so infrastructure flake can't unblock a merge.
     print(
         f"[verify] verification unavailable, keeping finding as-is: {error}\n"
         f"  {finding.get('file')}:{finding.get('line')} - {finding.get('summary', '')[:120]}",
@@ -229,6 +227,7 @@ def verify(client, diff: str, rules: dict, findings: dict) -> dict:
     ctx = _Context(convention_text="\n".join(rules.values()))
     stable_content = build_stable_content(diff, rules)
     verified = []
+    rejected_count = 0
     for original in items:
         # l2_severity is Layer 2's own verdict, carried through every path
         # below unchanged - gate.py asserts final severity never ranks
@@ -247,16 +246,33 @@ def verify(client, diff: str, rules: dict, findings: dict) -> dict:
             continue
         if outcome is Precheck.REJECTED:
             # The citation doesn't check out, but that isn't grounds to drop
-            # a real bug - strip the citation (so it can never block) and
-            # keep the finding, severity untouched.
-            rejected = dict(finding)
-            rejected["citation"] = None
-            verified.append(rejected)
-            continue
+            # a real bug - strip the citation and keep the finding.
+            finding = dict(finding)
+            finding["citation"] = None
+            if finding.get("l2_severity") not in severity.BLOCKING_SEVERITIES:
+                verified.append(finding)
+                continue
+            # A CRITICAL or MAJOR left uncited still gets checked on its own
+            # merits, exactly like one that arrived with no citation at all.
+            # Skipping it here was the same dead end in a different disguise:
+            # a live run had Layer 2 "cite" a prompt-injection attempt using
+            # the injected text itself, precheck correctly rejected that, and
+            # the CRITICAL then sailed through unverified and unable to
+            # block. Where a citation came from says nothing about whether
+            # the underlying defect is real.
 
-        verified.extend(_verify_one(client, stable_content, finding))
+        outcome_findings = _verify_one(client, stable_content, finding)
+        if not outcome_findings:
+            # The model said the failure scenario doesn't hold, so the
+            # finding is dropped. Counted rather than vanishing silently -
+            # otherwise "Layer 3 rejected everything" and "Layer 2 found
+            # nothing" look identical in the verdict.
+            rejected_count += 1
+        verified.extend(outcome_findings)
 
     result = {"findings": verified}
+    if rejected_count:
+        result["rejected_count"] = rejected_count
     if "suppressed_count" in findings:
         result["suppressed_count"] = findings["suppressed_count"]
     return result

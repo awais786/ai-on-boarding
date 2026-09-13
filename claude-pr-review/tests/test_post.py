@@ -13,7 +13,8 @@ from pr_review.lib import state
 def test_find_existing_comment_returns_id_when_marker_present():
     comments = [
         {"id": 111, "body": "just a normal comment"},
-        {"id": 222, "body": f"# PR Review Verdict\n<!-- {state.MARKER}\n{{}}\n-->"},
+        {"id": 222, "body": f"# PR Review Verdict\n<!-- {state.MARKER}\n{{}}\n-->",
+         "user": {"type": "Bot"}},
     ]
     assert post.find_existing_comment_id(comments) == 222
 
@@ -28,13 +29,9 @@ def test_find_existing_comment_empty_list():
 
 
 def test_find_existing_comment_prefers_the_last_marker_match():
-    # Quoting a comment on GitHub copies its raw body, HTML comment and
-    # all - so a human quoting the verdict creates a second comment
-    # carrying the marker. Taking the first match would make the agent
-    # start editing that person's comment.
     comments = [
-        {"id": 111, "body": f"> quoting the bot\n<!-- {state.MARKER}\n{{}}\n-->"},
-        {"id": 222, "body": f"# PR Review Verdict\n<!-- {state.MARKER}\n{{}}\n-->"},
+        {"id": 111, "body": f"<!-- {state.MARKER}\n{{}}\n-->", "user": {"type": "Bot"}},
+        {"id": 222, "body": f"# PR Review Verdict\n<!-- {state.MARKER}\n{{}}\n-->", "user": {"type": "Bot"}},
     ]
     assert post.find_existing_comment_id(comments) == 222
 
@@ -59,9 +56,50 @@ def test_find_existing_comment_tolerates_a_null_body():
     assert post.find_existing_comment_id([{"id": 1, "body": None}]) is None
 
 
-def test_find_existing_comment_tolerates_missing_user_field():
+def test_a_comment_of_unknown_authorship_is_never_adopted():
+    # SECURITY: the marker is public text. A comment with no identifiable
+    # bot author must not become the sticky comment - adopting it would
+    # make the agent read its prior state, and its dismissal ticks, from
+    # whoever wrote it.
     comments = [{"id": 111, "body": f"<!-- {state.MARKER}\n{{}}\n-->"}]
-    assert post.find_existing_comment_id(comments) == 111
+    assert post.find_existing_comment_id(comments) is None
+
+
+def test_a_non_bot_marker_comment_is_never_adopted():
+    # SECURITY: anyone who can comment on the PR can paste the marker.
+    # Before this, the first run on a PR (when no bot comment exists yet)
+    # would adopt such a comment, trust its state block, honour its
+    # checkbox ticks, and PATCH the verdict into a stranger's comment.
+    comments = [{
+        "id": 999,
+        "body": f"lgtm\n- [x] `58601726`\n<!-- {state.MARKER}\n{{\"findings\":[]}}\n-->",
+        "user": {"type": "User"},
+    }]
+    assert post.find_existing_comment_id(comments) is None
+
+
+def _with_trusted_author(login, comments):
+    original = post.TRUSTED_COMMENT_AUTHOR
+    post.TRUSTED_COMMENT_AUTHOR = login
+    try:
+        return post.find_existing_comment_id(comments)
+    finally:
+        post.TRUSTED_COMMENT_AUTHOR = original
+
+
+def test_a_configured_author_is_recognised_as_the_agents_own_comment():
+    # Outside CI the reviewer posts as a User, so without this every push
+    # leaves another duplicate instead of updating one sticky comment.
+    comments = [{"id": 42, "body": f"<!-- {state.MARKER}\n{{}}\n-->",
+                 "user": {"type": "User", "login": "habib049"}}]
+    assert _with_trusted_author("habib049", comments) == 42
+
+
+def test_a_different_user_is_still_ignored_when_an_author_is_configured():
+    # SECURITY: naming one trusted author must not trust every User.
+    comments = [{"id": 99, "body": f"<!-- {state.MARKER}\n{{}}\n-->",
+                 "user": {"type": "User", "login": "someone-else"}}]
+    assert _with_trusted_author("habib049", comments) is None
 
 
 def test_build_comment_body_embeds_state_marker():
@@ -79,16 +117,20 @@ def test_post_renders_after_reconciling_the_fresh_tick_not_before():
     # code from a copy computed earlier, so a tick applied on the triggering
     # push showed "dismissed" in state while the same push's own verdict
     # still said blocking. gate.render() must run here, after reconciliation.
-    finding = {"file": "a.py", "line": 1, "severity": "MAJOR", "citation": "x",
+    # A nit, because a tick is only ever honoured for a non-blocking
+    # finding - see test_state.py's test_a_tick_cannot_dismiss_a_blocking_finding.
+    finding = {"file": "a.py", "line": 1, "severity": "MINOR", "citation": "x",
                "summary": "s", "fp": "a1b2c3d4e5f6a1b2", "status": "open"}
 
     # A human just ticked a1b2c3d4 on the *actual* live comment - simulate
     # that by making the fetched body contain the ticked checkbox line,
-    # which is what apply_dismissals() reads.
+    # which is what apply_dismissals() reads. Bot-authored, or the agent
+    # would (correctly) refuse to adopt it at all.
     fake_comments = [{
         "id": 999,
+        "user": {"type": "Bot"},
         "body": (
-            "# PR Review Verdict\n- [x] `a1b2c3d4` MAJOR `a.py:1` - s\n"
+            "# PR Review Verdict\n- [x] `a1b2c3d4` MINOR `a.py:1` - s\n"
             f"<!-- {state.MARKER}\n{{}}\n-->"
         ),
     }]
@@ -96,8 +138,16 @@ def test_post_renders_after_reconciling_the_fresh_tick_not_before():
     written = {}
 
     class _FakeGitHub:
+        GitHubError = post.github.GitHubError
+
         def pr_comments(self, repo, pr):
             return fake_comments
+
+        def pr_review_comments(self, repo, pr):
+            return []
+
+        def create_review_comment(self, repo, pr, commit_sha, path, line, body):
+            pass
 
         def update_comment(self, repo, comment_id, body):
             written["body"] = body

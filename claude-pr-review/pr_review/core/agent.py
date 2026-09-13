@@ -12,42 +12,35 @@ import anthropic
 
 from pr_review.core import tools
 
-MAX_ITERATIONS = 30
+# A live run showed a loop using all 30 turns touring openspec/ specs
+# unrelated to the diff, then getting retried into another full 30. The cap
+# bounds the wandering; the turn budgets in judge.md/verify.md are what
+# should actually stop it well before here.
+MAX_ITERATIONS = 15
 DEFAULT_MAX_RETRIES = 3
 
-# `max_tokens` caps the RESPONSE, and a big diff produces a long findings
-# array - a 36-file PR died on `Hit max_tokens before producing a final
-# answer` at 8000, which is how the reviewer failed on exactly the PRs that
-# most need reviewing. It is a ceiling, not a reservation: raising it costs
-# nothing unless the model actually writes that much.
-#
-# Split by request path because the constraint differs. The streaming path
-# (task budgets) has no HTTP-timeout problem, so it gets room; the
-# non-streaming path stays at the level that keeps a single request
-# comfortably inside the SDK's timeout.
+# Response cap, not a reservation - raising it is free unless the model
+# actually writes that much. A 36-file PR needs more than 8000 here.
+# Streaming has no HTTP-timeout limit so it gets more room than non-streaming.
 MAX_TOKENS = 16_000
 MAX_TOKENS_STREAMING = 64_000
 
-# Task budgets (beta): a total token ceiling for the whole loop that Claude
-# paces itself against, instead of a fixed per-response cap. Only on models
-# that support the beta - Opus 5, Sonnet 5, Fable 5/5.1, Opus 4.7/4.8, not
-# Haiku - so it's opt-in per caller via run()'s task_budget arg.
+# Total token ceiling for the whole loop (beta), vs. a per-response cap.
+# Only supported on some models, so it's opt-in via run()'s task_budget arg.
 TASK_BUDGET_BETA = "task-budgets-2026-03-13"
 MIN_TASK_BUDGET_TOKENS = 20_000
 
-# USD per input/output token, for turning usage into a number the eval
-# harness can report. Cached reads are ~0.1x input, cache writes ~1.25x.
+# USD per input/output token, for the eval harness's cost reporting.
+# Cached reads are ~0.1x input, cache writes ~1.25x. Hand-maintained and
+# nothing validates it, so treat the figure as an estimate that drifts when
+# list prices change - it informs a report, never a review decision.
 PRICING = {
     "claude-sonnet-5": {"input": 2.00 / 1e6, "output": 10.00 / 1e6},
     "claude-haiku-4-5": {"input": 1.00 / 1e6, "output": 5.00 / 1e6},
 }
 
-# Accumulated across every agent.run() in this process. The loop resends
-# the whole conversation each turn, so cost is dominated by whether the
-# cache is actually being hit - `cache_read_input_tokens` staying at zero
-# across repeated calls is the signal that something is silently
-# invalidating the prefix, and without recording it the caching design in
-# here is a claim nobody ever checks.
+# Accumulated across every agent.run() in this process. cache_read_input_tokens
+# staying at zero across calls means the cache prefix is silently invalidating.
 USAGE = {
     "calls": 0, "input_tokens": 0, "output_tokens": 0,
     "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, "usd": 0.0,
@@ -107,11 +100,8 @@ FINDINGS_SCHEMA = {
     },
 }
 
-# Layer 3 only (judge.py's L2 schema above is untouched). Verification and
-# classification are different jobs: this schema has no `severity` field to
-# write a final answer into at all, so Layer 3 cannot silently reclassify a
-# finding - only `escalate_to` exists, and it is documented as upgrade-only.
-# The caller (verify.py) takes max(L2_severity, escalate_to).
+# Layer 3 only. No `severity` field, so Layer 3 can't reclassify a finding -
+# only `escalate_to` exists, upgrade-only. verify.py takes max(L2_severity, escalate_to).
 VERIFICATION_SCHEMA = {
     "type": "json_schema",
     "schema": {
@@ -136,7 +126,7 @@ VERIFICATION_SCHEMA = {
     },
 }
 
-
+# pre-screening
 def wrap_untrusted(diff: str) -> str:
     """Delimit PR-author-controlled content so a prompt-injection attempt
     inside the diff reads as data, never as an instruction. Used by both
@@ -156,27 +146,33 @@ class AgentError(RuntimeError):
     pass
 
 
+class IterationLimitError(AgentError):
+    """The loop used every iteration without producing a final answer.
+
+    Separate from AgentError because it is NOT retryable: a transient 500
+    may not recur, but a model that spent every turn wandering the repo
+    does the same thing on a fresh attempt - a live run paid for two full
+    loops that way. Failing closed here is cheaper and just as safe.
+    """
+
+
 def call_with_retries(fn, max_retries: int = DEFAULT_MAX_RETRIES):
-    """Call `fn()`, retrying only what might succeed on a second attempt.
-    Returns (result, None) on success or (None, last_exception) once every
-    retry is exhausted - never raises, so a caller can fail closed instead
-    of the whole run crashing. judge.py and verify.py both used to hand-roll
-    this same classify-then-backoff loop.
+    """Call `fn()`, retrying only errors that might succeed on a second try.
+    Returns (result, None) on success or (None, last_exception) once retries
+    are exhausted - never raises, so the caller can fail closed.
     """
     last_exc: Exception | None = None
     for attempt in range(max_retries):
         try:
             return fn(), None
-        except (anthropic.BadRequestError, anthropic.NotFoundError,
+        except (IterationLimitError, anthropic.BadRequestError, anthropic.NotFoundError,
                 anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
-            # Not retryable by definition - a malformed request, a bad model
-            # id, or a bad key fails identically every time.
+            # Not retryable: a bad request/model/key fails the same way every
+            # time, and so does a loop that wandered until it ran out of turns.
             last_exc = exc
             break
         except (AgentError, anthropic.APIError) as exc:
-            # Retryable: an exhausted iteration cap (a fresh attempt may not
-            # get stuck the same way), or a transport/5xx/429 the SDK's own
-            # retries already gave up on.
+            # Retryable: a transport/5xx/429, or a one-off bad response.
             last_exc = exc
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
@@ -192,27 +188,19 @@ def run(
     output_schema: dict = FINDINGS_SCHEMA,
     task_budget: int | None = None,
 ) -> dict:
-    """Run the tool-use loop. `stable_content` is cached and expected to be
-    byte-identical across repeated calls that share it (e.g. the same
-    diff/rules verified once per finding) - `variable_content` is the part
-    that actually differs per call, appended uncached after it, so callers
-    that invoke run() many times against the same stable prefix only pay
-    full price for the small varying part, not the whole thing each time.
+    """Run the tool-use loop. `stable_content` must be byte-identical across
+    calls that share it (e.g. the same diff/rules) so it can be cached;
+    `variable_content` is the per-call part, appended uncached.
     `task_budget`, if given, is a total token ceiling (>= MIN_TASK_BUDGET_TOKENS)
-    for the whole loop - the server tracks spend across iterations from the
-    resent history, so leave it None on a model that doesn't support the beta.
+    for the whole loop - leave it None on a model that doesn't support the beta.
     """
     if task_budget is not None and task_budget < MIN_TASK_BUDGET_TOKENS:
         raise ValueError(f"task_budget must be at least {MIN_TASK_BUDGET_TOKENS} tokens")
 
-    # cache_control here caches tools + system prompt + stable_content together
-    # - callers that invoke run() repeatedly with the same stable_content (one
-    # call per finding, all sharing the same diff+rules) get a cache hit on
-    # everything but variable_content each time. Within one call, as the loop
-    # appends tool calls/results, the marker moves to the newest block each
-    # iteration (cleared off the old one, to stay under the 4-breakpoint cap)
-    # - otherwise only turn 1 would ever be cached, and every later turn
-    # would resend the whole growing tail at full price.
+    # Caches tools + system + stable_content, so repeated calls with the same
+    # stable_content only pay full price for variable_content. As the loop
+    # appends turns, the cache marker moves to the newest block (staying
+    # under the 4-breakpoint cap) so later turns don't resend at full price.
     stable_block = {"type": "text", "text": stable_content, "cache_control": {"type": "ephemeral"}}
     content = [stable_block]
     if variable_content:
@@ -221,29 +209,22 @@ def run(
     cached_block = stable_block
 
     for iteration in range(1, MAX_ITERATIONS + 1):
+        request = {
+            "model": model,
+            "system": system,
+            "tools": tools.TOOLS,
+            "messages": messages,
+            "output_config": {"format": output_schema},
+            "max_tokens": MAX_TOKENS,
+        }
         if task_budget is None:
-            response = client.messages.create(
-                model=model,
-                max_tokens=MAX_TOKENS,
-                system=system,
-                tools=tools.TOOLS,
-                output_config={"format": output_schema},
-                messages=messages,
-            )
+            response = client.messages.create(**request)
         else:
-            output_config = {
-                "format": output_schema,
-                "task_budget": {"type": "tokens", "total": task_budget},
-            }
-            with client.beta.messages.stream(
-                model=model,
-                max_tokens=MAX_TOKENS_STREAMING,
-                system=system,
-                tools=tools.TOOLS,
-                output_config=output_config,
-                betas=[TASK_BUDGET_BETA],
-                messages=messages,
-            ) as stream:
+            # Streaming is required for the task-budget beta, and carries no
+            # HTTP-timeout ceiling, so it gets the larger max_tokens.
+            request["max_tokens"] = MAX_TOKENS_STREAMING
+            request["output_config"]["task_budget"] = {"type": "tokens", "total": task_budget}
+            with client.beta.messages.stream(**request, betas=[TASK_BUDGET_BETA]) as stream:
                 response = stream.get_final_message()
 
         _record_usage(model, getattr(response, "usage", None))
@@ -261,10 +242,9 @@ def run(
                 file=sys.stderr,
             )
             messages.append({"role": "assistant", "content": response.content})
-            # Every result goes back in ONE user message: splitting them
-            # across messages teaches the model to stop calling tools in
-            # parallel. A failed call is still returned - flagged with
-            # is_error rather than dropped or disguised as content.
+            # One user message for all results - splitting them teaches the
+            # model to stop calling tools in parallel. Failures are flagged
+            # with is_error, not dropped.
             tool_results = []
             for block in calls:
                 content, is_error = tools.execute(block.name, block.input)
@@ -287,4 +267,6 @@ def run(
             raise AgentError(f"No text content in final response (stop_reason={response.stop_reason})")
         return json.loads(text)
 
-    raise AgentError(f"Exceeded {MAX_ITERATIONS} tool-use iterations without a final answer")
+    raise IterationLimitError(
+        f"Exceeded {MAX_ITERATIONS} tool-use iterations without a final answer"
+    )

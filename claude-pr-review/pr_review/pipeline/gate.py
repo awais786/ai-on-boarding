@@ -1,18 +1,14 @@
 """Layer 4: render Layer 3's verified findings as the Ready to merge: yes/no
-verdict - a finding blocks only if it still carries a citation and is
-CRITICAL or MAJOR. That blocking condition is unchanged by the three-way
-split below: an uncited or citation-rejected CRITICAL/MAJOR, and any
-unverified finding, get their own "worth a look" section instead of being
-buried in the same bucket as a MINOR typo - a reviewer skimming the nits
-section should not have to notice a live CRITICAL hiding in it. Exits
+verdict. A finding blocks if it is cited and CRITICAL/MAJOR, or if it is a
+CRITICAL that Layer 3 independently confirmed without one - see
+severity.is_blocking() for why those are different kinds of evidence.
+Everything else at CRITICAL/MAJOR, and any unverified finding, gets its own
+"worth a look" section instead of being buried among MINOR nits. Exits
 non-zero on "no" so CI can fail the check.
 
-Also enforces invariant 4 (CLAUDE.md): Layer 3 may escalate a severity, it
-may never downgrade one. A finding carrying `l2_severity` (verify.py sets it
-on every finding it processes) below its final `severity` is fine, expected
-even; the reverse is a hard failure, not a warning - this is the code-level
-backstop for a rule that would otherwise depend entirely on the verify.md
-prompt holding.
+Also enforces invariant 4 (CLAUDE.md): Layer 3 may escalate a severity,
+never downgrade one. A violation is repaired upward and reported, not
+raised - see _enforce_severity_floor().
 """
 from __future__ import annotations
 
@@ -23,61 +19,91 @@ from pathlib import Path
 
 from pr_review.lib import fingerprint, severity, state
 
-BLOCKING_SEVERITIES = {"CRITICAL", "MAJOR"}
 
+def _enforce_severity_floor(all_findings: list[dict]) -> tuple[list[dict], int]:
+    """Invariant 4 (CLAUDE.md): Layer 3 may escalate a severity, never
+    downgrade one. A violation is repaired UPWARD rather than raised - a
+    raise here kills the run before post.py writes anything, so the review
+    that caught a downgrade would be the one review nobody ever sees. The
+    count is surfaced in the verdict so the repair is never silent.
 
-def _assert_severity_floor(all_findings: list[dict]) -> None:
+    Not an `assert`: `python -O` strips those, which would drop the
+    backstop exactly where it is meant to be load-bearing.
+    """
+    out, violations = [], 0
     for f in all_findings:
-        final_rank = severity.RANK.get(f.get("severity"), 0)
-        l2_rank = severity.RANK.get(f.get("l2_severity", f.get("severity")), 0)
-        assert final_rank >= l2_rank, (
-            f"invariant 4 violated: {f.get('file')}:{f.get('line')} final severity "
-            f"{f.get('severity')!r} ranks below Layer 2's {f.get('l2_severity')!r}"
-        )
+        floor = f.get("l2_severity", f.get("severity"))
+        if severity.RANK.get(f.get("severity"), 0) < severity.RANK.get(floor, 0):
+            f = {**f, "severity": floor}
+            violations += 1
+        out.append(f)
+    return out, violations
+
+
+SEVERITY_DOT = {"CRITICAL": "🔴", "MAJOR": "🟠", "MINOR": "🟡"}
+
+# A safety net, not the fix: judge.md is what asks for a short summary. A
+# model that ignores it shouldn't get to publish a ten-line paragraph into
+# a list a reviewer is meant to skim.
+SUMMARY_MAX_CHARS = 220
+
+
+def _short(text: str | None, limit: int = SUMMARY_MAX_CHARS) -> str:
+    collapsed = " ".join((text or "").split())
+    return collapsed if len(collapsed) <= limit else collapsed[: limit - 1].rstrip() + "…"
+
+
+def _location(f: dict) -> str:
+    if not f.get("file"):
+        return "no location"
+    return f["file"] if f.get("line") is None else f"{f['file']}:{f['line']}"
 
 
 def _line(f: dict) -> str:
-    if not f.get("file"):
-        loc = "no location"
-    elif f.get("line") is None:
-        loc = f["file"]
-    else:
-        loc = f"{f['file']}:{f['line']}"
-    tag = " [unverified]" if f.get("unverified") else ""
+    tag = " `unverified`" if f.get("unverified") else ""
     if f.get("resurfaced"):
-        # Dismissed once, but this push judges the same code more severely
-        # than what was waived - say so, or it reads as the agent ignoring
-        # a dismissal.
-        tag += " [resurfaced - more severe than when dismissed]"
-    return f"- [{f['severity']}]{tag} {f['summary']} ({loc})"
+        # Dismissed once, but now judged more severe than what was waived.
+        tag += " `resurfaced`"
+    dot = SEVERITY_DOT.get(f.get("severity"), "⚪")
+    return f"- {dot} **{f['severity']}**{tag} {_short(f.get('summary'))} — `{_location(f)}`"
+
+
+def render_finding_comment(f: dict) -> str:
+    """One finding as its own inline review comment, anchored to its line.
+
+    Deliberately short: the reader is looking at the code it refers to, so
+    the location and the surrounding context don't need restating.
+    """
+    dot = SEVERITY_DOT.get(f.get("severity"), "⚪")
+    lines = [f"{dot} **{f['severity']}** — {_short(f.get('summary'))}"]
+    if f.get("citation"):
+        lines.append(f"\n> cites: {_short(f['citation'], 160)}")
+    elif f.get("verified"):
+        lines.append("\n> no citation — blocking on Layer 3's independent verification")
+    if f.get("unverified"):
+        lines.append("\n> verification unavailable — severity left as Layer 2 set it")
+    return "\n".join(lines)
 
 
 def render(findings: dict) -> tuple[str, bool]:
-    all_findings = findings.get("findings", [])
-    _assert_severity_floor(all_findings)
+    all_findings, floor_violations = _enforce_severity_floor(findings.get("findings", []))
 
-    # Phase 3 (memory across pushes): a carried finding a human ticked
-    # dismissed, or one state.resolve() couldn't re-anchor because the code
-    # is gone, is out of the blocking/serious/nits computation entirely -
-    # it's neither a new concern nor a live one, just a record.
+    # Dismissed or resolved findings are records, not live concerns - kept
+    # out of the blocking/serious/nits computation entirely.
     dismissed = [f for f in all_findings if f.get("status") == "dismissed"]
     resolved = [f for f in all_findings if f.get("status") == "resolved"]
     live = [f for f in all_findings if f not in dismissed and f not in resolved]
 
-    blocking = [
-        f for f in live
-        if f.get("citation") and f.get("severity") in BLOCKING_SEVERITIES
-    ]
+    blocking = [f for f in live if severity.is_blocking(f)]
     serious = [
         f for f in live
-        if f not in blocking and (f.get("severity") in BLOCKING_SEVERITIES or f.get("unverified"))
+        if f not in blocking
+        and (f.get("severity") in severity.BLOCKING_SEVERITIES or f.get("unverified"))
     ]
     nits = [f for f in live if f not in blocking and f not in serious]
 
-    # A review that didn't run can't say "ready". Layer 1's findings still
-    # ship (they're computed before the model call), but a green verdict
-    # from a Layer 2 that errored out would be indistinguishable from a
-    # genuinely clean review - the one outcome worse than posting nothing.
+    # A review that didn't run can't say "ready" - a green verdict from a
+    # Layer 2 that errored out would look like a genuinely clean review.
     layer2_error = findings.get("layer2_error")
     ready = not blocking and not layer2_error
 
@@ -92,7 +118,13 @@ def render(findings: dict) -> tuple[str, bool]:
     if blocking:
         lines.append("## Blocking (%d)" % len(blocking))
         for f in blocking:
-            lines.append(_line(f) + f" - cites: {f['citation']}")
+            # An uncited blocker earns its place from Layer 3's independent
+            # check, so say that instead of printing "cites: None".
+            basis = (
+                f"<br>  ↳ cites: `{_short(f['citation'], 160)}`" if f.get("citation")
+                else "<br>  ↳ no citation — verified by Layer 3"
+            )
+            lines.append(_line(f) + basis)
         lines.append("")
     if serious:
         lines.append("## Unblocked but worth a look (%d)" % len(serious))
@@ -102,10 +134,9 @@ def render(findings: dict) -> tuple[str, bool]:
     if nits:
         lines.append("## Nits (%d)" % len(nits))
         for f in nits:
-            # A nit carrying a fingerprint (Phase 3: memory across pushes)
-            # renders as a checkbox - ticking it dismisses the finding on
-            # the next run. Blocking/serious findings never get this
-            # treatment: a checkbox isn't how a real concern gets waived.
+            # A nit with a fingerprint renders as a dismiss checkbox.
+            # Blocking/serious findings never get this - not how a real
+            # concern gets waived.
             if f.get("fp"):
                 lines.append(state.render_dismissal_line(f))
             else:
@@ -138,7 +169,15 @@ def render(findings: dict) -> tuple[str, bool]:
     unverified_count = sum(1 for f in all_findings if f.get("unverified"))
     if unverified_count:
         lines.append(f"_Verification unavailable for {unverified_count} finding(s) - see [unverified] above._")
-    if suppressed or unverified_count:
+    rejected = findings.get("rejected_count") or 0
+    if rejected:
+        lines.append(f"_{rejected} finding(s) dropped by Layer 3 as unsupported._")
+    if floor_violations:
+        lines.append(
+            f"_{floor_violations} finding(s) had a severity below Layer 2's and were "
+            "restored to it - Layer 3 may escalate a severity, never lower one._"
+        )
+    if suppressed or unverified_count or rejected or floor_violations:
         lines.append("")
     lines.append(f"**Ready to merge: {'yes' if ready else 'no'}**")
     return "\n".join(lines), ready

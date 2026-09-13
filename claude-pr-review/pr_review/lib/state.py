@@ -1,8 +1,7 @@
-"""Memory across pushes (Phase 3). State lives inside the agent's own
-sticky PR comment as an HTML-commented JSON block - auditable by anyone
-reading the PR, needs no new secret or external store, and survives
-force-push because carry_forward() keys off content (blob SHA), not a
-commit range. Pure module - no I/O; the caller (post.py) reads/writes the
+"""Memory across pushes. State lives inside the agent's own sticky PR
+comment as an HTML-commented JSON block - auditable, needs no external
+store, and survives force-push since carry_forward() keys off content
+(blob SHA), not a commit range. Pure module; post.py reads/writes the
 actual comment.
 
 Shape of the state dict:
@@ -38,14 +37,9 @@ def render(state: dict) -> str:
 
 
 def parse(comment_body: str) -> dict | None:
-    """Corrupt or missing state always degrades to a cold start - never
-    raises, never fails the job. A cold start just means every finding on
-    this push looks new, which is the safe direction to be wrong in.
-
-    Valid JSON that isn't an object (a list, a bare string, null) counts as
-    corrupt: callers do `.get(...)` on the result, so returning it would
-    turn "someone mangled the comment" into an AttributeError that fails
-    the whole job - exactly what this is supposed to prevent.
+    """Corrupt or missing state degrades to a cold start - never raises,
+    never fails the job. Valid JSON that isn't an object also counts as
+    corrupt, since callers do `.get(...)` on the result.
     """
     match = _STATE_RE.search(comment_body)
     if not match:
@@ -71,15 +65,10 @@ def apply_dismissals(comment_body: str, findings: list[dict]) -> list[dict]:
     dismissed. Must be called with the comment body fetched immediately
     before it is next written - see post.py.
 
-    A finding without a fingerprint has no identity a tick could name, so
-    it is passed through untouched rather than crashing the run.
-
-    Un-ticking is honoured too: the agent always renders a dismissed
-    finding as `- [x]`, so a `- [ ]` line for something state says is
-    dismissed can only have come from a person clearing it, and means
-    "raise this again". An id appearing both ticked and un-ticked is
-    ambiguous, and resolves toward showing the finding rather than hiding
-    it.
+    A tick is only ever honoured for a non-blocking finding - see
+    severity.is_blocking(). A finding without a fingerprint is passed
+    through untouched. Un-ticking a dismissed finding means "raise this
+    again"; an id both ticked and un-ticked resolves toward showing it.
     """
     ticked = {m.lower() for m in _TICK_RE.findall(comment_body)}
     unticked = {m.lower() for m in _UNTICK_RE.findall(comment_body)}
@@ -94,23 +83,30 @@ def apply_dismissals(comment_body: str, findings: list[dict]) -> list[dict]:
             out.append(f)
             continue
         if fp and fingerprint.short_id(fp).lower() in dismissed_ids:
+            if severity.is_blocking(f):
+                # gate.py renders a checkbox for nits only, so a tick naming
+                # a blocking finding was hand-added to the comment body.
+                # Honouring it would let anyone who can post a comment on the
+                # PR clear the merge gate: fingerprints are derived from the
+                # author's own code, so the id is computable in advance.
+                ceiling = f.get("dismissed_at_severity")
+                if ceiling and severity.RANK.get(f["severity"], 0) > severity.RANK.get(ceiling, 0):
+                    # Legitimately waived once, at a lower severity - say so,
+                    # or it reads as the agent ignoring a dismissal.
+                    f["resurfaced"] = True
+                f["status"] = "open"
+                out.append(f)
+                continue
             ceiling = f.get("dismissed_at_severity")
             if ceiling and severity.RANK.get(f.get("severity"), 0) > severity.RANK.get(ceiling, 0):
-                # The tick is still sitting in the comment text from when
-                # this was a nit, but the finding has since been judged
-                # worse than what was waived. Re-applying the tick here
-                # would silently undo run.dedupe_findings()'s resurfacing
-                # and suppress, say, a credential leak because someone once
-                # waved off a style nit on the same line. Set the status
-                # outright rather than only tagging it, so this holds even
-                # when dedupe_findings() wasn't the one to spot it.
+                # Judged worse than what was waived - reopen rather than
+                # let a stale tick suppress a now-more-severe finding.
                 f["status"] = "open"
                 f["resurfaced"] = True
             else:
                 f["status"] = "dismissed"
-                # Record what was actually waived. Severity is deliberately
-                # not part of a fingerprint, so without this a dismissal
-                # would keep applying at any severity.
+                # Severity isn't part of the fingerprint, so record what was
+                # actually waived or the dismissal would apply at any severity.
                 f.setdefault("dismissed_at_severity", f.get("severity"))
         out.append(f)
     return out
@@ -118,14 +114,10 @@ def apply_dismissals(comment_body: str, findings: list[dict]) -> list[dict]:
 
 def carry_forward(prior_state: dict | None, current_blobs: dict[str, str]) -> tuple[list[dict], set[str]]:
     """Which prior OPEN findings survive to this push, and which files are
-    untouched since the prior run (content-addressed by blob SHA, so this
-    survives rebase/squash/force-push - a SHA-range diff would not).
-    Content-addressed rather than commit-addressed deliberately: a
-    force-push changes every commit SHA but not an unedited file's blob SHA.
+    untouched since the prior run - matched by blob SHA (survives
+    rebase/squash/force-push, unlike a commit-range diff).
 
-    Dismissed findings are deliberately NOT returned here - they are not
-    tied to a file being unchanged, and are collected by
-    carried_dismissals() instead.
+    Dismissed findings aren't returned here - see carried_dismissals().
     """
     if not prior_state:
         return [], set()
@@ -139,20 +131,12 @@ def carry_forward(prior_state: dict | None, current_blobs: dict[str, str]) -> tu
 
 
 def carried_dismissals(prior_state: dict | None) -> list[dict]:
-    """Every finding a human has dismissed, carried forward unconditionally.
+    """Every finding a human has dismissed, carried forward unconditionally
+    - no file/freshness condition, since the fingerprint already encodes
+    the code and changes with it if the code changes materially.
 
-    A dismissal is a human decision keyed to a fingerprint, and the
-    fingerprint already encodes the code it was about - if that code
-    changes materially the fingerprint changes with it and the finding
-    comes back as new, which is the correct outcome. So there is no file
-    or freshness condition to apply here; the only way a dismissal should
-    stop applying is the fingerprint no longer matching.
-
-    Keeping these in state is what makes dismissal durable. An earlier
-    version dropped them, and dismissal survived only as long as the
-    rendered `- [x]` line kept being re-emitted - so a push that didn't
-    re-raise the finding silently lost the tick, and a later push that
-    raised it again showed it as open.
+    Keeping these in state is what makes dismissal durable across pushes
+    that don't happen to re-raise the finding.
     """
     if not prior_state:
         return []
@@ -160,23 +144,16 @@ def carried_dismissals(prior_state: dict | None) -> list[dict]:
 
 
 def resolve(entry: dict, new_content: str, window: int = 30) -> tuple[str, int | None]:
-    """Re-anchor a carried finding whose file changed. Search for the
-    original snippet within `window` lines of the recorded line first,
-    widen to the whole file if not found there, and mark it resolved
-    (code is gone) only if the snippet can't be found anywhere.
+    """Re-anchor a carried finding whose file changed. Search near the
+    recorded line first, widen to the whole file, and mark resolved only if
+    the snippet can't be found anywhere.
 
-    The snippet is usually several lines (callers pass surrounding context,
-    not just the one flagged line), so the search slides a same-sized
-    window of lines rather than checking one line at a time - a multi-line
-    normalized target can never be a substring of one normalized line.
+    Slides a same-sized window of lines rather than checking one at a time,
+    since a multi-line normalized target can't be a substring of one line.
 
-    A finding with no snippet to search for (a repo/file-level claim such
-    as "this module has no tests", where `line` is null) is NOT resolvable
-    by this mechanism. It stays open at its recorded line rather than being
-    declared resolved: "I have no way to check" and "the code is gone" are
-    different answers, and only the caller knowing the file itself is gone
-    settles it. Treating them the same silently dropped real file-level
-    findings the moment anything in the file changed.
+    A finding with no snippet (a repo/file-level claim, `line` is null)
+    stays open rather than being declared resolved - "can't check" and
+    "code is gone" are different answers.
     """
     original_snippet = entry.get("snippet") or ""
     target = fingerprint.normalize_snippet(original_snippet)

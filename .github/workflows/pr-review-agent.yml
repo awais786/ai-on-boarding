@@ -41,6 +41,9 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
+    # 30 tool-use iterations per call, one verify call per finding: a stuck
+    # run would otherwise bill against the 6-hour default.
+    timeout-minutes: 20
     if: github.event.workflow_run.conclusion == 'success'
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

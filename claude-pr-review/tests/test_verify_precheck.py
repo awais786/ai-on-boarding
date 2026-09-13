@@ -10,6 +10,7 @@ extra key would otherwise make an equality check fail for the wrong reason.
 from __future__ import annotations
 
 from pr_review.core import agent
+from pr_review.lib import severity
 from pr_review.pipeline import verify
 
 
@@ -33,16 +34,20 @@ def test_confirmed_citation_skips_model_and_keeps_finding_unchanged():
 
 
 def test_rejected_citation_skips_model_and_strips_citation_only():
-    finding = _finding(severity="CRITICAL", citation='CLAUDE.md: "this text is invented and does not exist"')
+    # MINOR, because a rejected citation at CRITICAL/MAJOR now routes to
+    # Layer 3 - see test_a_critical_whose_citation_is_rejected_is_still_verified.
+    finding = _finding(severity="MINOR", citation='CLAUDE.md: "this text is invented and does not exist"')
     rules = {"CLAUDE.md": "Something else entirely."}
     result = verify.verify(_UnreachableClient(), diff="", rules=rules, findings={"findings": [finding]})
     [out] = result["findings"]
     assert out["citation"] is None
-    assert out["severity"] == "CRITICAL"  # severity is never touched by a rejected citation
+    assert out["severity"] == "MINOR"  # severity is never touched by a rejected citation
 
 
 def test_missing_citation_skips_model_and_stays_uncited():
-    finding = _finding(citation=None)
+    # MINOR: at CRITICAL/MAJOR an uncited finding now routes to Layer 3 so
+    # `escalate_to` can fire. A MINOR can never block, so it isn't worth a call.
+    finding = _finding(severity="MINOR", citation=None)
     result = verify.verify(_UnreachableClient(), diff="", rules={}, findings={"findings": [finding]})
     [out] = result["findings"]
     assert out["citation"] is None
@@ -123,7 +128,145 @@ def test_fails_closed_after_retries_preserves_severity_and_citation():
     assert out["citation"] == finding["citation"]  # never stripped by an infra failure
 
 
-def test_critical_finding_routes_to_sonnet_others_to_haiku():
+def test_an_uncited_critical_is_verified_and_can_then_block():
+    # Before this it was stripped with no model call, so a real defect no
+    # written convention happens to cover could never block - which meant
+    # the reviewer could only ever block on process rules.
+    calls = []
+
+    def fake_run(client, model, system, stable_content, variable_content="", **kwargs):
+        calls.append(model)
+        return {"verified": True, "citation_holds": False, "escalate_to": None, "reasoning": "held"}
+
+    original = verify.agent.run
+    verify.agent.run = fake_run
+    try:
+        result = verify.verify(
+            object(), diff="d", rules={},
+            findings={"findings": [_finding(severity="CRITICAL", citation=None)]},
+        )
+    finally:
+        verify.agent.run = original
+
+    assert calls == [verify.MODEL], "an uncited CRITICAL must reach Layer 3"
+    [out] = result["findings"]
+    assert out["verified"] is True
+    assert severity.is_blocking(out) is True
+
+
+def test_an_uncited_critical_layer_3_rejects_does_not_block():
+    def fake_run(client, model, system, stable_content, variable_content="", **kwargs):
+        return {"verified": False, "citation_holds": False, "escalate_to": None, "reasoning": "no"}
+
+    original = verify.agent.run
+    verify.agent.run = fake_run
+    try:
+        result = verify.verify(
+            object(), diff="d", rules={},
+            findings={"findings": [_finding(severity="CRITICAL", citation=None)]},
+        )
+    finally:
+        verify.agent.run = original
+
+    assert result["findings"] == []
+    assert result["rejected_count"] == 1
+
+
+def test_a_critical_whose_citation_is_rejected_is_still_verified():
+    # Regression for a live miss: Layer 2 "cited" a prompt-injection attempt
+    # by quoting the injected text, precheck correctly rejected that (it is
+    # not in the trusted rules), and the CRITICAL then passed through
+    # unverified and unable to block. Where a citation came from says
+    # nothing about whether the defect behind it is real.
+    calls = []
+
+    def fake_run(client, model, system, stable_content, variable_content="", **kwargs):
+        calls.append(model)
+        return {"verified": True, "citation_holds": False, "escalate_to": None, "reasoning": "real"}
+
+    finding = _finding(severity="CRITICAL", citation='"text that is nowhere in the rules"')
+    original = verify.agent.run
+    verify.agent.run = fake_run
+    try:
+        result = verify.verify(object(), diff="d", rules={"CLAUDE.md": "unrelated"},
+                               findings={"findings": [finding]})
+    finally:
+        verify.agent.run = original
+
+    assert calls == [verify.MODEL], "a CRITICAL with a rejected citation must still be verified"
+    [out] = result["findings"]
+    assert out["citation"] is None
+    assert out["verified"] is True
+    assert severity.is_blocking(out) is True
+
+
+def test_a_minor_whose_citation_is_rejected_still_skips_the_model():
+    finding = _finding(severity="MINOR", citation='"text that is nowhere in the rules"')
+    result = verify.verify(_UnreachableClient(), diff="", rules={"CLAUDE.md": "unrelated"},
+                           findings={"findings": [finding]})
+    [out] = result["findings"]
+    assert out["citation"] is None
+    assert severity.is_blocking(out) is False
+
+
+def test_an_uncited_major_reaches_the_model_so_it_can_be_escalated():
+    # Layer 2 under-rates security findings: a live run called two
+    # disagreeing password policies on the same User model a MAJOR. Uncited,
+    # it used to be dropped here without ever reaching `escalate_to`, the
+    # one mechanism designed to promote exactly that.
+    def escalates(client, model, system, stable_content, variable_content="", **kwargs):
+        return {"verified": True, "citation_holds": False,
+                "escalate_to": "CRITICAL", "reasoning": "weakens an auth path"}
+
+    original = verify.agent.run
+    verify.agent.run = escalates
+    try:
+        result = verify.verify(object(), diff="d", rules={},
+                               findings={"findings": [_finding(severity="MAJOR", citation=None)]})
+    finally:
+        verify.agent.run = original
+
+    [out] = result["findings"]
+    assert out["severity"] == "CRITICAL"
+    assert out["l2_severity"] == "MAJOR"
+    assert severity.is_blocking(out) is True
+
+
+def test_an_uncited_major_that_is_not_escalated_still_does_not_block():
+    # The bar is unchanged: only a CRITICAL blocks without a citation.
+    def no_escalation(client, model, system, stable_content, variable_content="", **kwargs):
+        return {"verified": True, "citation_holds": False,
+                "escalate_to": None, "reasoning": "real but not critical"}
+
+    original = verify.agent.run
+    verify.agent.run = no_escalation
+    try:
+        result = verify.verify(object(), diff="d", rules={},
+                               findings={"findings": [_finding(severity="MAJOR", citation=None)]})
+    finally:
+        verify.agent.run = original
+
+    [out] = result["findings"]
+    assert out["severity"] == "MAJOR"
+    assert severity.is_blocking(out) is False
+
+
+def test_an_uncited_minor_never_reaches_the_model():
+    # Keeps call volume bounded - a MINOR can never block however it's rated.
+    result = verify.verify(
+        _UnreachableClient(), diff="", rules={},
+        findings={"findings": [_finding(severity="MINOR", citation=None)]},
+    )
+    [out] = result["findings"]
+    assert out["citation"] is None
+    assert out.get("verified") is not True
+    assert severity.is_blocking(out) is False
+
+
+def test_every_severity_is_verified_by_the_strong_model():
+    # Layer 3 is the gate, so it does not get a cheap model at any severity.
+    # A live run with Haiku verifying rejected 4 of 5 model findings,
+    # including a genuine cross-file password-policy regression.
     models_used = []
 
     def fake_run(client, model, system, stable_content, variable_content="", **kwargs):
@@ -143,7 +286,8 @@ def test_critical_finding_routes_to_sonnet_others_to_haiku():
     finally:
         verify.agent.run = original
 
-    assert models_used == [verify.MODEL_SONNET, verify.MODEL_HAIKU]
+    assert models_used == [verify.MODEL, verify.MODEL]
+    assert "haiku" not in verify.MODEL
 
 
 TESTS = [v for k, v in list(globals().items()) if k.startswith("test_")]

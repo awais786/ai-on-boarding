@@ -1,35 +1,24 @@
-"""Single CI entrypoint for a PR push (Phase 3: memory across pushes).
-Replaces the workflow's three separate judge.py/verify.py/gate.py steps
-with one script so state can flow between them:
+"""Single CI entrypoint for a PR push. Replaces three separate
+judge.py/verify.py/gate.py steps with one script so state can flow between
+them:
 
   1. Read the sticky comment (if any) -> prior_state. Corrupt/missing state
-     always cold-starts (state.parse never raises).
-  2. Diff prior_state.files against this push's file blob SHAs:
-     - unchanged files -> their prior open findings carry forward as-is,
-       Layer 3 skipped entirely for them (state.carry_forward).
-     - changed files -> each prior open finding there is re-anchored by
-       snippet search (state.resolve): found nearby -> still carried,
-       open, Layer 3 skipped; not found -> marked resolved, code is gone.
-     - files no longer in the diff (deleted/renamed away) -> resolved.
+     cold-starts.
+  2. Diff prior_state.files against this push's file blob SHAs: unchanged
+     files carry their prior open findings forward as-is (Layer 3 skipped);
+     changed files re-anchor each finding by snippet search - found nearby
+     stays open, not found marks resolved.
   3. judge.judge(..., carried=carried) - Layer 2 sees carried findings as
-     "already raised, do not repeat" but still reviews the WHOLE diff (not
-     restricted to changed files - see judge.py's docstring for why).
-  4. verify.verify() on judge's NEW findings only - carried/resolved
-     findings never re-enter Layer 3.
-  5. Every new finding gets a fingerprint (fingerprint.fingerprint) so a
-     future push can recognize and carry it forward in turn.
-  6. post.post(repo, pr, combined, base_state) - re-fetches the comment
-     fresh, reconciles any dismissal tick made since this job started,
-     THEN renders the verdict from that reconciled list (gate.render()
-     lives inside post.post(), not here) and PATCHes/POSTs. One render per
-     run, and it reflects the same data that gets written - an earlier
-     version rendered before this fetch, so a tick applied on the triggering
-     push showed as "dismissed" in the stored state but still blocking in
-     that same push's own posted text and exit code.
+     "already raised, do not repeat" but still reviews the whole diff.
+  4. verify.verify() on judge's NEW findings only.
+  5. Every new finding gets a fingerprint so a future push can recognize
+     and carry it forward.
+  6. post.post() re-fetches the comment fresh, reconciles any dismissal
+     tick made since this job started, then renders and PATCHes/POSTs -
+     one render per run, using the same reconciled data that gets written.
 
-Files/snippets for re-anchoring are read via target.REPO_ROOT (the local
-checkout), not fetched from GitHub - CI already has the PR's head checked
-out.
+Files/snippets for re-anchoring are read from the local checkout
+(target.REPO_ROOT), not fetched from GitHub.
 """
 from __future__ import annotations
 
@@ -39,7 +28,7 @@ import sys
 import anthropic
 
 from pr_review.ci import github, post
-from pr_review.core import target
+from pr_review.core import agent, target
 from pr_review.lib import fingerprint, severity, state
 from pr_review.pipeline import judge, verify
 
@@ -64,10 +53,8 @@ def _read_file(path: str) -> str | None:
 
 
 def _snippet_for(file: str | None, line: int | None) -> str:
-    # A finding can legitimately have no file (a claim about the change as
-    # a whole) or no line (a claim about the file as a whole). Neither has
-    # a snippet to anchor to; an empty one is correct and state.resolve()
-    # knows not to read that as "the code is gone".
+    # No file/line means a repo- or file-level claim - no snippet to
+    # anchor to; state.resolve() knows an empty one isn't "code is gone".
     if not file or line is None:
         return ""
     content = _read_file(file)
@@ -93,9 +80,7 @@ def reanchor_changed_files(prior_state: dict | None, unchanged: set[str]) -> tup
     re_anchored, resolved = [], []
     for f in open_elsewhere:
         if not f.get("file"):
-            # A finding about the change as a whole has no file to re-read
-            # and nothing to resolve against - carry it forward untouched
-            # rather than inventing a verdict about it.
+            # Nothing to re-read or resolve against - carry it forward as-is.
             re_anchored.append({**f, "status": "open"})
             continue
         content = _read_file(f["file"])
@@ -115,9 +100,8 @@ STATUS_RANK = {"resolved": 0, "open": 1, "dismissed": 2}
 
 def _dismissal_ceiling(*entries: dict) -> str | None:
     """The severity a dismissal was actually made at, if one of these
-    entries is dismissed. Falls back to the dismissed entry's own severity,
-    which is what it was carrying when the tick happened - so state written
-    before `dismissed_at_severity` existed still compares correctly.
+    entries is dismissed. Falls back to the entry's own severity, for state
+    written before `dismissed_at_severity` existed.
     """
     for e in entries:
         if e.get("status") == "dismissed":
@@ -127,30 +111,17 @@ def _dismissal_ceiling(*entries: dict) -> str | None:
 
 def dedupe_findings(*groups: list[dict]) -> list[dict]:
     """Collapse entries describing the same finding (same fingerprint) into
-    one, across every source they can arrive from.
+    one, across every source they can arrive from - needed because Layer 2
+    may legitimately re-raise something a carried entry already covers.
 
-    This is needed because `already_raised_on_this_pr` is advisory: Layer 2
-    reviews the whole diff fresh every push and may legitimately re-raise
-    something a carried entry already covers. Without this, the same
-    finding appears twice - once carried, once fresh - and can even render
-    in two different sections at once with two different statuses.
+    Precedence: CONTENT comes from the latest group (callers order
+    oldest-to-freshest), taken as a whole dict so severity/l2_severity
+    never mix across runs. STATUS takes the strongest claim by
+    STATUS_RANK (dismissed > open > resolved - a human decision is sticky).
+    `first_seen` keeps the earliest value.
 
-    Precedence, by design:
-      - CONTENT comes from the latest group passed in, so callers order
-        groups oldest-to-freshest and this push's own judgment wins. Fields
-        are taken as a whole dict, never mixed across sources, so a
-        finding's `severity` and `l2_severity` always come from the same
-        run (mixing them could violate gate.py's severity-floor assertion).
-      - STATUS takes the strongest claim by STATUS_RANK: dismissed beats
-        open beats resolved. Dismissed is a human decision and must be
-        sticky; a resolved inference loses to live evidence that the
-        finding is still real.
-      - `first_seen` keeps the earliest value any entry carries, so
-        provenance isn't reset by a fresh re-raise.
-
-    Entries with no fingerprint have no identity to group on and are passed
-    through untouched - grouping them under a shared `None` key would
-    collapse unrelated findings into one.
+    Entries with no fingerprint pass through untouched - no identity to
+    group on.
     """
     out: list[dict] = []
     position: dict[str, int] = {}
@@ -172,15 +143,12 @@ def dedupe_findings(*groups: list[dict]) -> list[dict]:
             )
             ceiling = _dismissal_ceiling(existing, f)
             if ceiling:
-                # Carry the ceiling onto the merged entry even when the
-                # content came from a fresh finding that never had one -
-                # state.apply_dismissals() needs it to refuse re-applying a
+                # Needed so apply_dismissals() can refuse re-applying a
                 # stale tick to something that has since got worse.
                 merged["dismissed_at_severity"] = ceiling
                 if severity.RANK.get(merged.get("severity"), 0) > severity.RANK.get(ceiling, 0):
-                    # Someone waived a nit; this push judges the same code
-                    # worse than what they waived. A dismissal covers what
-                    # was dismissed, not an escalation of it.
+                    # A dismissal covers what was dismissed, not an
+                    # escalation of it.
                     status = "open"
                     merged["resurfaced"] = True
             merged["status"] = status
@@ -193,10 +161,8 @@ def dedupe_findings(*groups: list[dict]) -> list[dict]:
 
 def attach_metadata(findings: list[dict]) -> list[dict]:
     """Stamp every fresh finding with a fingerprint and the snippet it was
-    computed from. state.resolve() re-anchors a carried finding by
-    searching a future push's changed file content for this exact snippet
-    - a finding missing it always looks resolved (empty target), whether
-    or not the code is actually still there.
+    computed from - state.resolve() searches for this exact snippet on a
+    future push to re-anchor the finding.
     """
     out = []
     for f in findings:
@@ -218,34 +184,53 @@ def run(client, repo: str, pr: str, head_sha: str) -> dict:
     dismissed = state.carried_dismissals(prior_state)
     all_carried = carried + re_anchored
 
-    judge_result = judge.judge(client, pr, carried=all_carried)
+    # Fetched once and handed to both layers: two separate fetches let a
+    # push landing mid-run give Layer 2 and Layer 3 different diffs.
+    diff = target.get_diff(pr)
+    rules = target.repo_rules()
+
+    judge_result = judge.judge(client, pr, diff, rules, carried=all_carried)
     new_findings = judge_result.get("findings", [])
-    verified = verify.verify(
-        client, target.get_diff(pr), target.repo_rules(), {"findings": new_findings}
-    )
+    verified = verify.verify(client, diff, rules, {"findings": new_findings})
 
     new_with_metadata = attach_metadata(verified.get("findings", []))
     for f in all_carried:
         f.setdefault("status", "open")
 
-    # Oldest to freshest: this push's own judgment wins on content, while
-    # dedupe_findings() keeps the strongest status claim, so a dismissal
-    # survives a fresh re-raise and live evidence overrides a stale
-    # "resolved".
+    # Oldest to freshest: this push's judgment wins on content, dedupe
+    # keeps the strongest status (dismissal survives a fresh re-raise).
     combined = dedupe_findings(resolved, dismissed, all_carried, new_with_metadata)
     base_state = {
         "schema": 1, "head": head_sha, "files": current_blobs,
         "suppressed_count": judge_result.get("suppressed_count", 0),
+        "rejected_count": verified.get("rejected_count", 0),
     }
     if judge_result.get("layer2_error"):
-        # Carried through to gate.render(), which refuses to call a review
-        # "ready" when the layer that does the reviewing never ran.
+        # gate.render() refuses "ready" when the reviewing layer never ran.
         base_state["layer2_error"] = judge_result["layer2_error"]
     # gate.render() happens inside post.post(), against findings freshly
-    # reconciled against the live comment - not here, and not before that
-    # fetch. Rendering here would use whatever dismissal state existed at
-    # the start of this run, stale by the time the comment is written.
+    # reconciled against the live comment - not here, which would use
+    # dismissal state stale by the time the comment is written.
     return post.post(repo, pr, combined, base_state)
+
+
+def log_usage() -> None:
+    """What this review cost, to the CI log (stderr) - not to the PR, which
+    would put a dollar figure in front of every author. The USD is an
+    estimate from agent.PRICING; the token counts are exact. A cached-read
+    count of 0 across a multi-call run means prompt caching silently broke.
+    """
+    usage = agent.USAGE
+    if not usage["calls"]:
+        return
+    print(
+        f"[run] {usage['calls']} model call(s) | "
+        f"{usage['input_tokens']:,} in / {usage['output_tokens']:,} out | "
+        f"{usage['cache_read_input_tokens']:,} cached read, "
+        f"{usage['cache_creation_input_tokens']:,} cache write | "
+        f"~${usage['usd']:.4f} (estimate)",
+        file=sys.stderr,
+    )
 
 
 def main() -> int:
@@ -256,7 +241,13 @@ def main() -> int:
     args = parser.parse_args()
 
     client = anthropic.Anthropic()
-    result = run(client, args.repo, args.pr, args.head_sha)
+    try:
+        result = run(client, args.repo, args.pr, args.head_sha)
+    finally:
+        # In a finally: a run that dies posting the comment has still spent
+        # the whole review's tokens, and that is exactly when you want to
+        # know what it cost.
+        log_usage()
     print(result["report"])
     return 0 if result["ready"] else 1
 
