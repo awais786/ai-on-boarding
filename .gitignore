@@ -26,5 +26,8 @@ agent_loop/.venv/
 tooling/api-verification/node_modules/
 tooling/api-verification/build/
 
+# PR review agent build output
+claude-pr-review/build/
+.env
 # MCP server runtime logs
 mcp_server/tool_calls.log

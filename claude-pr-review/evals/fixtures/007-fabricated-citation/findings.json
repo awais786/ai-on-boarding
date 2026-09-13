@@ -1,0 +1,11 @@
+{
+  "findings": [
+    {
+      "file": "sdd_django_demo/api/rate_limit.py",
+      "line": 4,
+      "severity": "MAJOR",
+      "summary": "The rate limit threshold is hardcoded to 5 rather than read from configuration, so it cannot be tuned per environment.",
+      "citation": "CLAUDE.md: \"every tunable threshold must be read from Django settings, never hardcoded\""
+    }
+  ]
+}

@@ -32,9 +32,13 @@ Spec-driven development here is run through [OpenSpec](https://github.com/Fissio
 sections apply to every change, in every directory. The part most relevant to code review,
 inlined here so it's never missed — **the review contract** (from `operations.apply.guidance`):
 
-- A finding blocks merge only if it cites a requirement (a `### Requirement:` from a spec), a
+- A finding blocks merge if it cites a requirement (a `### Requirement:` from a spec), a
   specific named failing test, or a documented convention (`openspec/config.yaml`, this file, or
-  `AGENTS.md`). Anything else is a nit: recorded, never blocking.
+  `AGENTS.md`) — or if it is a CRITICAL that the automated reviewer's Layer 3 independently
+  verified, which blocks on that verification whether or not a convention covers it. Some
+  defects are true without this repo having written them down; requiring a citation for those
+  made the reviewer able to block only on process rules, never on engineering ones. Anything
+  else is a nit: recorded, never blocking.
 - Review runs at most two passes on a given piece of work: an initial pass, and one follow-up
   after fixes. The follow-up checks only what the first pass raised, plus anything the fixes
   broke — it does not go hunting for new material.
@@ -57,3 +61,31 @@ Other conventions worth knowing up front (also in `openspec/config.yaml`):
   removed one is marked `REMOVED` with a reason, never silently deleted or renumbered.
 - Tasks are tracked in each change's `tasks.md` (checkbox state), and the corresponding GitHub
   issue mirrors that checklist for human visibility — not a separate source of truth.
+
+## PR review agent — invariants
+
+These are load-bearing. Do not change them without an explicit instruction
+naming the invariant.
+
+1. `agent.py` exposes exactly three tools: read_file, grep, list_files.
+   There is no write tool in the dispatch table and none may be added.
+   Path resolution rejects traversal and symlink escapes.
+2. Layer 4 (`gate.py`) makes no model call. Ever. It is a pure function
+   from verified findings to a verdict.
+3. A finding blocks a merge only if it has a valid citation AND its
+   severity is in BLOCKING_SEVERITIES.
+4. Layer 3 verifies claims. It may escalate a severity; it may never
+   downgrade one.
+5. Failures fail closed. An API error, an exhausted iteration cap, or an
+   unparseable response must never convert a blocking finding into a pass.
+6. Accepted citation forms are listed in `docs/citation-contract.md`.
+   Adding a form means editing that file in the same commit.
+
+## PR review agent — layout
+
+- lint.py    L1  ruff over target.changed_python_files only, no model
+- judge.py   L2  one agent.run(), Sonnet, task_budget 40k
+- verify.py  L3  one agent.run() per finding, Haiku, cached diff+rules
+- gate.py    L4  pure, renders verdict.md, sets CI exit code
+- agent.py       shared manual tool-use loop, schema-constrained output
+- evals/         frozen fixtures + scorer; baseline.json is generated, never hand-edited

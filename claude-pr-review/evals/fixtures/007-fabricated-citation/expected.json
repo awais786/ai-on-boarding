@@ -1,0 +1,7 @@
+{
+  "must_find": [
+    {"file": "sdd_django_demo/api/rate_limit.py", "line": 4, "min_severity": "MAJOR", "should_block": false}
+  ],
+  "must_not_find": [],
+  "expected_verdict": "yes"
+}

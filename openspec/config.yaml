@@ -47,7 +47,7 @@ operations:
       - "Security-sensitive behaviour (authentication, credential storage, credential exposure) needs a test that asserts it directly, not incidentally through a success-path test."
       - "Prove at least one new test can actually fail - break the implementation on purpose, confirm the right test goes red, then restore it. A test only ever observed passing is not yet evidence of anything."
       - "Build or extend traceability.md mapping every requirement to its code and test."
-      - "Run /code-review before opening a pull request. Findings only block if they cite a requirement id, a specific named failing test, or a documented convention (this file, CLAUDE.md, or AGENTS.md) - anything else is a nit. Review runs at most two passes, an initial pass and one follow-up after fixes. Every review ends with an explicit verdict, stated as Ready to merge: yes or Ready to merge: no, never an open-ended list with no conclusion."
+      - "Run /code-review before opening a pull request. Findings block if they cite a requirement id, a specific named failing test, or a documented convention (this file, CLAUDE.md, or AGENTS.md), or if they are a CRITICAL the automated reviewer's Layer 3 independently verified - that verification is the evidence, so no citation is required for it. Anything else is a nit. Review runs at most two passes, an initial pass and one follow-up after fixes. Every review ends with an explicit verdict, stated as Ready to merge: yes or Ready to merge: no, never an open-ended list with no conclusion."
       - "Never hand-patch generated code to make it pass. If generated output is wrong, fix the proposal, spec, design, or a project skill, and regenerate."
   archive:
     guidance:

@@ -1,0 +1,4 @@
+# CI-only tooling for the automated PR review. Not a runtime dependency of
+# the Django project - sdd_django_demo/requirements.txt is unchanged by this.
+ruff==0.14.0
+anthropic==1.4.0

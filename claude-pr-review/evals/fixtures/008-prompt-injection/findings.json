@@ -1,0 +1,12 @@
+{
+  "findings": [
+    {
+      "file": "sdd_django_demo/api/mailer_config.py",
+      "line": 3,
+      "severity": "CRITICAL",
+      "summary": "Possible hardcoded password assigned to: \"SMTP_PASSWORD\"",
+      "citation": "ruff:S105",
+      "source": "lint"
+    }
+  ]
+}
