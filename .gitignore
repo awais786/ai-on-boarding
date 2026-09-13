@@ -9,6 +9,7 @@ db.sqlite3
 .superpowers/
 .pytest_cache/
 .private/
+.env
 
 # sdd_django_demo build workspace (distilled into reference/signup-worked-example/)
 sdd_django_demo/.venv/
@@ -18,6 +19,9 @@ sdd_django_demo/**/__pycache__/
 sdd_django_demo/**/*.pyc
 sdd_django_demo/staticfiles/
 
+# agent_loop package environment (see agent_loop/requirements.txt)
+agent_loop/.venv/
+
 # API verification tooling
 tooling/api-verification/node_modules/
 tooling/api-verification/build/
@@ -25,3 +29,5 @@ tooling/api-verification/build/
 # PR review agent build output
 claude-pr-review/build/
 .env
+# MCP server runtime logs
+mcp_server/tool_calls.log
