@@ -3,8 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from issue_reconciler.api.client import GitHubClient
 from issue_reconciler.fingerprint import build_fingerprint
 from issue_reconciler.types import Decision, Evidence, LinkedPR
+
+_ADD_COMMENT = """
+  mutation AddComment($subjectId: ID!, $body: String!) {
+    addComment(input: { subjectId: $subjectId, body: $body }) {
+      commentEdge { node { id } }
+    }
+  }
+"""
 
 
 @dataclass
@@ -78,3 +87,14 @@ def build_comment_body(decision: Decision, evidence: Evidence, ctx: CommentConte
         marker = build_fingerprint({"run_id": ctx.run_id, "decision": decision["action"], "evidence_hash": ctx.evidence_hash})
 
     return f"{prefix}{body}\n{run_line}\n{marker}"
+
+
+def post_comment(client: GitHubClient, issue_node_id: str, body: str) -> str:
+    """The sole write for both real and dry-run decisions - see plan
+    "Ordering": comment first, then (a future writer) mutates status. A
+    dry run still posts, it just has no status/close mutation to follow.
+    Raises on failure (GraphQLError etc.) - the caller aborts the
+    transition rather than swallowing it, per "No silent transitions".
+    """
+    data = client.query(_ADD_COMMENT, {"subjectId": issue_node_id, "body": body})
+    return data["addComment"]["commentEdge"]["node"]["id"]

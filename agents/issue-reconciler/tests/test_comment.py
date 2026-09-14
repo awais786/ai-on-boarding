@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from support import make_routed_client
+
 from issue_reconciler.fingerprint import parse_fingerprint
 from issue_reconciler.writers.comment import (
     CommentContext,
     build_comment_body,
+    post_comment,
     should_comment,
 )
 
@@ -29,3 +32,9 @@ def test_dry_run_is_prefixed_and_invisible_to_fingerprint_parsing():
     body = build_comment_body({"action": "set_done", "reason": "x"}, EVIDENCE, CommentContext(**{**CTX.__dict__, "dry_run": True}))
     assert body.startswith("**[dry run]**")
     assert parse_fingerprint(body) is None
+
+
+def test_post_comment_returns_the_new_comment_id():
+    client, calls = make_routed_client([("AddComment", {"addComment": {"commentEdge": {"node": {"id": "IC_1"}}}})])
+    assert post_comment(client, "I_88", "hello") == "IC_1"
+    assert calls[0]["variables"] == {"subjectId": "I_88", "body": "hello"}
