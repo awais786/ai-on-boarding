@@ -24,3 +24,13 @@ export const NEEDS_TRIAGE_LABEL = 'needs-triage';
 export const MAX_TEXT_LENGTH = 500;
 
 export const TRANSITION_LOOKBACK_DAYS = 7;
+
+// Fuzzy-match candidate pool: bounds cost of the repo-wide PR scan the
+// matcher searches over when an issue has no explicit reference.
+export const FUZZY_CANDIDATE_LOOKBACK_DAYS = 7;
+export const FUZZY_CANDIDATE_LIMIT = 50;
+
+export const LEASE_TTL_MS = 5 * 60 * 1000;
+export const MAX_CONCURRENCY = 5;
+export const CIRCUIT_BREAKER_ERROR_RATE = 0.2;
+export const MODEL_CALL_CAP_PER_RUN = 100;

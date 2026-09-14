@@ -81,6 +81,7 @@ agents/issue-reconciler/
       board.ts             # project items + current status
       issues.ts            # open issues + labels
       prs.ts               # linked PRs via timeline
+      candidate-prs.ts     # repo-wide open + recently-merged PRs (see note)
       repo.ts              # openspec/changes/ contents
       timeline.ts          # labeled/unlabeled events + actors
   spokes/
@@ -281,6 +282,14 @@ returning — drop URLs, avatars, node IDs; truncate bodies.
 **Phase 3 — fuzzy matcher.**
 Only called when there is no explicit PR reference. Strict JSON schema on
 output, one repair retry, then treat as no match. Haiku is likely sufficient.
+
+The original plan never specified where the matcher's candidate PRs come
+from - `prs.ts` only returns explicit references, which by definition don't
+exist for an issue that reaches the matcher. Resolved by adding
+`api/fetchers/candidate-prs.ts`: one repo-wide query per run (not per issue)
+for open PRs plus PRs merged in the last `FUZZY_CANDIDATE_LOOKBACK_DAYS`
+days, capped at `FUZZY_CANDIDATE_LIMIT` each. The orchestrator fetches this
+pool once and passes it to every issue that needs fuzzy matching.
 
 **Phase 4 — orchestrator.**
 Selection filters, leasing, bounded concurrency, run log.
