@@ -1,0 +1,12 @@
+{
+  "name": "issue-reconciler",
+  "private": true,
+  "type": "module",
+  "description": "Sweeps the project board, reconciles issue status against actual repo state (PRs, OpenSpec proposals), and converges the two without duplicating work or overriding a human.",
+  "scripts": {
+    "test": "node --test --experimental-strip-types policy/*.test.ts"
+  },
+  "engines": {
+    "node": ">=23"
+  }
+}
