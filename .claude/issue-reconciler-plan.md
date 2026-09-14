@@ -46,7 +46,8 @@ score). Hub-and-spoke at the top, sequential inside.
 3. **Policy is deterministic code.** No model call decides a transition. The
    model's only job is fuzzy matching a PR to an issue when there is no
    explicit reference.
-4. **One writer.** Only `writers/board.ts` mutates anything.
+4. **One writer.** Only `writers/comment.py` (plus a status/close-issue writer
+   built alongside it) mutates anything.
 5. **No silent transitions.** Every status change is preceded by a comment
    stating the evidence. If the comment fails, abort the transition.
 
@@ -70,72 +71,117 @@ other repos. The selector must filter on `repository.name == "ai-on-boarding"`.
 
 ## Layout
 
+The plan originally specified TypeScript. Rewritten in Python partway through
+implementation (Phase 5, mid-build) for consistency with the rest of this
+repo (Django, the pr-review agent) - see "Language and tooling notes" below
+for the choices that changed along with it.
+
 ```
 agents/issue-reconciler/
-  index.ts                 # entrypoint
-  config.ts                # board IDs, filters, thresholds
-  orchestrator.ts          # selection, leasing, fan-out, run log
-  api/
-    client.ts              # auth, retry, backoff, rate-limit
-    fetchers/
-      board.ts             # project items + current status
-      issues.ts            # open issues + labels
-      prs.ts               # linked PRs via timeline
-      candidate-prs.ts     # repo-wide open + recently-merged PRs (see note)
-      repo.ts              # openspec/changes/ contents
-      timeline.ts          # labeled/unlabeled events + actors
-  spokes/
-    pr-evidence.ts
-    openspec-evidence.ts
-    board-history.ts
-  matcher/
-    fuzzy.ts               # the only model call
-  schemas/
-    evidence.schema.json
-  policy/
-    rules.ts               # pure functions
-  writers/
-    board.ts               # sole write authority
-  state/
-    leases.ts
-    runlog.ts
-  fixtures/
-    issues-snapshot.json
+  pyproject.toml
+  requirements.txt
+  ruff.toml
+  issue_reconciler/
+    config.py                # board IDs, filters, thresholds
+    types.py                 # LinkedPR / Evidence / Decision TypedDicts
+    fingerprint.py
+    evidence_hash.py
+    orchestrator.py          # selection, leasing, fan-out, run log
+    api/
+      client.py              # auth, retry, backoff, rate-limit
+      fetchers/
+        board.py             # project items + current status
+        issues.py            # open issues + labels
+        prs.py                # linked PRs via timeline
+        candidate_prs.py     # repo-wide open + recently-merged PRs (see note)
+        repo.py               # openspec/changes/ contents
+        timeline.py           # issue comments (for board_history)
+    spokes/
+      pr_evidence.py
+      openspec_evidence.py
+      board_history.py
+    matcher/
+      fuzzy.py                # the only model call
+    policy/
+      rules.py                # pure functions
+    writers/
+      comment.py              # comment builder; mutation writer alongside it
+    state/
+      leases.py
+      runlog.py
+  tests/
+    support.py                # fake transports (no live credentials in tests)
+    fixtures/
+      issues_snapshot.json
+    test_*.py
 ```
 
 ## Contracts
 
-```ts
-type LinkedPR = {
-  number: number;
-  title: string;
-  state: 'OPEN' | 'CLOSED' | 'MERGED';
-  merged: boolean;
-  mergedAt: string | null;
-  isDraft: boolean;
-  headRefName: string;
-  matchSource: 'explicit' | 'fuzzy';
-  confidence: number;          // 1.0 for explicit
-};
+TypedDicts in `issue_reconciler/types.py`, snake_case fields (translated
+1:1 from the original TS shapes):
 
-type Evidence = {
-  issueNumber: number;
-  itemId: string;              // project item ID
-  currentStatus: string | null;
-  hasIgnoreLabel: boolean;
-  linkedPRs: LinkedPR[];
-  openSpecProposals: string[];
-  lastStatusActor: string | null;
-  lastStatusAt: string | null;
-  transitionCount: number;     // agent flips in last 7 days
-};
+```python
+class LinkedPR(TypedDict):
+    number: int
+    title: str
+    state: Literal["OPEN", "CLOSED", "MERGED"]
+    merged: bool
+    merged_at: str | None
+    is_draft: bool
+    head_ref_name: str
+    match_source: Literal["explicit", "fuzzy"]
+    confidence: float          # 1.0 for explicit
 
-type Decision =
-  | { action: 'set_done' }
-  | { action: 'set_in_progress' }
-  | { action: 'flag'; reason: string }
-  | { action: 'noop'; reason: string };
+
+class Evidence(TypedDict):
+    issue_number: int
+    item_id: str                # project item ID
+    current_status: str | None
+    has_ignore_label: bool
+    linked_prs: list[LinkedPR]
+    open_spec_proposals: list[str]
+    last_status_actor: str | None
+    last_status_at: str | None
+    transition_count: int       # agent flips in last 7 days
+
+
+class Decision(TypedDict):
+    action: Literal["set_done", "set_in_progress", "flag", "noop"]
+    reason: str
 ```
+
+## Language and tooling notes
+
+- **Python, not TypeScript.** Matches `claude-pr-review/`, the only other
+  agent in this repo. `agents/issue-reconciler/.venv` mirrors
+  `claude-pr-review/.venv`; `pip install -e .` makes `issue_reconciler`
+  importable from `tests/`.
+- **`requests` against the GraphQL endpoint directly, not the `gh` CLI.**
+  `claude-pr-review/pr_review/ci/github.py` shells out to `gh api` for
+  everything, but Projects v2 needs a classic PAT (`BOARD_TOKEN`) distinct
+  from the `gh` CLI's own auth, and `client.py`'s retry/backoff/rate-limit
+  logic is far more controllable over a direct HTTP call than over a
+  subprocess. This is a deliberate divergence from the sibling's
+  convention, not an oversight.
+- **Raw JSON schema dicts for structured output, not Pydantic.** Matches
+  `claude-pr-review/pr_review/core/agent.py`'s
+  `output_config={"format": ...}` + manual `json.loads()` pattern exactly,
+  rather than `client.messages.parse()` + a Pydantic model. Also sidesteps a
+  real bug the TS version hit: `zodOutputFormat().parse()` throws on a
+  schema mismatch instead of returning `parsed_output: None`, contradicting
+  its own docs. Doing the JSON parse and shape validation by hand in
+  `matcher/fuzzy.py` makes the retryable case (bad JSON, wrong shape) and
+  the non-retryable case (a real `anthropic.APIError` from `create()`
+  itself) impossible to conflate - there is no ambiguous exception
+  hierarchy to get wrong.
+- **`ThreadPoolExecutor`, not asyncio.** The GitHub/Anthropic clients here
+  are synchronous, and threads match `orchestrator.py`'s I/O-bound fan-out
+  without an async rewrite of every fetcher. Real OS threads mean the
+  shared state a single-threaded TS event loop got for free (leases, the
+  run log, the model-call counter, the circuit breaker) can genuinely race
+  between threads - `orchestrator.py`'s `_RunState` guards all of it behind
+  one lock, with only the network calls themselves running outside it.
 
 ## Policy rules
 
@@ -214,7 +260,7 @@ Rules:
 ## Reliability
 
 - **Lease per issue** with TTL before dispatch, released after write. Stored in
-  `state/leases.ts` (repo-level Actions cache or a committed JSON file).
+  `state/leases.py` (repo-level Actions cache or a committed JSON file).
 - **Idempotency key** `hash(issueNumber + evidence)`. If unchanged since last
   run, skip entirely — no model call, no write, no comment.
 - **Read-then-write tight.** Projects v2 has no compare-and-set, so re-read
@@ -232,8 +278,9 @@ Rules:
 
 ## Workflow
 
-`.github/workflows/issue-reconciler.yml` — thin. Installs deps, calls one
-entrypoint. All logic in TypeScript so it can be tested.
+`.github/workflows/issue-reconciler.yml` — thin. Installs deps from
+`requirements.txt`, calls one entrypoint. All logic in Python so it can be
+tested with pytest.
 
 ```yaml
 on:
@@ -270,8 +317,8 @@ don't queue behind each other.
 Each phase should be independently testable.
 
 **Phase 1 — policy engine (no network).**
-Implement `policy/rules.ts` as pure functions. Unit test against
-`fixtures/issues-snapshot.json`. This is the part that determines whether the
+Implement `policy/rules.py` as pure functions. Unit test against
+`fixtures/issues_snapshot.json`. This is the part that determines whether the
 agent is trustworthy; build it before anything can write.
 
 **Phase 2 — fetchers and spokes.**
@@ -284,9 +331,9 @@ Only called when there is no explicit PR reference. Strict JSON schema on
 output, one repair retry, then treat as no match. Haiku is likely sufficient.
 
 The original plan never specified where the matcher's candidate PRs come
-from - `prs.ts` only returns explicit references, which by definition don't
+from - `prs.py` only returns explicit references, which by definition don't
 exist for an issue that reaches the matcher. Resolved by adding
-`api/fetchers/candidate-prs.ts`: one repo-wide query per run (not per issue)
+`api/fetchers/candidate_prs.py`: one repo-wide query per run (not per issue)
 for open PRs plus PRs merged in the last `FUZZY_CANDIDATE_LOOKBACK_DAYS`
 days, capped at `FUZZY_CANDIDATE_LIMIT` each. The orchestrator fetches this
 pool once and passes it to every issue that needs fuzzy matching.
