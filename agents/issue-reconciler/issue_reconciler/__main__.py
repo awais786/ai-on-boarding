@@ -1,5 +1,5 @@
 """Entrypoint: run orchestrator.run(), then the writer, per issue.
-`python -m issue_reconciler [--dry-run|--no-dry-run]` (default: dry-run on).
+`python -m issue_reconciler [--no-dry-run]` (default: dry-run on).
 State (leases, run log) lives in JSON files next to wherever this runs -
 in Actions that's the repo checkout, committed back by the workflow step
 after this exits (see plan Reliability: "a committed JSON file").
@@ -15,16 +15,15 @@ from pathlib import Path
 import anthropic
 
 from issue_reconciler import orchestrator
-from issue_reconciler.api.client import GitHubClient
-from issue_reconciler.state.leases import load_lease_state, save_lease_state
-from issue_reconciler.state.runlog import load_run_log, save_run_log
-from issue_reconciler.writers.comment import (
+from issue_reconciler.client import GitHubClient
+from issue_reconciler.state import load_lease_state, load_run_log, save_json
+from issue_reconciler.writers import (
     CommentContext,
     build_comment_body,
+    mutate,
     post_comment,
     should_comment,
 )
-from issue_reconciler.writers.status import mutate
 
 STATE_DIR = Path(os.environ.get("RECONCILER_STATE_DIR", "."))
 LEASES_PATH = STATE_DIR / "leases.json"
@@ -63,8 +62,8 @@ def main() -> int:
         if not dry_run:
             mutate(github_client, issue["evidence"]["item_id"], issue["issue_node_id"], decision, issue["evidence"]["current_status"])
 
-    save_lease_state(LEASES_PATH, result["lease_state"])
-    save_run_log(RUNLOG_PATH, result["run_log"])
+    save_json(LEASES_PATH, result["lease_state"])
+    save_json(RUNLOG_PATH, result["run_log"])
 
     print(f"run {run_id}: processed {len(result['processed'])}, failed {len(result['failed'])}, circuit_broken {result['circuit_broken']}")
     return 1 if result["circuit_broken"] else 0

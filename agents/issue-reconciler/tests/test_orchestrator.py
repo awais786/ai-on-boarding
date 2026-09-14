@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import anthropic
+import pytest
 from support import FakeAnthropicClient, make_routed_client
 
 from issue_reconciler import orchestrator
-from issue_reconciler.state.leases import acquire_lease
+from issue_reconciler.state import acquire_lease
 
 NOW = datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -268,3 +269,14 @@ def test_a_failure_rate_above_the_circuit_breaker_threshold_halts_the_rest_of_th
     assert result["circuit_broken"] is True
     assert len(result["failed"]) == 2
     assert len(result["processed"]) == 0
+
+
+def test_validate_board_config_resolves_quietly_when_project_exists():
+    client, _ = make_routed_client([("ValidateProject", {"node": {"id": "PVT_kwHOA4V_f84AGZiK"}})])
+    orchestrator.validate_board_config(client)  # does not raise
+
+
+def test_validate_board_config_fails_loudly_when_project_no_longer_resolves():
+    client, _ = make_routed_client([("ValidateProject", {"node": None})])
+    with pytest.raises(RuntimeError, match="no longer resolves"):
+        orchestrator.validate_board_config(client)

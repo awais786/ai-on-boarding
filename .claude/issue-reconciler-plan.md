@@ -46,8 +46,7 @@ score). Hub-and-spoke at the top, sequential inside.
 3. **Policy is deterministic code.** No model call decides a transition. The
    model's only job is fuzzy matching a PR to an issue when there is no
    explicit reference.
-4. **One writer.** Only `writers/comment.py` (plus a status/close-issue writer
-   built alongside it) mutates anything.
+4. **One writer.** Only `writers.py` mutates anything.
 5. **No silent transitions.** Every status change is preceded by a comment
    stating the evidence. If the comment fails, abort the transition.
 
@@ -76,44 +75,34 @@ implementation (Phase 5, mid-build) for consistency with the rest of this
 repo (Django, the pr-review agent) - see "Language and tooling notes" below
 for the choices that changed along with it.
 
+Flattened after an initial pass split it into `api/fetchers/`, `spokes/`,
+`matcher/`, `policy/`, `writers/`, `state/` subpackages - each held one or
+two small files plus an empty `__init__.py`, which was more ceremony than
+the project's size earned. One file per real concern, all at the top of the
+package, reads easier at a glance and was the point of a later cleanup pass:
+
 ```
 agents/issue-reconciler/
   pyproject.toml
   requirements.txt
   ruff.toml
   issue_reconciler/
+    __main__.py              # entrypoint: python -m issue_reconciler
     config.py                # board IDs, filters, thresholds
     types.py                 # LinkedPR / Evidence / Decision TypedDicts
-    fingerprint.py
-    evidence_hash.py
-    orchestrator.py          # selection, leasing, fan-out, run log
-    api/
-      client.py              # auth, retry, backoff, rate-limit
-      fetchers/
-        board.py             # project items + current status
-        issues.py            # open issues + labels
-        prs.py                # linked PRs via timeline
-        candidate_prs.py     # repo-wide open + recently-merged PRs (see note)
-        repo.py               # openspec/changes/ contents
-        timeline.py           # issue comments (for board_history)
-    spokes/
-      pr_evidence.py
-      openspec_evidence.py
-      board_history.py
-    matcher/
-      fuzzy.py                # the only model call
-    policy/
-      rules.py                # pure functions
-    writers/
-      comment.py              # comment builder; mutation writer alongside it
-    state/
-      leases.py
-      runlog.py
+    hashing.py                # comment fingerprint + evidence idempotency hash
+    client.py                 # GraphQL client: auth, retry, backoff, rate-limit
+    github.py                  # every fetch from GitHub + the two evidence spokes
+    fuzzy.py                    # the only model call
+    rules.py                    # the policy engine, pure functions
+    orchestrator.py             # selection, leasing, fan-out, run log
+    state.py                    # leases + run log (JSON-backed)
+    writers.py                  # the sole write authority: comment + mutations
   tests/
     support.py                # fake transports (no live credentials in tests)
     fixtures/
       issues_snapshot.json
-    test_*.py
+    test_*.py                 # one file per source module, same name
 ```
 
 ## Contracts
@@ -171,7 +160,7 @@ class Decision(TypedDict):
   real bug the TS version hit: `zodOutputFormat().parse()` throws on a
   schema mismatch instead of returning `parsed_output: None`, contradicting
   its own docs. Doing the JSON parse and shape validation by hand in
-  `matcher/fuzzy.py` makes the retryable case (bad JSON, wrong shape) and
+  `fuzzy.py` makes the retryable case (bad JSON, wrong shape) and
   the non-retryable case (a real `anthropic.APIError` from `create()`
   itself) impossible to conflate - there is no ambiguous exception
   hierarchy to get wrong.
@@ -260,7 +249,7 @@ Rules:
 ## Reliability
 
 - **Lease per issue** with TTL before dispatch, released after write. Stored in
-  `state/leases.py` (repo-level Actions cache or a committed JSON file).
+  `state.py` (repo-level Actions cache or a committed JSON file).
 - **Idempotency key** `hash(issueNumber + evidence)`. If unchanged since last
   run, skip entirely — no model call, no write, no comment.
 - **Read-then-write tight.** Projects v2 has no compare-and-set, so re-read
@@ -317,13 +306,13 @@ don't queue behind each other.
 Each phase should be independently testable.
 
 **Phase 1 — policy engine (no network).**
-Implement `policy/rules.py` as pure functions. Unit test against
+Implement `rules.py` as pure functions. Unit test against
 `fixtures/issues_snapshot.json`. This is the part that determines whether the
 agent is trustworthy; build it before anything can write.
 
 **Phase 2 — fetchers and spokes.**
-Build `api/` and `spokes/` to produce the `Evidence` shape the rules already
-expect. Single GraphQL query per issue batch, not per issue. Normalize before
+Build `github.py` to produce the `Evidence` shape the rules already expect.
+Single GraphQL query per issue batch, not per issue. Normalize before
 returning — drop URLs, avatars, node IDs; truncate bodies.
 
 **Phase 3 — fuzzy matcher.**
@@ -331,12 +320,13 @@ Only called when there is no explicit PR reference. Strict JSON schema on
 output, one repair retry, then treat as no match. Haiku is likely sufficient.
 
 The original plan never specified where the matcher's candidate PRs come
-from - `prs.py` only returns explicit references, which by definition don't
-exist for an issue that reaches the matcher. Resolved by adding
-`api/fetchers/candidate_prs.py`: one repo-wide query per run (not per issue)
-for open PRs plus PRs merged in the last `FUZZY_CANDIDATE_LOOKBACK_DAYS`
-days, capped at `FUZZY_CANDIDATE_LIMIT` each. The orchestrator fetches this
-pool once and passes it to every issue that needs fuzzy matching.
+from - the linked-PR fetcher only returns explicit references, which by
+definition don't exist for an issue that reaches the matcher. Resolved by
+adding a candidate-PR fetch to `github.py`: one repo-wide query per run (not
+per issue) for open PRs plus PRs merged in the last
+`FUZZY_CANDIDATE_LOOKBACK_DAYS` days, capped at `FUZZY_CANDIDATE_LIMIT` each.
+The orchestrator fetches this pool once and passes it to every issue that
+needs fuzzy matching.
 
 **Phase 4 — orchestrator.**
 Selection filters, leasing, bounded concurrency, run log.

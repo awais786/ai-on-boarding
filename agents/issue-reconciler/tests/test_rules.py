@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from issue_reconciler.policy.rules import decide_action
+from issue_reconciler.rules import decide_action
 
 FIXTURES_PATH = Path(__file__).parent / "fixtures" / "issues_snapshot.json"
 SCENARIOS = json.loads(FIXTURES_PATH.read_text())

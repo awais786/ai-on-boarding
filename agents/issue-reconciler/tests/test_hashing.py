@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from issue_reconciler.evidence_hash import hash_evidence
+from issue_reconciler.hashing import hash_evidence
 
 BASE = {
     "issue_number": 1,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from support import FakeResponse
 
-from issue_reconciler.api.client import GitHubClient, GraphQLError
+from issue_reconciler.client import GitHubClient, GraphQLError
 
 
 def test_returns_data_on_a_successful_response():

@@ -1,6 +1,6 @@
 """The hub: selects in-scope issues, fans out read-only evidence gathering,
 runs the policy engine, and returns planned decisions. It never mutates
-GitHub - see plan hard constraint #4, "one writer" (writers/comment.py).
+GitHub - see plan hard constraint #4, "one writer" (writers.py).
 This module is that boundary: everything before it is read-only, everything
 after it is the sole write path.
 
@@ -20,10 +20,7 @@ from typing import TypedDict
 
 import anthropic
 
-from issue_reconciler.api.client import GitHubClient
-from issue_reconciler.api.fetchers.board import fetch_board_items
-from issue_reconciler.api.fetchers.candidate_prs import CandidatePR, fetch_candidate_prs
-from issue_reconciler.api.fetchers.issues import fetch_open_issues
+from issue_reconciler.client import GitHubClient
 from issue_reconciler.config import (
     IGNORE_LABEL,
     LEASE_TTL_SECONDS,
@@ -31,20 +28,24 @@ from issue_reconciler.config import (
     MODEL_CALL_CAP_PER_RUN,
     PROJECT_ID,
 )
-from issue_reconciler.evidence_hash import hash_evidence
-from issue_reconciler.matcher.fuzzy import match_issue_to_prs
-from issue_reconciler.policy.rules import (
-    DEFAULT_FUZZY_CONFIDENCE_THRESHOLD,
-    decide_action,
+from issue_reconciler.fuzzy import match_issue_to_prs
+from issue_reconciler.github import (
+    CandidatePR,
+    fetch_board_items,
+    fetch_candidate_prs,
+    fetch_linked_prs,
+    fetch_open_issues,
+    gather_board_history,
+    gather_openspec_proposals,
 )
-from issue_reconciler.spokes.board_history import gather_board_history
-from issue_reconciler.spokes.openspec_evidence import gather_openspec_proposals
-from issue_reconciler.spokes.pr_evidence import gather_pr_links
-from issue_reconciler.state.leases import LeaseState, acquire_lease, release_lease
-from issue_reconciler.state.runlog import (
+from issue_reconciler.hashing import hash_evidence
+from issue_reconciler.rules import DEFAULT_FUZZY_CONFIDENCE_THRESHOLD, decide_action
+from issue_reconciler.state import (
+    LeaseState,
     RunLogEntry,
-    append_entry,
+    acquire_lease,
     find_latest_for_issue,
+    release_lease,
 )
 from issue_reconciler.types import Decision, Evidence, LinkedPR
 
@@ -147,8 +148,8 @@ class _RunState:
 
     def record_decision(self, run_id: str, issue_number: int, decision: Decision, evidence_hash: str, now: datetime) -> None:
         with self._lock:
-            self.run_log = append_entry(
-                self.run_log,
+            self.run_log = [
+                *self.run_log,
                 {
                     "run_id": run_id,
                     "issue_number": issue_number,
@@ -157,7 +158,7 @@ class _RunState:
                     "evidence_hash": evidence_hash,
                     "timestamp": now.isoformat(),
                 },
-            )
+            ]
 
     def add_processed(self, item: ProcessedIssue) -> None:
         with self._lock:
@@ -192,7 +193,7 @@ def run(
     in_scope = [item for item in board_items if item["issue_number"] in issues_by_number]
     issue_numbers = [item["issue_number"] for item in in_scope]
 
-    linked_prs_by_issue = gather_pr_links(github_client, issue_numbers)
+    linked_prs_by_issue = fetch_linked_prs(github_client, issue_numbers)
     board_history_by_issue = gather_board_history(github_client, issue_numbers, now)
     openspec_by_issue = gather_openspec_proposals(github_client)
     candidate_pool = fetch_candidate_prs(github_client, now)

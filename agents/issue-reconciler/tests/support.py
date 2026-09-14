@@ -1,13 +1,12 @@
-"""Test-only helpers: fake GitHub/Anthropic transports so fetchers, spokes,
-the matcher, and the orchestrator can be unit tested without live
-credentials or network access.
+"""Test-only helpers: fake GitHub/Anthropic transports so github.py, fuzzy.py,
+and orchestrator.py can be unit tested without live credentials.
 """
 from __future__ import annotations
 
 import json
 from typing import Any, Callable
 
-from issue_reconciler.api.client import GitHubClient
+from issue_reconciler.client import GitHubClient
 
 
 class FakeResponse:

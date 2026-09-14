@@ -4,7 +4,7 @@ import anthropic
 import pytest
 from support import FakeAnthropicClient
 
-from issue_reconciler.matcher.fuzzy import match_issue_to_prs
+from issue_reconciler.fuzzy import match_issue_to_prs
 
 ISSUE = {"number": 9, "title": "Add retry logic to the API client"}
 CANDIDATES = [
