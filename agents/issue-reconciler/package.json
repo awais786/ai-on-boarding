@@ -8,5 +8,9 @@
   },
   "engines": {
     "node": ">=23"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
+    "zod": "^4.6.5"
   }
 }
