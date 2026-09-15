@@ -2,7 +2,8 @@ name: Issue Reconciler
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    # 00:00 PKT daily (Pakistan is UTC+5, no DST -> 19:00 UTC)
+    - cron: '0 19 * * *'
   workflow_dispatch:
     inputs:
       dry_run:

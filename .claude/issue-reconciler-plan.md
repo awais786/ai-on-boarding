@@ -237,8 +237,8 @@ running under a PAT.
 
 Rules:
 
-- `noop` never comments. A 30-minute cron must not turn every issue into a wall
-  of "still nothing to report".
+- `noop` never comments. A recurring cron run must not turn every issue into a
+  wall of "still nothing to report".
 - `flag` always comments — a human has to act, so the comment is the point.
 - One comment per transition, not per run. Check the idempotency key before
   commenting, not just before writing.
@@ -274,7 +274,8 @@ tested with pytest.
 ```yaml
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    # 00:00 PKT daily (Pakistan is UTC+5, no DST -> 19:00 UTC)
+    - cron: '0 19 * * *'
   pull_request:
     types: [closed]
   workflow_dispatch:
@@ -295,8 +296,8 @@ concurrency:
 Board writes use `secrets.BOARD_TOKEN`, not `GITHUB_TOKEN`.
 
 The `pull_request: closed` path processes only issues referenced by that PR,
-not the whole board — it exists so a merge reflects in seconds instead of up to
-30 minutes.
+not the whole board — it exists so a merge reflects in seconds instead of
+waiting for the next daily cron run.
 
 Use a `concurrency` group distinct from the existing PR review agent so the two
 don't queue behind each other.
