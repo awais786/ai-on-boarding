@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from support import make_routed_client
 
 from issue_reconciler.hashing import parse_fingerprint
-from issue_reconciler.writers import (
+from issue_reconciler.io.writers import (
     CommentContext,
     build_comment_body,
     mutate,

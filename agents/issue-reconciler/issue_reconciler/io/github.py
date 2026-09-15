@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import TypedDict
 
-from issue_reconciler.client import GitHubClient
+from issue_reconciler.io.client import GitHubClient
 from issue_reconciler.config import (
     MAX_TEXT_LENGTH,
     OPENSPEC_ARCHIVE_DIR,

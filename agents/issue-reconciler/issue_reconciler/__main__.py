@@ -15,10 +15,10 @@ from pathlib import Path
 import anthropic
 
 from issue_reconciler import orchestrator
-from issue_reconciler.client import GitHubClient
+from issue_reconciler.io.client import GitHubClient
 from issue_reconciler.slack import build_summary, post_summary
 from issue_reconciler.state import load_lease_state, load_run_log, save_json
-from issue_reconciler.writers import (
+from issue_reconciler.io.writers import (
     CommentContext,
     build_comment_body,
     mutate,

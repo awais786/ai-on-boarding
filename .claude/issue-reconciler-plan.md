@@ -43,12 +43,78 @@ score). Hub-and-spoke at the top, sequential inside.
    bad verdict but never a bad action.
 2. **Spokes return evidence, not decisions.** A spoke reports "PR #88
    references this issue, merged, confidence 0.9". It never says "close this".
-3. **Policy is deterministic code.** No model call decides a transition. The
-   model's only job is fuzzy matching a PR to an issue when there is no
-   explicit reference.
+3. **Policy is deterministic code.** No model call decides a transition
+   directly. The four reasoning spokes (below) each produce a structured
+   verdict over evidence they're handed; `rules.py` is still the only place
+   that turns verdicts into a Done/In Progress/Flag/Noop decision.
 4. **One writer.** Only `writers.py` mutates anything.
 5. **No silent transitions.** Every status change is preceded by a comment
    stating the evidence. If the comment fails, abort the transition.
+
+## Fuzzy PR matching — removed
+
+An earlier draft added a model call to guess whether an unlinked PR resolves
+an issue, by title similarity. Dropped: the team's actual convention is that
+every PR description must reference an issue number, so an "unlinked PR"
+that really resolves something shouldn't exist. The real gap this was
+covering for was narrower - GitHub only treats a reference as
+`willCloseTarget: true` when the PR uses a specific closing keyword (Closes,
+Fixes, Resolves), so a PR that mentions `#47` without one of those words was
+being silently ignored. Fixed deterministically instead: `fetch_linked_prs`
+(`github.py`) now accepts any cross-reference to the issue, not only
+closing-keyword ones. Still `match_source: "explicit"`, still zero model
+calls. Tradeoff: a PR that merely mentions `#47` in passing (not actually
+resolving it) now also counts as evidence - accepted, since the convention
+makes that rare.
+
+## AI reasoning spokes
+
+Four spokes that each answer one judgment call a lookup can't, run in
+parallel per issue alongside the existing deterministic ones, all feeding
+into per-issue synthesis:
+
+1. **Completion check** - do this issue's linked PR(s) together fully
+   resolve it, or only partially?
+2. **Activity check** - is an open linked PR still active, blocked, or
+   abandoned (commit/review recency)?
+3. **Reference validation** - does the PR's `#N` reference actually match
+   this issue's intent, or is it a wrong/copy-pasted number?
+4. **Stale/superseded check** - has the linked PR been superseded by later
+   work that solves the same problem differently?
+
+Each is one model call producing a strict-schema verdict (same shape as the
+former fuzzy matcher: JSON schema out, no tool use, no API access from the
+model). Cost is accepted - no per-run cap needed the way the fuzzy matcher
+had one, since these only run for issues that already have a linked PR to
+reason about, not the whole board.
+
+**Synthesis**, per issue: merges the existing deterministic evidence *and*
+the four verdicts into one `Evidence`-like record, then hands it to
+`rules.py`. Where a verdict actively disagrees with the raw evidence (e.g.
+completion check says "PR merged but issue not fully resolved" against a
+merged linked PR), synthesis routes to `flag` rather than letting `rules.py`
+choose a side no human has confirmed - the model can only ever demote a
+transition to human review, never upgrade one.
+
+## Run summary and Slack
+
+After every issue in the run is synthesized and written, the hub rolls all
+of that run's decisions + rationale into one summary and posts it once to a
+Slack channel (`SLACK_WEBHOOK_URL` secret, plain `requests.post`). `noop`
+issues are omitted from the summary the same way they're omitted from
+comments - the summary reports what changed, not the whole board.
+
+## Concurrency fix
+
+The evidence-gathering calls in `orchestrator.py` (`fetch_linked_prs`,
+`gather_board_history`, `gather_openspec_proposals`, and now the four
+reasoning spokes) currently run as sequential blocking calls, not the
+"spokes gather evidence in parallel" the architecture section promises above
+- each one used to be a single independent Python call, so it didn't matter
+until reasoning spokes made each one slow enough for the gap to be real.
+Fixed alongside adding the reasoning spokes: a thread pool per issue's
+evidence phase, same pattern `orchestrator.py` already uses for concurrency
+across issues.
 
 ## Verified environment
 
@@ -75,29 +141,35 @@ implementation (Phase 5, mid-build) for consistency with the rest of this
 repo (Django, the pr-review agent) - see "Language and tooling notes" below
 for the choices that changed along with it.
 
-Flattened after an initial pass split it into `api/fetchers/`, `spokes/`,
-`matcher/`, `policy/`, `writers/`, `state/` subpackages - each held one or
-two small files plus an empty `__init__.py`, which was more ceremony than
-the project's size earned. One file per real concern, all at the top of the
-package, reads easier at a glance and was the point of a later cleanup pass:
+Went through two shapes after the original per-concern subpackage split
+(`api/fetchers/`, `spokes/`, `matcher/`, `policy/`, `writers/`, `state/` -
+each holding one or two small files plus an empty `__init__.py`, more
+ceremony than the project's size earned): first flattened to one file per
+concern at the package root, then partly re-nested into two subpackages
+once the root grew past a dozen files - `io/` for everything that talks to
+GitHub, `ai/` for the model-calling layer. No `ruff.toml` - linting isn't
+run on this project.
 
 ```
 agents/issue-reconciler/
   pyproject.toml
   requirements.txt
-  ruff.toml
   issue_reconciler/
     __main__.py              # entrypoint: python -m issue_reconciler
     config.py                # board IDs, filters, thresholds
     types.py                 # LinkedPR / Evidence / Decision TypedDicts
-    hashing.py                # comment fingerprint + evidence idempotency hash
-    client.py                 # GraphQL client: auth, retry, backoff, rate-limit
-    github.py                  # every fetch from GitHub + the two evidence spokes
-    fuzzy.py                    # the only model call
-    rules.py                    # the policy engine, pure functions
-    orchestrator.py             # selection, leasing, fan-out, run log
-    state.py                    # leases + run log (JSON-backed)
-    writers.py                  # the sole write authority: comment + mutations
+    hashing.py               # comment fingerprint + evidence idempotency hash
+    rules.py                 # the policy engine, pure functions
+    orchestrator.py          # selection, leasing, fan-out, run log
+    state.py                 # leases + run log (JSON-backed)
+    slack.py                 # end-of-run summary posted once, not per issue
+    io/                      # everything that talks to GitHub
+      client.py              # GraphQL client: auth, retry, backoff, rate-limit
+      github.py              # every fetch from GitHub + the two evidence spokes
+      writers.py             # the sole write authority: comment + mutations
+    ai/                      # everything that talks to the model
+      reasoning.py           # the four reasoning spokes (completion, activity,
+                              # reference validation, stale/superseded)
   tests/
     support.py                # fake transports (no live credentials in tests)
     fixtures/

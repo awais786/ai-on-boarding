@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import anthropic
 import pytest
 
-from issue_reconciler.reasoning import activity_check, completion_check, reference_validation, stale_or_superseded_check
+from issue_reconciler.ai.reasoning import activity_check, completion_check, reference_validation, stale_or_superseded_check
 from support import FakeAnthropicClient
 
 NOW = datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc)

@@ -19,9 +19,9 @@ from typing import TypedDict
 
 import anthropic
 
-from issue_reconciler.client import GitHubClient
+from issue_reconciler.io.client import GitHubClient
 from issue_reconciler.config import CIRCUIT_BREAKER_ERROR_RATE, IGNORE_LABEL, LEASE_TTL_SECONDS, MAX_CONCURRENCY, PROJECT_ID
-from issue_reconciler.github import (
+from issue_reconciler.io.github import (
     fetch_board_items,
     fetch_linked_prs,
     fetch_open_issues,
@@ -29,7 +29,7 @@ from issue_reconciler.github import (
     gather_openspec_proposals,
 )
 from issue_reconciler.hashing import hash_evidence
-from issue_reconciler.reasoning import activity_check, completion_check, reference_validation, stale_or_superseded_check
+from issue_reconciler.ai.reasoning import activity_check, completion_check, reference_validation, stale_or_superseded_check
 from issue_reconciler.rules import apply_verdicts, decide_action
 from issue_reconciler.state import (
     LeaseState,
