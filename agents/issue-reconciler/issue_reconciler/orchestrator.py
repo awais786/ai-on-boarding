@@ -17,6 +17,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import TypedDict
 
+import anthropic
+
 from issue_reconciler.client import GitHubClient
 from issue_reconciler.config import CIRCUIT_BREAKER_ERROR_RATE, IGNORE_LABEL, LEASE_TTL_SECONDS, MAX_CONCURRENCY, PROJECT_ID
 from issue_reconciler.github import (
@@ -27,7 +29,8 @@ from issue_reconciler.github import (
     gather_openspec_proposals,
 )
 from issue_reconciler.hashing import hash_evidence
-from issue_reconciler.rules import decide_action
+from issue_reconciler.reasoning import activity_check, completion_check, reference_validation, stale_or_superseded_check
+from issue_reconciler.rules import apply_verdicts, decide_action
 from issue_reconciler.state import (
     LeaseState,
     RunLogEntry,
@@ -35,7 +38,7 @@ from issue_reconciler.state import (
     find_latest_for_issue,
     release_lease,
 )
-from issue_reconciler.types import Decision, Evidence
+from issue_reconciler.types import Decision, Evidence, LinkedPR
 
 
 class ProcessedIssue(TypedDict):
@@ -58,6 +61,32 @@ class OrchestratorResult(TypedDict):
     lease_state: LeaseState
     run_log: list[RunLogEntry]
     circuit_broken: bool
+
+
+def _gather_verdicts(
+    anthropic_client: anthropic.Anthropic, issue_title: str, linked_prs: list[LinkedPR], now: datetime, provisional_action: str
+) -> dict:
+    """Runs only the reasoning spokes relevant to the provisional decision,
+    in parallel. completion/stale help confirm a set_done; activity helps
+    confirm a set_in_progress; reference always runs against whichever PR
+    the decision actually hinges on.
+    """
+    merged_prs = [pr for pr in linked_prs if pr["merged"]]
+    open_prs = [pr for pr in linked_prs if pr["state"] == "OPEN"]
+    primary_pr = merged_prs[0] if provisional_action == "set_done" and merged_prs else (open_prs[0] if open_prs else None)
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {}
+        if provisional_action == "set_done" and merged_prs:
+            futures["completion"] = executor.submit(completion_check, anthropic_client, issue_title, linked_prs)
+        if primary_pr is not None and primary_pr in open_prs:
+            futures["activity"] = executor.submit(activity_check, anthropic_client, issue_title, primary_pr, now)
+        if primary_pr is not None:
+            futures["reference"] = executor.submit(reference_validation, anthropic_client, issue_title, primary_pr)
+        if len(linked_prs) >= 2:
+            futures["stale"] = executor.submit(stale_or_superseded_check, anthropic_client, issue_title, linked_prs)
+
+        return {key: future.result() for key, future in futures.items()}
 
 
 def validate_board_config(client: GitHubClient) -> None:
@@ -133,6 +162,7 @@ class _RunState:
 def run(
     *,
     github_client: GitHubClient,
+    anthropic_client: anthropic.Anthropic,
     run_id: str,
     lease_state: LeaseState,
     run_log: list[RunLogEntry],
@@ -213,6 +243,9 @@ def run(
                 return
 
             decision = decide_action(evidence, now=now)
+            if decision["action"] in ("set_done", "set_in_progress") and linked_prs:
+                verdicts = _gather_verdicts(anthropic_client, issue_meta["title"], linked_prs, now, decision["action"])
+                decision = apply_verdicts(decision, verdicts)
 
             state.record_decision(run_id, issue_number, decision, evidence_hash, now)
             state.add_processed(

@@ -23,6 +23,7 @@ def test_dry_run_comments_but_does_not_mutate(monkeypatch, tmp_path):
     monkeypatch.setattr(main_mod, "LEASES_PATH", tmp_path / "leases.json")
     monkeypatch.setattr(main_mod, "RUNLOG_PATH", tmp_path / "runlog.json")
     monkeypatch.setattr(main_mod, "GitHubClient", lambda token: "github-client")
+    monkeypatch.setattr(main_mod.anthropic, "Anthropic", lambda: "anthropic-client")
     monkeypatch.setattr(main_mod.orchestrator, "validate_board_config", lambda client: None)
     monkeypatch.setattr(main_mod.orchestrator, "run", lambda **kwargs: _fake_result())
 
@@ -45,6 +46,7 @@ def test_no_dry_run_also_mutates(monkeypatch, tmp_path):
     monkeypatch.setattr(main_mod, "LEASES_PATH", tmp_path / "leases.json")
     monkeypatch.setattr(main_mod, "RUNLOG_PATH", tmp_path / "runlog.json")
     monkeypatch.setattr(main_mod, "GitHubClient", lambda token: "github-client")
+    monkeypatch.setattr(main_mod.anthropic, "Anthropic", lambda: "anthropic-client")
     monkeypatch.setattr(main_mod.orchestrator, "validate_board_config", lambda client: None)
     monkeypatch.setattr(main_mod.orchestrator, "run", lambda **kwargs: _fake_result())
     monkeypatch.setattr(main_mod, "post_comment", lambda *a, **k: None)
@@ -55,3 +57,48 @@ def test_no_dry_run_also_mutates(monkeypatch, tmp_path):
     main_mod.main()
 
     assert mutated["called"] is True
+
+
+def test_posts_slack_summary_when_webhook_configured_and_something_changed(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOARD_TOKEN", "t")
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/x")
+    monkeypatch.setattr(main_mod, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(main_mod, "LEASES_PATH", tmp_path / "leases.json")
+    monkeypatch.setattr(main_mod, "RUNLOG_PATH", tmp_path / "runlog.json")
+    monkeypatch.setattr(main_mod, "GitHubClient", lambda token: "github-client")
+    monkeypatch.setattr(main_mod.anthropic, "Anthropic", lambda: "anthropic-client")
+    monkeypatch.setattr(main_mod.orchestrator, "validate_board_config", lambda client: None)
+    monkeypatch.setattr(main_mod.orchestrator, "run", lambda **kwargs: _fake_result())
+    monkeypatch.setattr(main_mod, "post_comment", lambda *a, **k: None)
+    monkeypatch.setattr(main_mod, "mutate", lambda *a, **k: None)
+
+    posted = {}
+    monkeypatch.setattr(main_mod, "post_summary", lambda url, text: posted.update(url=url, text=text))
+
+    monkeypatch.setattr(sys, "argv", ["main"])
+    main_mod.main()
+
+    assert posted["url"] == "https://hooks.slack.test/x"
+    assert "#1" in posted["text"]
+
+
+def test_no_slack_post_without_a_webhook_url(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOARD_TOKEN", "t")
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    monkeypatch.setattr(main_mod, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(main_mod, "LEASES_PATH", tmp_path / "leases.json")
+    monkeypatch.setattr(main_mod, "RUNLOG_PATH", tmp_path / "runlog.json")
+    monkeypatch.setattr(main_mod, "GitHubClient", lambda token: "github-client")
+    monkeypatch.setattr(main_mod.anthropic, "Anthropic", lambda: "anthropic-client")
+    monkeypatch.setattr(main_mod.orchestrator, "validate_board_config", lambda client: None)
+    monkeypatch.setattr(main_mod.orchestrator, "run", lambda **kwargs: _fake_result())
+    monkeypatch.setattr(main_mod, "post_comment", lambda *a, **k: None)
+    monkeypatch.setattr(main_mod, "mutate", lambda *a, **k: None)
+
+    called = {"n": 0}
+    monkeypatch.setattr(main_mod, "post_summary", lambda *a, **k: called.__setitem__("n", called["n"] + 1))
+
+    monkeypatch.setattr(sys, "argv", ["main"])
+    main_mod.main()
+
+    assert called["n"] == 0

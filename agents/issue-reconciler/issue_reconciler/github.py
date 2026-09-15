@@ -121,7 +121,7 @@ def fetch_open_issues(client: GitHubClient) -> list[OpenIssue]:
 
 # ---- linked PRs (explicit references only) -----------------------------
 
-_PR_FIELDS = "__typename ... on PullRequest { number title state merged mergedAt isDraft headRefName }"
+_PR_FIELDS = "__typename ... on PullRequest { number title state merged mergedAt isDraft headRefName updatedAt reviewDecision }"
 
 
 def _prs_query(issue_numbers: list[int]) -> str:
@@ -144,7 +144,8 @@ def _to_linked_pr(pr: dict) -> LinkedPR:
     return {
         "number": pr["number"], "title": pr.get("title", ""), "state": pr.get("state", "OPEN"),
         "merged": pr.get("merged", False), "merged_at": pr.get("mergedAt"), "is_draft": pr.get("isDraft", False),
-        "head_ref_name": pr.get("headRefName", ""),
+        "head_ref_name": pr.get("headRefName", ""), "updated_at": pr.get("updatedAt"),
+        "review_decision": pr.get("reviewDecision"),
     }
 
 

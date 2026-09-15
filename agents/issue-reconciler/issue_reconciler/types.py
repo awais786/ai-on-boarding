@@ -16,6 +16,8 @@ class LinkedPR(TypedDict):
     merged_at: str | None
     is_draft: bool
     head_ref_name: str
+    updated_at: str | None  # last commit/push activity - feeds the activity-check spoke
+    review_decision: str | None  # APPROVED / CHANGES_REQUESTED / REVIEW_REQUIRED / None
 
 
 class Evidence(TypedDict):

@@ -3,13 +3,23 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from support import make_routed_client
+from support import FakeAnthropicClient, make_routed_client
 
 from issue_reconciler import orchestrator
 from issue_reconciler.orchestrator import _RunState
 from issue_reconciler.state import acquire_lease
 
 NOW = datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _ok_anthropic_client():
+    """A verdict shaped to satisfy every reasoning spoke's schema at once -
+    tests that aren't about verdict downgrading use this so a decision
+    passes through apply_verdicts unchanged.
+    """
+    return FakeAnthropicClient(
+        lambda _: {"fully_resolved": True, "matches": True, "superseded": False, "status": "active", "reasoning": "ok"}
+    )
 
 
 def base_routes(**overrides):
@@ -82,7 +92,7 @@ def test_happy_path_explicit_merged_pr_resolves_to_set_done_and_the_lease_is_rel
         )
     )
 
-    result = orchestrator.run(github_client=client, run_id="run-1", lease_state={}, run_log=[], now=NOW)
+    result = orchestrator.run(github_client=client, anthropic_client=_ok_anthropic_client(), run_id="run-1", lease_state={}, run_log=[], now=NOW)
 
     assert len(result["processed"]) == 1
     assert result["processed"][0]["decision"] == {"action": "set_done", "reason": "PR merged, none open"}
@@ -100,7 +110,7 @@ def test_an_already_leased_issue_is_skipped_and_its_lease_is_left_untouched():
     )
     pre_leased = acquire_lease({}, 5, 5 * 60, NOW)
 
-    result = orchestrator.run(github_client=client, run_id="run-1", lease_state=pre_leased, run_log=[], now=NOW)
+    result = orchestrator.run(github_client=client, anthropic_client=_ok_anthropic_client(), run_id="run-1", lease_state=pre_leased, run_log=[], now=NOW)
 
     assert result["processed"][0]["skipped"] == "leased"
     assert result["lease_state"] == pre_leased
@@ -115,11 +125,11 @@ def test_unchanged_evidence_since_the_last_run_is_skipped():
     )
 
     client1, _ = make_routed_client(routes)
-    first = orchestrator.run(github_client=client1, run_id="run-1", lease_state={}, run_log=[], now=NOW)
+    first = orchestrator.run(github_client=client1, anthropic_client=_ok_anthropic_client(), run_id="run-1", lease_state={}, run_log=[], now=NOW)
 
     client2, _ = make_routed_client(routes)
     second = orchestrator.run(
-        github_client=client2, run_id="run-2", lease_state={}, run_log=first["run_log"], now=NOW + timedelta(minutes=1)
+        github_client=client2, anthropic_client=_ok_anthropic_client(), run_id="run-2", lease_state={}, run_log=first["run_log"], now=NOW + timedelta(minutes=1)
     )
 
     assert second["processed"][0]["skipped"] == "unchanged-evidence"
@@ -135,7 +145,7 @@ def test_an_ignored_issue_is_a_noop():
         )
     )
 
-    result = orchestrator.run(github_client=client, run_id="run-1", lease_state={}, run_log=[], now=NOW)
+    result = orchestrator.run(github_client=client, anthropic_client=_ok_anthropic_client(), run_id="run-1", lease_state={}, run_log=[], now=NOW)
 
     assert result["processed"][0]["decision"] == {"action": "noop", "reason": "ignore label"}
 
@@ -148,7 +158,7 @@ def test_a_board_item_whose_issue_is_not_open_is_excluded_from_processing():
         )
     )
 
-    result = orchestrator.run(github_client=client, run_id="run-1", lease_state={}, run_log=[], now=NOW)
+    result = orchestrator.run(github_client=client, anthropic_client=_ok_anthropic_client(), run_id="run-1", lease_state={}, run_log=[], now=NOW)
 
     assert result["processed"] == []
 
@@ -170,3 +180,33 @@ def test_validate_board_config_fails_loudly_when_project_no_longer_resolves():
     client, _ = make_routed_client([("ValidateProject", {"node": None})])
     with pytest.raises(RuntimeError, match="no longer resolves"):
         orchestrator.validate_board_config(client)
+
+
+def test_a_completion_verdict_can_downgrade_set_done_to_flag():
+    client, _ = make_routed_client(
+        base_routes(
+            BoardItems=board_with_one_item("PVTI_5", 5, "In Progress"),
+            OpenIssues=open_issues_response([{"number": 5, "title": "Fix bug"}]),
+            LinkedPRs={"repository": {"issue_0": {"timelineItems": {"nodes": [{"__typename": "ConnectedEvent", "subject": MERGED_PR_FIELDS}]}}}},
+        )
+    )
+    anthropic_client = FakeAnthropicClient(lambda _: {"fully_resolved": False, "matches": True, "reasoning": "only half the cases"})
+
+    result = orchestrator.run(github_client=client, anthropic_client=anthropic_client, run_id="run-1", lease_state={}, run_log=[], now=NOW)
+
+    assert result["processed"][0]["decision"]["action"] == "flag"
+
+
+def test_reasoning_spokes_are_not_called_without_a_linked_pr():
+    client, _ = make_routed_client(
+        base_routes(
+            BoardItems=board_with_one_item("PVTI_5", 5, "Todo"),
+            OpenIssues=open_issues_response([{"number": 5, "title": "Fix bug"}]),
+        )
+    )
+    anthropic_client = _ok_anthropic_client()
+
+    result = orchestrator.run(github_client=client, anthropic_client=anthropic_client, run_id="run-1", lease_state={}, run_log=[], now=NOW)
+
+    assert result["processed"][0]["decision"] == {"action": "noop", "reason": "no evidence"}
+    assert anthropic_client.messages.call_count == 0

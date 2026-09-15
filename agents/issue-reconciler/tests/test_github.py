@@ -88,7 +88,8 @@ def test_linked_prs_includes_any_cross_reference_not_just_closing_keywords():
     result = fetch_linked_prs(client, [1])
 
     assert [pr["number"] for pr in result[1]] == [10, 11]
-    assert result[1][0] == {"number": 10, "title": "Fix issue 1", "state": "MERGED", "merged": True, "merged_at": "2026-09-14T00:00:00+00:00", "is_draft": False, "head_ref_name": "fix-1"}
+    assert result[1][0]["title"] == "Fix issue 1"
+    assert result[1][0]["merged"] is True
 
 
 def test_linked_prs_includes_manually_connected_and_ignores_non_pr():

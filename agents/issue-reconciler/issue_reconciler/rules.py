@@ -67,3 +67,31 @@ def decide_action(evidence: Evidence, *, now: datetime | None = None) -> Decisio
 
     # 8. No evidence of any work in flight.
     return {"action": "noop", "reason": "no evidence"}
+
+
+def apply_verdicts(decision: Decision, verdicts: dict) -> Decision:
+    """Post-processes decide_action()'s output against the four AI reasoning
+    spokes. A verdict can only ever demote set_done/set_in_progress to flag
+    - never confirm or upgrade a decision - so a spoke returning None ("no
+    opinion", e.g. it wasn't run or its response was unusable) always means
+    "no change here", never "assume the worst".
+    """
+    reference = verdicts.get("reference")
+    if reference is not None and not reference["matches"]:
+        return {"action": "flag", "reason": "PR reference does not appear to match this issue"}
+
+    if decision["action"] == "set_done":
+        stale = verdicts.get("stale")
+        if stale is not None and stale["superseded"]:
+            return {"action": "flag", "reason": "linked PR appears superseded by later work"}
+
+        completion = verdicts.get("completion")
+        if completion is not None and not completion["fully_resolved"]:
+            return {"action": "flag", "reason": "PR merged but issue not fully resolved per completion check"}
+
+    elif decision["action"] == "set_in_progress":
+        activity = verdicts.get("activity")
+        if activity is not None and activity["status"] == "abandoned":
+            return {"action": "flag", "reason": "linked PR appears abandoned"}
+
+    return decision
