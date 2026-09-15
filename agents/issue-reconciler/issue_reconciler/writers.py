@@ -18,7 +18,7 @@ from issue_reconciler.config import (
     STATUS_OPTIONS,
 )
 from issue_reconciler.hashing import build_fingerprint
-from issue_reconciler.types import Decision, Evidence, LinkedPR
+from issue_reconciler.types import Decision, Evidence
 
 _ADD_COMMENT = "mutation AddComment($subjectId: ID!, $body: String!) { addComment(input: { subjectId: $subjectId, body: $body }) { commentEdge { node { id } } } }"
 _SET_STATUS = """
@@ -45,14 +45,6 @@ class CommentContext:
     dry_run: bool
 
 
-def _describe_pr(pr: LinkedPR) -> str:
-    if pr["match_source"] == "explicit":
-        match = "closing reference in PR body"
-    else:
-        match = f"title similarity (confidence {pr['confidence']:.2f}). No explicit reference found"
-    return f"Matched via: {match}."
-
-
 def _evidence_line(decision: Decision, evidence: Evidence) -> str:
     merged = next((pr for pr in evidence["linked_prs"] if pr["merged"]), None)
     open_pr = next((pr for pr in evidence["linked_prs"] if pr["state"] == "OPEN"), None)
@@ -60,20 +52,17 @@ def _evidence_line(decision: Decision, evidence: Evidence) -> str:
 
     if action == "set_done":
         date = merged["merged_at"][:10] if merged["merged_at"] else "unknown date"
-        return f"Done — PR #{merged['number']} merged {date}.\n{_describe_pr(merged)}"
+        return f"Done — PR #{merged['number']} merged {date}."
 
     if action == "set_in_progress":
         if open_pr:
-            return f"In progress — PR #{open_pr['number']} open.\n{_describe_pr(open_pr)}"
+            return f"In progress — PR #{open_pr['number']} open."
         return f"In progress — OpenSpec proposal `{evidence['open_spec_proposals'][0]}` in flight. No PR yet."
 
     if action == "flag":
         lines = [f"Needs a human — {decision['reason']}."]
         if evidence["linked_prs"]:
-            parts = []
-            for pr in evidence["linked_prs"]:
-                extra = f", confidence {pr['confidence']:.2f}" if pr["match_source"] == "fuzzy" else ""
-                parts.append(f"#{pr['number']} ({pr['state']}{extra})")
+            parts = [f"#{pr['number']} ({pr['state']})" for pr in evidence["linked_prs"]]
             lines.append(f"Linked PRs: {', '.join(parts)}.")
         lines.append("If this is wrong, add `agent:ignore` and reopen.")
         return "\n".join(lines)

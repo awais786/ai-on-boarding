@@ -5,11 +5,10 @@ This module is that boundary: everything before it is read-only, everything
 after it is the sole write path.
 
 Concurrency uses real OS threads (ThreadPoolExecutor), not asyncio - the
-GitHub/Anthropic clients here are synchronous. Unlike a single-threaded
-event loop, that means shared mutable state (leases, the run log, the model
-call counter, the circuit breaker) can genuinely race between threads, so
-all of it lives behind one lock. Only the network calls themselves run
-outside the lock.
+GitHub client here is synchronous. Unlike a single-threaded event loop, that
+means shared mutable state (leases, the run log, the circuit breaker) can
+genuinely race between threads, so all of it lives behind one lock. Only
+the network calls themselves run outside the lock.
 """
 from __future__ import annotations
 
@@ -18,28 +17,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import TypedDict
 
-import anthropic
-
 from issue_reconciler.client import GitHubClient
-from issue_reconciler.config import (
-    IGNORE_LABEL,
-    LEASE_TTL_SECONDS,
-    MAX_CONCURRENCY,
-    MODEL_CALL_CAP_PER_RUN,
-    PROJECT_ID,
-)
-from issue_reconciler.fuzzy import match_issue_to_prs
+from issue_reconciler.config import CIRCUIT_BREAKER_ERROR_RATE, IGNORE_LABEL, LEASE_TTL_SECONDS, MAX_CONCURRENCY, PROJECT_ID
 from issue_reconciler.github import (
-    CandidatePR,
     fetch_board_items,
-    fetch_candidate_prs,
     fetch_linked_prs,
     fetch_open_issues,
     gather_board_history,
     gather_openspec_proposals,
 )
 from issue_reconciler.hashing import hash_evidence
-from issue_reconciler.rules import DEFAULT_FUZZY_CONFIDENCE_THRESHOLD, decide_action
+from issue_reconciler.rules import decide_action
 from issue_reconciler.state import (
     LeaseState,
     RunLogEntry,
@@ -47,7 +35,7 @@ from issue_reconciler.state import (
     find_latest_for_issue,
     release_lease,
 )
-from issue_reconciler.types import Decision, Evidence, LinkedPR
+from issue_reconciler.types import Decision, Evidence
 
 
 class ProcessedIssue(TypedDict):
@@ -82,26 +70,6 @@ def validate_board_config(client: GitHubClient) -> None:
         raise RuntimeError(f"Configured PROJECT_ID {PROJECT_ID} no longer resolves to a project")
 
 
-def _to_linked_pr(pr_number: int, confidence: float, candidate_pool: list[CandidatePR]) -> LinkedPR:
-    # Fuzzy matching only ever runs against the candidate pool, so the
-    # source record is guaranteed present - carry its real state through
-    # rather than assuming OPEN, since the pool includes recently-merged
-    # PRs too and the policy engine's set_done/set_in_progress rules depend
-    # on this being accurate.
-    candidate = next(c for c in candidate_pool if c["number"] == pr_number)
-    return {
-        "number": candidate["number"],
-        "title": candidate["title"],
-        "head_ref_name": candidate["head_ref_name"],
-        "state": candidate["state"],
-        "merged": candidate["merged"],
-        "merged_at": candidate["merged_at"],
-        "is_draft": candidate["is_draft"],
-        "match_source": "fuzzy",
-        "confidence": confidence,
-    }
-
-
 class _RunState:
     """All state shared across worker threads, guarded by one lock. Methods
     are short, synchronous critical sections - the network calls that
@@ -112,7 +80,6 @@ class _RunState:
         self._lock = threading.Lock()
         self.lease_state = lease_state
         self.run_log = run_log
-        self.model_calls_made = 0
         self.circuit_broken = False
         self.processed: list[ProcessedIssue] = []
         self.failed: list[FailedIssue] = []
@@ -137,14 +104,6 @@ class _RunState:
         with self._lock:
             entry = find_latest_for_issue(self.run_log, issue_number)
             return entry["evidence_hash"] if entry else None
-
-    def try_reserve_model_call(self, cap: int) -> bool:
-        with self._lock:
-            if self.model_calls_made >= cap:
-                self.circuit_broken = True
-                return False
-            self.model_calls_made += 1
-            return True
 
     def record_decision(self, run_id: str, issue_number: int, decision: Decision, evidence_hash: str, now: datetime) -> None:
         with self._lock:
@@ -174,15 +133,12 @@ class _RunState:
 def run(
     *,
     github_client: GitHubClient,
-    anthropic_client: anthropic.Anthropic,
     run_id: str,
     lease_state: LeaseState,
     run_log: list[RunLogEntry],
     now: datetime | None = None,
-    fuzzy_confidence_threshold: float | None = None,
     max_concurrency: int = MAX_CONCURRENCY,
-    model_call_cap: int = MODEL_CALL_CAP_PER_RUN,
-    circuit_breaker_error_rate: float = 0.2,
+    circuit_breaker_error_rate: float = CIRCUIT_BREAKER_ERROR_RATE,
 ) -> OrchestratorResult:
     now = now or datetime.now(timezone.utc)
 
@@ -193,10 +149,15 @@ def run(
     in_scope = [item for item in board_items if item["issue_number"] in issues_by_number]
     issue_numbers = [item["issue_number"] for item in in_scope]
 
-    linked_prs_by_issue = fetch_linked_prs(github_client, issue_numbers)
-    board_history_by_issue = gather_board_history(github_client, issue_numbers, now)
-    openspec_by_issue = gather_openspec_proposals(github_client)
-    candidate_pool = fetch_candidate_prs(github_client, now)
+    # Independent GraphQL calls, run concurrently rather than one after
+    # another - each just blocks on its own network round trip otherwise.
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        linked_prs_future = executor.submit(fetch_linked_prs, github_client, issue_numbers)
+        board_history_future = executor.submit(gather_board_history, github_client, issue_numbers, now)
+        openspec_future = executor.submit(gather_openspec_proposals, github_client)
+        linked_prs_by_issue = linked_prs_future.result()
+        board_history_by_issue = board_history_future.result()
+        openspec_by_issue = openspec_future.result()
 
     state = _RunState(lease_state, run_log)
 
@@ -237,38 +198,21 @@ def run(
                 "transition_count": history["transition_count"],
             }
 
-            hash_before_matching = hash_evidence(evidence)
-            if state.find_latest_evidence_hash(issue_number) == hash_before_matching:
+            evidence_hash = hash_evidence(evidence)
+            if state.find_latest_evidence_hash(issue_number) == evidence_hash:
                 state.add_processed(
                     {
                         "issue_number": issue_number,
                         "issue_node_id": issue_node_id,
                         "decision": {"action": "noop", "reason": "unchanged evidence"},
                         "evidence": evidence,
-                        "evidence_hash": hash_before_matching,
+                        "evidence_hash": evidence_hash,
                         "skipped": "unchanged-evidence",
                     }
                 )
                 return
 
-            # Fuzzy matching only runs when there is no explicit reference -
-            # an ignored issue skips it too, since its decision is 'noop'
-            # regardless of what the matcher would say.
-            if not linked_prs and not evidence["has_ignore_label"] and candidate_pool:
-                if not state.try_reserve_model_call(model_call_cap):
-                    return
-                matches = match_issue_to_prs(
-                    anthropic_client, {"number": issue_number, "title": issue_meta["title"]}, candidate_pool
-                )
-                linked_prs = [_to_linked_pr(m["pr_number"], m["confidence"], candidate_pool) for m in matches]
-                evidence["linked_prs"] = linked_prs
-
-            evidence_hash = hash_evidence(evidence)
-            decision = decide_action(
-                evidence,
-                fuzzy_confidence_threshold=fuzzy_confidence_threshold or DEFAULT_FUZZY_CONFIDENCE_THRESHOLD,
-                now=now,
-            )
+            decision = decide_action(evidence, now=now)
 
             state.record_decision(run_id, issue_number, decision, evidence_hash, now)
             state.add_processed(

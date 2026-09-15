@@ -12,8 +12,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import anthropic
-
 from issue_reconciler import orchestrator
 from issue_reconciler.client import GitHubClient
 from issue_reconciler.state import load_lease_state, load_run_log, save_json
@@ -34,7 +32,6 @@ def main() -> int:
     dry_run = "--no-dry-run" not in sys.argv
 
     github_client = GitHubClient(os.environ["BOARD_TOKEN"])
-    anthropic_client = anthropic.Anthropic()
     run_id = uuid.uuid4().hex[:12]
     now = datetime.now(timezone.utc)
     logs_url = os.environ.get("RECONCILER_LOGS_URL", "")
@@ -43,7 +40,6 @@ def main() -> int:
 
     result = orchestrator.run(
         github_client=github_client,
-        anthropic_client=anthropic_client,
         run_id=run_id,
         lease_state=load_lease_state(LEASES_PATH),
         run_log=load_run_log(RUNLOG_PATH),

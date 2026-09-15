@@ -14,7 +14,7 @@ from issue_reconciler.writers import (
 )
 
 CTX = CommentContext(run_id="run-abc", evidence_hash="deadbeef", logs_url="https://x/logs", now=datetime(2026, 9, 14, 17, 32, tzinfo=timezone.utc), dry_run=False)
-MERGED = {"number": 88, "title": "x", "state": "MERGED", "merged": True, "merged_at": "2026-09-14T00:00:00+00:00", "is_draft": False, "head_ref_name": "x", "match_source": "explicit", "confidence": 1.0}
+MERGED = {"number": 88, "title": "x", "state": "MERGED", "merged": True, "merged_at": "2026-09-14T00:00:00+00:00", "is_draft": False, "head_ref_name": "x"}
 EVIDENCE = {"issue_number": 88, "item_id": "I", "current_status": "In Progress", "has_ignore_label": False, "linked_prs": [MERGED], "open_spec_proposals": [], "last_status_actor": None, "last_status_at": None, "transition_count": 0}
 
 

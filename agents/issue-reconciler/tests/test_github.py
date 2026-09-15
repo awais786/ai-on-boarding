@@ -6,7 +6,6 @@ from support import make_sequential_client
 
 from issue_reconciler.github import (
     fetch_board_items,
-    fetch_candidate_prs,
     fetch_linked_prs,
     fetch_open_issues,
     gather_openspec_proposals,
@@ -75,7 +74,10 @@ def test_open_issues_normalize_labels():
 MERGED_PR = {"__typename": "PullRequest", "number": 10, "title": "Fix issue 1", "state": "MERGED", "merged": True, "mergedAt": "2026-09-14T00:00:00+00:00", "isDraft": False, "headRefName": "fix-1"}
 
 
-def test_linked_prs_only_includes_a_closing_cross_reference():
+def test_linked_prs_includes_any_cross_reference_not_just_closing_keywords():
+    # The team's convention requires every PR description to name its
+    # issue, but not necessarily with a GitHub closing keyword - a plain
+    # "#1" mention still counts (willCloseTarget: False here).
     client, _ = make_sequential_client(
         [{"repository": {"issue_0": {"timelineItems": {"nodes": [
             {"__typename": "CrossReferencedEvent", "willCloseTarget": True, "source": MERGED_PR},
@@ -85,7 +87,8 @@ def test_linked_prs_only_includes_a_closing_cross_reference():
 
     result = fetch_linked_prs(client, [1])
 
-    assert result[1] == [{"number": 10, "title": "Fix issue 1", "state": "MERGED", "merged": True, "merged_at": "2026-09-14T00:00:00+00:00", "is_draft": False, "head_ref_name": "fix-1", "match_source": "explicit", "confidence": 1.0}]
+    assert [pr["number"] for pr in result[1]] == [10, 11]
+    assert result[1][0] == {"number": 10, "title": "Fix issue 1", "state": "MERGED", "merged": True, "merged_at": "2026-09-14T00:00:00+00:00", "is_draft": False, "head_ref_name": "fix-1"}
 
 
 def test_linked_prs_includes_manually_connected_and_ignores_non_pr():
@@ -113,32 +116,6 @@ def test_linked_prs_deduplicates_and_batches_via_aliases():
     assert len(calls) == 1
     assert len(result[5]) == 1  # deduped
     assert result[8][0]["number"] == 30
-
-
-# ---- candidate PRs -----------------------------------------------------------
-
-
-def _pr(**overrides):
-    return {"number": 1, "title": "PR", "headRefName": "branch", "state": "OPEN", "isDraft": False, "mergedAt": None, **overrides}
-
-
-def test_candidate_prs_include_open_and_recent_merges_only():
-    client, _ = make_sequential_client(
-        [{"repository": {
-            "open": {"nodes": [_pr(number=1, title="WIP feature")]},
-            "merged": {"nodes": [_pr(number=2, state="MERGED", mergedAt="2026-09-10T00:00:00+00:00"), _pr(number=3, state="MERGED", mergedAt="2026-08-01T00:00:00+00:00")]},
-        }}]
-    )
-
-    result = fetch_candidate_prs(client, NOW)
-
-    assert [c["number"] for c in result] == [1, 2]
-    assert result[1]["merged"] is True
-
-
-def test_candidate_prs_dedupe_across_open_and_merged():
-    client, _ = make_sequential_client([{"repository": {"open": {"nodes": [_pr(number=1)]}, "merged": {"nodes": [_pr(number=1, state="MERGED", mergedAt="2026-09-13T00:00:00+00:00")]}}}])
-    assert len(fetch_candidate_prs(client, NOW)) == 1
 
 
 # ---- OpenSpec proposals -----------------------------------------------------

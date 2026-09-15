@@ -23,7 +23,6 @@ def test_dry_run_comments_but_does_not_mutate(monkeypatch, tmp_path):
     monkeypatch.setattr(main_mod, "LEASES_PATH", tmp_path / "leases.json")
     monkeypatch.setattr(main_mod, "RUNLOG_PATH", tmp_path / "runlog.json")
     monkeypatch.setattr(main_mod, "GitHubClient", lambda token: "github-client")
-    monkeypatch.setattr(main_mod.anthropic, "Anthropic", lambda: "anthropic-client")
     monkeypatch.setattr(main_mod.orchestrator, "validate_board_config", lambda client: None)
     monkeypatch.setattr(main_mod.orchestrator, "run", lambda **kwargs: _fake_result())
 
@@ -46,7 +45,6 @@ def test_no_dry_run_also_mutates(monkeypatch, tmp_path):
     monkeypatch.setattr(main_mod, "LEASES_PATH", tmp_path / "leases.json")
     monkeypatch.setattr(main_mod, "RUNLOG_PATH", tmp_path / "runlog.json")
     monkeypatch.setattr(main_mod, "GitHubClient", lambda token: "github-client")
-    monkeypatch.setattr(main_mod.anthropic, "Anthropic", lambda: "anthropic-client")
     monkeypatch.setattr(main_mod.orchestrator, "validate_board_config", lambda client: None)
     monkeypatch.setattr(main_mod.orchestrator, "run", lambda **kwargs: _fake_result())
     monkeypatch.setattr(main_mod, "post_comment", lambda *a, **k: None)

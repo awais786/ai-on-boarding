@@ -16,8 +16,6 @@ class LinkedPR(TypedDict):
     merged_at: str | None
     is_draft: bool
     head_ref_name: str
-    match_source: Literal["explicit", "fuzzy"]
-    confidence: float  # 1.0 for explicit
 
 
 class Evidence(TypedDict):

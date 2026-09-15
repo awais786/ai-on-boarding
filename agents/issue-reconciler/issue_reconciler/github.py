@@ -11,8 +11,6 @@ from typing import TypedDict
 
 from issue_reconciler.client import GitHubClient
 from issue_reconciler.config import (
-    FUZZY_CANDIDATE_LIMIT,
-    FUZZY_CANDIDATE_LOOKBACK_DAYS,
     MAX_TEXT_LENGTH,
     OPENSPEC_ARCHIVE_DIR,
     OPENSPEC_CHANGES_PATH,
@@ -146,15 +144,16 @@ def _to_linked_pr(pr: dict) -> LinkedPR:
     return {
         "number": pr["number"], "title": pr.get("title", ""), "state": pr.get("state", "OPEN"),
         "merged": pr.get("merged", False), "merged_at": pr.get("mergedAt"), "is_draft": pr.get("isDraft", False),
-        "head_ref_name": pr.get("headRefName", ""), "match_source": "explicit", "confidence": 1.0,
+        "head_ref_name": pr.get("headRefName", ""),
     }
 
 
 def fetch_linked_prs(client: GitHubClient, issue_numbers: list[int]) -> dict[int, list[LinkedPR]]:
-    """Explicit PR references (closing keywords, manually linked), batched
-    into one query per _BATCH_SIZE issues - not one query per issue. Fuzzy
-    matching for issues with no explicit reference is fuzzy.py's job, over
-    PRs this function does not return.
+    """Every PR that references an issue - by closing keyword, manual link,
+    or a plain "#N" mention - batched into one query per _BATCH_SIZE issues,
+    not one query per issue. The team's convention requires every PR
+    description to name its issue, so any reference is trusted evidence;
+    no model call needed to guess at an unlinked PR.
     """
     result: dict[int, list[LinkedPR]] = {}
     for start in range(0, len(issue_numbers), _BATCH_SIZE):
@@ -168,7 +167,7 @@ def fetch_linked_prs(client: GitHubClient, issue_numbers: list[int]) -> dict[int
                 raw = None
                 if item.get("__typename") == "CrossReferencedEvent":
                     source = item.get("source") or {}
-                    if item.get("willCloseTarget") and source.get("__typename") == "PullRequest":
+                    if source.get("__typename") == "PullRequest":
                         raw = source
                 elif item.get("__typename") == "ConnectedEvent" and (item.get("subject") or {}).get("__typename") == "PullRequest":
                     raw = item["subject"]
@@ -180,52 +179,6 @@ def fetch_linked_prs(client: GitHubClient, issue_numbers: list[int]) -> dict[int
                     prs.append(pr)
             result[issue_number] = prs
     return result
-
-
-# ---- candidate PRs for fuzzy matching -----------------------------------
-
-
-class CandidatePR(TypedDict):
-    number: int
-    title: str
-    head_ref_name: str
-    state: str  # "OPEN" | "MERGED"
-    merged: bool
-    merged_at: str | None
-    is_draft: bool
-
-
-_CANDIDATE_FIELDS = "number title headRefName state isDraft mergedAt"
-_CANDIDATE_QUERY = f"""
-  query CandidatePRs($owner: String!, $name: String!, $limit: Int!) {{
-    repository(owner: $owner, name: $name) {{
-      open: pullRequests(states: [OPEN], first: $limit, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ nodes {{ {_CANDIDATE_FIELDS} }} }}
-      merged: pullRequests(states: [MERGED], first: $limit, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ nodes {{ {_CANDIDATE_FIELDS} }} }}
-    }}
-  }}
-"""
-
-
-def fetch_candidate_prs(client: GitHubClient, now: datetime | None = None) -> list[CandidatePR]:
-    """Bounded, repo-wide pool of open PRs + PRs merged in the last
-    FUZZY_CANDIDATE_LOOKBACK_DAYS days - the search space fuzzy.py compares
-    each unmatched issue against. One query per run, not per issue.
-    """
-    now = now or datetime.now(timezone.utc)
-    repository = client.query(_CANDIDATE_QUERY, {"owner": REPO_OWNER, "name": REPO_NAME, "limit": FUZZY_CANDIDATE_LIMIT}).get("repository")
-    if not repository:
-        return []
-    cutoff = now - timedelta(days=FUZZY_CANDIDATE_LOOKBACK_DAYS)
-    recent_merges = [pr for pr in repository["merged"]["nodes"] if pr.get("mergedAt") and datetime.fromisoformat(pr["mergedAt"]) >= cutoff]
-
-    seen: set[int] = set()
-    candidates: list[CandidatePR] = []
-    for pr in [*repository["open"]["nodes"], *recent_merges]:
-        if pr["number"] in seen:
-            continue
-        seen.add(pr["number"])
-        candidates.append({"number": pr["number"], "title": pr["title"], "head_ref_name": pr["headRefName"], "state": pr["state"], "merged": pr["state"] == "MERGED", "merged_at": pr.get("mergedAt"), "is_draft": pr["isDraft"]})
-    return candidates
 
 
 # ---- OpenSpec proposals --------------------------------------------------
