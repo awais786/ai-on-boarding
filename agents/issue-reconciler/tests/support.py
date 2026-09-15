@@ -4,6 +4,7 @@ and orchestrator.py can be unit tested without live credentials.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from issue_reconciler.client import GitHubClient
@@ -62,7 +63,7 @@ def make_routed_client(routes: list[tuple[str, Any]]) -> tuple[GitHubClient, lis
     return client, calls
 
 
-class FakeAnthropicMessages:
+class _FakeAnthropicMessages:
     """Stands in for client.messages on a real Anthropic client. handler
     receives the full request kwargs and returns either a dict (the parsed
     JSON the model "replied" with) or raises to simulate an API error.
@@ -74,22 +75,10 @@ class FakeAnthropicMessages:
 
     def create(self, **kwargs):
         self.call_count += 1
-        result = self._handler(kwargs)
-        text = json.dumps(result)
-        return _FakeMessage(text)
-
-
-class _FakeMessage:
-    def __init__(self, text: str):
-        self.content = [_FakeTextBlock(text)]
-
-
-class _FakeTextBlock:
-    def __init__(self, text: str):
-        self.type = "text"
-        self.text = text
+        text = json.dumps(self._handler(kwargs))
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
 
 
 class FakeAnthropicClient:
     def __init__(self, handler: Callable[[dict], dict]):
-        self.messages = FakeAnthropicMessages(handler)
+        self.messages = _FakeAnthropicMessages(handler)

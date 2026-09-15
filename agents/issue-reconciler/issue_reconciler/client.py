@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import random
 import time
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 import requests
 
@@ -30,19 +30,13 @@ class FatalHTTPError(RuntimeError):
     """
 
 
-class _Response(Protocol):
-    status_code: int
-    ok: bool
-    reason: str
-    headers: dict
-
-    def json(self) -> dict: ...
+# A transport just needs .status_code, .ok, .reason, .headers, and .json() -
+# whatever requests.Response or a test's fake response provides. Not worth a
+# Protocol class for a shape nothing ever type-checks against at runtime.
+Transport = Callable[[str, dict, dict], Any]
 
 
-Transport = Callable[[str, dict, dict], _Response]
-
-
-def _default_transport(url: str, body: dict, headers: dict) -> _Response:
+def _default_transport(url: str, body: dict, headers: dict) -> Any:
     return requests.post(url, json=body, headers=headers, timeout=30)
 
 

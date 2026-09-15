@@ -89,6 +89,10 @@ def _gather_verdicts(
         return {key: future.result() for key, future in futures.items()}
 
 
+def _processed(issue_number: int, issue_node_id: str, decision: Decision, evidence: Evidence | None, evidence_hash: str, skipped: str | None = None) -> ProcessedIssue:
+    return {"issue_number": issue_number, "issue_node_id": issue_node_id, "decision": decision, "evidence": evidence, "evidence_hash": evidence_hash, "skipped": skipped}
+
+
 def validate_board_config(client: GitHubClient) -> None:
     """Fails loudly if the configured project no longer resolves, rather
     than silently processing zero issues (see plan Reliability: "Startup
@@ -199,16 +203,7 @@ def run(
         issue_node_id = issues_by_number[issue_number]["id"]
 
         if not state.try_acquire_lease(issue_number, LEASE_TTL_SECONDS, now):
-            state.add_processed(
-                {
-                    "issue_number": issue_number,
-                    "issue_node_id": issue_node_id,
-                    "decision": {"action": "noop", "reason": "already leased"},
-                    "evidence": None,
-                    "evidence_hash": "",
-                    "skipped": "leased",
-                }
-            )
+            state.add_processed(_processed(issue_number, issue_node_id, {"action": "noop", "reason": "already leased"}, None, "", skipped="leased"))
             return
 
         try:
@@ -230,16 +225,7 @@ def run(
 
             evidence_hash = hash_evidence(evidence)
             if state.find_latest_evidence_hash(issue_number) == evidence_hash:
-                state.add_processed(
-                    {
-                        "issue_number": issue_number,
-                        "issue_node_id": issue_node_id,
-                        "decision": {"action": "noop", "reason": "unchanged evidence"},
-                        "evidence": evidence,
-                        "evidence_hash": evidence_hash,
-                        "skipped": "unchanged-evidence",
-                    }
-                )
+                state.add_processed(_processed(issue_number, issue_node_id, {"action": "noop", "reason": "unchanged evidence"}, evidence, evidence_hash, skipped="unchanged-evidence"))
                 return
 
             decision = decide_action(evidence, now=now)
@@ -248,16 +234,7 @@ def run(
                 decision = apply_verdicts(decision, verdicts)
 
             state.record_decision(run_id, issue_number, decision, evidence_hash, now)
-            state.add_processed(
-                {
-                    "issue_number": issue_number,
-                    "issue_node_id": issue_node_id,
-                    "decision": decision,
-                    "evidence": evidence,
-                    "evidence_hash": evidence_hash,
-                    "skipped": None,
-                }
-            )
+            state.add_processed(_processed(issue_number, issue_node_id, decision, evidence, evidence_hash))
         except Exception as error:  # any per-issue failure feeds the circuit breaker, never aborts the batch
             state.add_failed(
                 {"issue_number": issue_number, "error": str(error)}, circuit_breaker_error_rate, len(in_scope)

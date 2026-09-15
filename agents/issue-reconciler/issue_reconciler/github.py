@@ -26,6 +26,27 @@ from issue_reconciler.types import LinkedPR
 _BATCH_SIZE = 50
 
 
+def _batches(items: list, size: int = _BATCH_SIZE):
+    return (items[i : i + size] for i in range(0, len(items), size))
+
+
+def _paginate(client: GitHubClient, query: str, variables: dict, get_page) -> list[dict]:
+    """Shared cursor-pagination loop: get_page(response_data) returns the
+    {pageInfo, nodes} dict to walk, or None to stop early.
+    """
+    nodes: list[dict] = []
+    cursor = None
+    while True:
+        page = get_page(client.query(query, {**variables, "cursor": cursor}))
+        if not page:
+            break
+        nodes.extend(page["nodes"])
+        cursor = page["pageInfo"]["endCursor"] if page["pageInfo"]["hasNextPage"] else None
+        if cursor is None:
+            break
+    return nodes
+
+
 # ---- board items -----------------------------------------------------
 
 
@@ -62,22 +83,14 @@ def fetch_board_items(client: GitHubClient) -> list[BoardItem]:
     """Every board item, paginated, filtered to this repo's issues - the
     board is user-level and may hold items from other repos.
     """
+    nodes = _paginate(client, _BOARD_QUERY, {"projectId": PROJECT_ID}, lambda data: (data.get("node") or {}).get("items"))
     items: list[BoardItem] = []
-    cursor = None
-    while True:
-        data = client.query(_BOARD_QUERY, {"projectId": PROJECT_ID, "cursor": cursor})
-        page = (data.get("node") or {}).get("items")
-        if not page:
-            break
-        for node in page["nodes"]:
-            content = node.get("content") or {}
-            if content.get("__typename") != "Issue" or (content.get("repository") or {}).get("name") != REPO_NAME:
-                continue
-            status = node.get("status")
-            items.append({"item_id": node["id"], "issue_number": content["number"], "status": status["name"] if status else None})
-        cursor = page["pageInfo"]["endCursor"] if page["pageInfo"]["hasNextPage"] else None
-        if cursor is None:
-            break
+    for node in nodes:
+        content = node.get("content") or {}
+        if content.get("__typename") != "Issue" or (content.get("repository") or {}).get("name") != REPO_NAME:
+            continue
+        status = node.get("status")
+        items.append({"item_id": node["id"], "issue_number": content["number"], "status": status["name"] if status else None})
     return items
 
 
@@ -104,19 +117,8 @@ _ISSUES_QUERY = """
 
 
 def fetch_open_issues(client: GitHubClient) -> list[OpenIssue]:
-    issues: list[OpenIssue] = []
-    cursor = None
-    while True:
-        data = client.query(_ISSUES_QUERY, {"owner": REPO_OWNER, "name": REPO_NAME, "cursor": cursor})
-        page = (data.get("repository") or {}).get("issues")
-        if not page:
-            break
-        for node in page["nodes"]:
-            issues.append({"id": node["id"], "number": node["number"], "title": node["title"], "labels": [label["name"] for label in node["labels"]["nodes"]]})
-        cursor = page["pageInfo"]["endCursor"] if page["pageInfo"]["hasNextPage"] else None
-        if cursor is None:
-            break
-    return issues
+    nodes = _paginate(client, _ISSUES_QUERY, {"owner": REPO_OWNER, "name": REPO_NAME}, lambda data: (data.get("repository") or {}).get("issues"))
+    return [{"id": n["id"], "number": n["number"], "title": n["title"], "labels": [label["name"] for label in n["labels"]["nodes"]]} for n in nodes]
 
 
 # ---- linked PRs (explicit references only) -----------------------------
@@ -157,8 +159,7 @@ def fetch_linked_prs(client: GitHubClient, issue_numbers: list[int]) -> dict[int
     no model call needed to guess at an unlinked PR.
     """
     result: dict[int, list[LinkedPR]] = {}
-    for start in range(0, len(issue_numbers), _BATCH_SIZE):
-        batch = issue_numbers[start : start + _BATCH_SIZE]
+    for batch in _batches(issue_numbers):
         repository = client.query(_prs_query(batch), {"owner": REPO_OWNER, "name": REPO_NAME}).get("repository") or {}
         for i, issue_number in enumerate(batch):
             node = repository.get(f"issue_{i}") or {}
@@ -258,8 +259,7 @@ def summarize_history(comments: list[dict], now: datetime) -> BoardHistoryEntry:
 def gather_board_history(client: GitHubClient, issue_numbers: list[int], now: datetime | None = None) -> dict[int, BoardHistoryEntry]:
     now = now or datetime.now(timezone.utc)
     comments_by_issue: dict[int, list[dict]] = {}
-    for start in range(0, len(issue_numbers), _BATCH_SIZE):
-        batch = issue_numbers[start : start + _BATCH_SIZE]
+    for batch in _batches(issue_numbers):
         repository = client.query(_comments_query(batch), {"owner": REPO_OWNER, "name": REPO_NAME}).get("repository") or {}
         for i, issue_number in enumerate(batch):
             nodes = (repository.get(f"issue_{i}") or {}).get("comments", {}).get("nodes", [])
