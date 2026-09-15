@@ -23,6 +23,15 @@ Create a pull request for the current branch's changes.
 
 3. **Confirm the linking keyword.** Ask the user (or infer from context) whether the PR should `Closes #N` (auto-closes the issue on merge) or `Relates to #N` (references it without closing) — don't assume `Closes` is always correct.
 
-4. **Write a lean PR description**: a short "What changed" summary and the issue reference. Cut unnecessary detail — this repo's convention is lean PR descriptions, not exhaustive ones.
+4. **Check review status before opening the PR.** This repo's documented workflow (`README.md`, `openspec/config.yaml`, `CLAUDE.md`) requires `/code-review` to have returned `Ready to merge: yes` before a pull request is opened — findings only block if they cite a requirement, a named failing test, or a documented convention, and review runs at most two passes (an initial pass, one follow-up). Ask the user whether review has already been run and passed. **Do not run `/code-review` yourself without asking first** — it has a real token cost the user prefers to control themselves. If they say review hasn't happened, offer to run it before proceeding rather than opening the PR anyway.
 
-5. **Create the PR** with `gh pr create` (pushing the branch first if needed), then return the PR URL to the user.
+5. **Write a lean PR description**: a short "What changed" summary and the issue reference. Cut unnecessary detail — this repo's convention is lean PR descriptions, not exhaustive ones.
+
+6. **Create the PR** with `gh pr create` (pushing the branch first if needed), then return the PR URL to the user.
+
+## Project standards this skill enforces
+
+- **Every change has a matching GitHub issue** (`openspec/config.yaml` context) — the PR should reference it, not just the code change.
+- **Review gate before merge**: `/code-review` must return `Ready to merge: yes`, per the review contract in `openspec/config.yaml`/`CLAUDE.md` — a `no` verdict or no review at all means the PR shouldn't be opened yet (or should be marked draft).
+- **`pytest` passes for the whole project** before a change is considered done (`openspec/config.yaml` operations.archive.guidance) — worth a quick check before opening the PR, not just before archiving.
+- **Lean PR descriptions** — this repo's convention (and the user's stated preference) is to cut unnecessary detail, not write an exhaustive changelog.
