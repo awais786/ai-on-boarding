@@ -150,7 +150,11 @@ def test_an_ignored_issue_is_a_noop():
     assert result["processed"][0]["decision"] == {"action": "noop", "reason": "ignore label"}
 
 
-def test_a_board_item_whose_issue_is_not_open_is_excluded_from_processing():
+def test_a_board_item_whose_issue_is_not_open_is_ignored_but_the_open_issue_is_still_processed():
+    """Board items are optional context, not a gate: a stale board item for
+    issue #9 (no longer open) is simply unused, while issue #5 - open but
+    never added to the board - is still processed with item_id=None.
+    """
     client, _ = make_routed_client(
         base_routes(
             BoardItems=board_with_one_item("PVTI_9", 9, "Todo"),
@@ -160,7 +164,10 @@ def test_a_board_item_whose_issue_is_not_open_is_excluded_from_processing():
 
     result = orchestrator.run(github_client=client, anthropic_client=_ok_anthropic_client(), run_id="run-1", lease_state={}, run_log=[], now=NOW)
 
-    assert result["processed"] == []
+    assert len(result["processed"]) == 1
+    assert result["processed"][0]["issue_number"] == 5
+    assert result["processed"][0]["evidence"]["item_id"] is None
+    assert result["processed"][0]["evidence"]["current_status"] is None
 
 
 def test_run_state_trips_the_circuit_breaker_when_failure_rate_exceeds_threshold():
@@ -195,6 +202,20 @@ def test_a_completion_verdict_can_downgrade_set_done_to_flag():
     result = orchestrator.run(github_client=client, anthropic_client=anthropic_client, run_id="run-1", lease_state={}, run_log=[], now=NOW)
 
     assert result["processed"][0]["decision"]["action"] == "flag"
+
+
+def test_an_issue_off_the_board_with_a_merged_pr_still_resolves_to_set_done():
+    client, _ = make_routed_client(
+        base_routes(
+            OpenIssues=open_issues_response([{"number": 5, "title": "Fix bug"}]),
+            LinkedPRs={"repository": {"issue_0": {"timelineItems": {"nodes": [{"__typename": "ConnectedEvent", "subject": MERGED_PR_FIELDS}]}}}},
+        )
+    )
+
+    result = orchestrator.run(github_client=client, anthropic_client=_ok_anthropic_client(), run_id="run-1", lease_state={}, run_log=[], now=NOW)
+
+    assert result["processed"][0]["decision"] == {"action": "set_done", "reason": "PR merged, none open"}
+    assert result["processed"][0]["evidence"]["item_id"] is None
 
 
 def test_reasoning_spokes_are_not_called_without_a_linked_pr():

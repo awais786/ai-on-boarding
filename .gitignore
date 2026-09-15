@@ -23,3 +23,6 @@ tooling/api-verification/node_modules/
 tooling/api-verification/build/
 
 node_modules/
+
+# local secrets (API keys, webhook URLs)
+.env

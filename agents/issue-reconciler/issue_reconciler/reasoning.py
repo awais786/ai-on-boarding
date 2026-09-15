@@ -14,6 +14,12 @@ from typing import TypedDict
 
 import anthropic
 
+from issue_reconciler.prompts import (
+    build_activity_prompt,
+    build_completion_prompt,
+    build_reference_prompt,
+    build_stale_prompt,
+)
 from issue_reconciler.types import LinkedPR
 
 MODEL = "claude-haiku-4-5"
@@ -31,6 +37,10 @@ def _ask(client: anthropic.Anthropic, prompt: str, schema: dict, required_keys: 
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
             output_config={"format": {"type": "json_schema", "schema": schema}},
+            # temperature isn't a top-level SDK param on this anthropic
+            # version - extra_body forwards it to the raw API. A verdict,
+            # not prose: minimize run-to-run flip-flopping on borderline cases.
+            extra_body={"temperature": 0},
         )
         text = next((block.text for block in response.content if block.type == "text"), None)
         if text is None:
@@ -61,13 +71,7 @@ def completion_check(client: anthropic.Anthropic, issue_title: str, linked_prs: 
     """Do the linked PRs, together, fully resolve the issue - or only
     partially (e.g. one of several needed changes)?
     """
-    prs = [{"number": pr["number"], "title": pr["title"], "merged": pr["merged"]} for pr in linked_prs]
-    prompt = (
-        f"Issue: {issue_title}\n\nLinked pull requests: {json.dumps(prs)}\n\n"
-        "Do these pull requests, together, fully resolve the issue, or only partially "
-        "(e.g. one of several needed changes)? Judge from the titles alone."
-    )
-    return _ask(client, prompt, _COMPLETION_SCHEMA, {"fully_resolved", "reasoning"})
+    return _ask(client, build_completion_prompt(issue_title, linked_prs), _COMPLETION_SCHEMA, {"fully_resolved", "reasoning"})
 
 
 class ActivityVerdict(TypedDict):
@@ -85,14 +89,7 @@ _ACTIVITY_SCHEMA = {
 
 def activity_check(client: anthropic.Anthropic, issue_title: str, pr: LinkedPR, now: datetime) -> ActivityVerdict | None:
     """Is this open, linked PR still active, blocked, or abandoned?"""
-    days_since_update = (now - datetime.fromisoformat(pr["updated_at"])).days if pr["updated_at"] else None
-    facts = {"number": pr["number"], "title": pr["title"], "days_since_last_update": days_since_update, "review_decision": pr["review_decision"]}
-    prompt = (
-        f"Issue: {issue_title}\n\nOpen pull request: {json.dumps(facts)}\n\n"
-        "Judge whether this PR is still active, blocked (e.g. changes requested and not yet addressed), "
-        "or abandoned (no meaningful activity in a long time)."
-    )
-    return _ask(client, prompt, _ACTIVITY_SCHEMA, {"status", "reasoning"})
+    return _ask(client, build_activity_prompt(issue_title, pr, now), _ACTIVITY_SCHEMA, {"status", "reasoning"})
 
 
 class ReferenceVerdict(TypedDict):
@@ -112,12 +109,7 @@ def reference_validation(client: anthropic.Anthropic, issue_title: str, pr: Link
     """Does the PR's reference actually match this issue's intent, or does
     it look like a wrong/copy-pasted issue number?
     """
-    prompt = (
-        f"Issue: {issue_title}\nLinked PR: {pr['title']}\n\n"
-        "Does the PR's title suggest it actually addresses this issue, or does it look unrelated - "
-        "as if it references the wrong issue number by mistake?"
-    )
-    return _ask(client, prompt, _REFERENCE_SCHEMA, {"matches", "reasoning"})
+    return _ask(client, build_reference_prompt(issue_title, pr), _REFERENCE_SCHEMA, {"matches", "reasoning"})
 
 
 class StaleVerdict(TypedDict):
@@ -138,10 +130,4 @@ def stale_or_superseded_check(client: anthropic.Anthropic, issue_title: str, lin
     problem differently, rather than building on it? Only meaningful with
     more than one linked PR.
     """
-    prs = [{"number": pr["number"], "title": pr["title"], "state": pr["state"], "merged_at": pr["merged_at"]} for pr in linked_prs]
-    prompt = (
-        f"Issue: {issue_title}\n\nLinked pull requests: {json.dumps(prs)}\n\n"
-        "Has an earlier PR been superseded by a later one that solves the problem differently, rather "
-        "than building on it? Answer superseded=true only if a later PR replaces an earlier approach entirely."
-    )
-    return _ask(client, prompt, _STALE_SCHEMA, {"superseded", "reasoning"})
+    return _ask(client, build_stale_prompt(issue_title, linked_prs), _STALE_SCHEMA, {"superseded", "reasoning"})

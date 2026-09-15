@@ -106,26 +106,33 @@ def _current_status(client: GitHubClient, item_id: str) -> str | None:
     return status["name"] if status else None
 
 
-def mutate(client: GitHubClient, item_id: str, issue_node_id: str, decision: Decision, expected_status: str | None) -> None:
+def mutate(client: GitHubClient, item_id: str | None, issue_node_id: str, decision: Decision, expected_status: str | None) -> None:
     """The one status/close/label mutation `decision` calls for - skipped
     entirely if the board status moved since evidence was gathered
     (Projects v2 has no compare-and-set, so this is the read-then-write
     check). set_done sets status before closing: if the close fails, the
     board is already correct and the next run reconciles the issue.
+
+    item_id is None for an issue that isn't on the project board - there's
+    no board field to drift-check or set, so set_in_progress becomes a
+    no-op (the comment is the only signal) while close/label, which are
+    issue-level rather than board-level, still apply.
     """
-    if _current_status(client, item_id) != expected_status:
+    if item_id is not None and _current_status(client, item_id) != expected_status:
         return
 
     if decision["action"] == "set_done":
-        client.query(_SET_STATUS, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optionId": STATUS_OPTIONS["Done"]})
+        if item_id is not None:
+            client.query(_SET_STATUS, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optionId": STATUS_OPTIONS["Done"]})
         try:
             client.query(_CLOSE_ISSUE, {"issueId": issue_node_id})
         except Exception:  # noqa: S110 - board is already correct; the next run reconciles the issue
             pass
     elif decision["action"] == "set_in_progress":
-        client.query(_SET_STATUS, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optionId": STATUS_OPTIONS["In Progress"]})
+        if item_id is not None:
+            client.query(_SET_STATUS, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optionId": STATUS_OPTIONS["In Progress"]})
     elif decision["action"] == "flag":
-        label_id = (client.query(_FIND_LABEL, {"owner": REPO_OWNER, "name": REPO_NAME, "label": NEEDS_TRIAGE_LABEL}).get("repository") or {}).get("label", {}).get("id")
+        label_id = ((client.query(_FIND_LABEL, {"owner": REPO_OWNER, "name": REPO_NAME, "label": NEEDS_TRIAGE_LABEL}).get("repository") or {}).get("label") or {}).get("id")
         if not label_id:
             raise RuntimeError(f"label {NEEDS_TRIAGE_LABEL!r} does not exist in {REPO_OWNER}/{REPO_NAME}")
         client.query(_ADD_LABEL, {"labelableId": issue_node_id, "labelId": label_id})

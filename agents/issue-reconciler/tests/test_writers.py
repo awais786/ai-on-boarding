@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
 from support import make_routed_client
 
 from issue_reconciler.hashing import parse_fingerprint
@@ -65,7 +66,42 @@ def test_flag_looks_up_the_label_then_adds_it():
     assert len(calls) == 3
 
 
+def test_flag_raises_a_clean_error_when_the_label_does_not_exist():
+    """GraphQL returns {"label": null} (key present, value None) when a label
+    lookup misses - not a missing key - so a plain .get("label", {}) default
+    never kicks in and used to crash with AttributeError instead of this
+    RuntimeError.
+    """
+    client, _ = make_routed_client([("FindLabel", {"repository": {"label": None}})])
+    with pytest.raises(RuntimeError, match="does not exist"):
+        mutate(client, None, "I_1", {"action": "flag", "reason": "x"}, expected_status=None)
+
+
 def test_mutation_skipped_if_status_moved_since_evidence_gathered():
     client, calls = make_routed_client([("CurrentStatus", {"node": {"status": {"name": "Done"}}})])
     mutate(client, "PVTI_1", "I_1", {"action": "set_in_progress", "reason": "x"}, expected_status="Todo")
     assert len(calls) == 1  # only the re-read; no mutation followed
+
+
+def test_set_done_off_board_skips_status_and_still_closes():
+    client, calls = make_routed_client([("CloseIssue", {"closeIssue": {"issue": {"id": "I_1"}}})])
+    mutate(client, None, "I_1", {"action": "set_done", "reason": "x"}, expected_status=None)
+    assert len(calls) == 1
+    assert calls[0]["query"].startswith("mutation CloseIssue")
+
+
+def test_set_in_progress_off_board_is_a_complete_no_op():
+    client, calls = make_routed_client([])
+    mutate(client, None, "I_1", {"action": "set_in_progress", "reason": "x"}, expected_status=None)
+    assert len(calls) == 0
+
+
+def test_flag_off_board_still_adds_the_label():
+    client, calls = make_routed_client(
+        [
+            ("FindLabel", {"repository": {"label": {"id": "LA_1"}}}),
+            ("AddLabel", {"addLabelsToLabelable": {"clientMutationId": None}}),
+        ]
+    )
+    mutate(client, None, "I_1", {"action": "flag", "reason": "mixed PR states"}, expected_status=None)
+    assert len(calls) == 2

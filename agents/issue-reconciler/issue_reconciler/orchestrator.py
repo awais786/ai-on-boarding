@@ -178,10 +178,14 @@ def run(
 
     board_items = fetch_board_items(github_client)
     open_issues = fetch_open_issues(github_client)
-    issues_by_number = {i["number"]: i for i in open_issues}
 
-    in_scope = [item for item in board_items if item["issue_number"] in issues_by_number]
-    issue_numbers = [item["issue_number"] for item in in_scope]
+    # Every open issue is in scope, whether or not it's been added to the
+    # board yet - board membership is optional context (current_status,
+    # item_id for a project mutation), not a gate on processing. A board
+    # item for an issue that's no longer open is simply unused here.
+    board_item_by_number = {b["issue_number"]: b for b in board_items}
+    in_scope = open_issues
+    issue_numbers = [i["number"] for i in open_issues]
 
     # Independent GraphQL calls, run concurrently rather than one after
     # another - each just blocks on its own network round trip otherwise.
@@ -195,27 +199,27 @@ def run(
 
     state = _RunState(lease_state, run_log)
 
-    def process_one(item) -> None:
+    def process_one(issue) -> None:
         if state.is_circuit_broken():
             return
 
-        issue_number = item["issue_number"]
-        issue_node_id = issues_by_number[issue_number]["id"]
+        issue_number = issue["number"]
+        issue_node_id = issue["id"]
+        board_item = board_item_by_number.get(issue_number)
 
         if not state.try_acquire_lease(issue_number, LEASE_TTL_SECONDS, now):
             state.add_processed(_processed(issue_number, issue_node_id, {"action": "noop", "reason": "already leased"}, None, "", skipped="leased"))
             return
 
         try:
-            issue_meta = issues_by_number[issue_number]
             history = board_history_by_issue.get(issue_number, {"last_status_actor": None, "last_status_at": None, "transition_count": 0})
             linked_prs = linked_prs_by_issue.get(issue_number, [])
 
             evidence: Evidence = {
                 "issue_number": issue_number,
-                "item_id": item["item_id"],
-                "current_status": item["status"],
-                "has_ignore_label": IGNORE_LABEL in issue_meta["labels"],
+                "item_id": board_item["item_id"] if board_item else None,
+                "current_status": board_item["status"] if board_item else None,
+                "has_ignore_label": IGNORE_LABEL in issue["labels"],
                 "linked_prs": linked_prs,
                 "open_spec_proposals": openspec_by_issue.get(issue_number, []),
                 "last_status_actor": history["last_status_actor"],
@@ -230,7 +234,7 @@ def run(
 
             decision = decide_action(evidence, now=now)
             if decision["action"] in ("set_done", "set_in_progress") and linked_prs:
-                verdicts = _gather_verdicts(anthropic_client, issue_meta["title"], linked_prs, now, decision["action"])
+                verdicts = _gather_verdicts(anthropic_client, issue["title"], linked_prs, now, decision["action"])
                 decision = apply_verdicts(decision, verdicts)
 
             state.record_decision(run_id, issue_number, decision, evidence_hash, now)

@@ -22,7 +22,7 @@ class LinkedPR(TypedDict):
 
 class Evidence(TypedDict):
     issue_number: int
-    item_id: str  # project item ID
+    item_id: str | None  # project item ID; None if the issue isn't on the board
     current_status: str | None
     has_ignore_label: bool
     linked_prs: list[LinkedPR]

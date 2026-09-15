@@ -43,9 +43,13 @@ score). Hub-and-spoke at the top, sequential inside.
    bad verdict but never a bad action.
 2. **Spokes return evidence, not decisions.** A spoke reports "PR #88
    references this issue, merged, confidence 0.9". It never says "close this".
-3. **Policy is deterministic code.** No model call decides a transition. The
-   model's only job is fuzzy matching a PR to an issue when there is no
-   explicit reference.
+3. **Policy is deterministic code.** No model call decides a transition
+   directly. The four reasoning spokes (`reasoning.py` - completion,
+   activity, reference-validation, stale/superseded) each produce a
+   structured verdict over evidence they're handed; `rules.py` is still the
+   only place that turns verdicts into a Done/In Progress/Flag/Noop
+   decision, and a verdict can only ever demote a decision to a human flag,
+   never confirm or upgrade one.
 4. **One writer.** Only `writers.py` mutates anything.
 5. **No silent transitions.** Every status change is preceded by a comment
    stating the evidence. If the comment fails, abort the transition.
@@ -81,23 +85,26 @@ two small files plus an empty `__init__.py`, which was more ceremony than
 the project's size earned. One file per real concern, all at the top of the
 package, reads easier at a glance and was the point of a later cleanup pass:
 
+No `ruff.toml` - linting isn't run on this project.
+
 ```
 agents/issue-reconciler/
   pyproject.toml
   requirements.txt
-  ruff.toml
   issue_reconciler/
     __main__.py              # entrypoint: python -m issue_reconciler
     config.py                # board IDs, filters, thresholds
     types.py                 # LinkedPR / Evidence / Decision TypedDicts
-    hashing.py                # comment fingerprint + evidence idempotency hash
-    client.py                 # GraphQL client: auth, retry, backoff, rate-limit
-    github.py                  # every fetch from GitHub + the two evidence spokes
-    fuzzy.py                    # the only model call
-    rules.py                    # the policy engine, pure functions
-    orchestrator.py             # selection, leasing, fan-out, run log
-    state.py                    # leases + run log (JSON-backed)
-    writers.py                  # the sole write authority: comment + mutations
+    hashing.py               # comment fingerprint + evidence idempotency hash
+    client.py                # GraphQL client: auth, retry, backoff, rate-limit
+    github.py                # every fetch from GitHub + the two evidence spokes
+    reasoning.py             # the four reasoning spokes (completion, activity,
+                              # reference validation, stale/superseded)
+    rules.py                 # the policy engine, pure functions
+    orchestrator.py          # selection, leasing, fan-out, run log
+    state.py                 # leases + run log (JSON-backed)
+    slack.py                 # end-of-run summary posted once, not per issue
+    writers.py                # the sole write authority: comment + mutations
   tests/
     support.py                # fake transports (no live credentials in tests)
     fixtures/
@@ -119,8 +126,8 @@ class LinkedPR(TypedDict):
     merged_at: str | None
     is_draft: bool
     head_ref_name: str
-    match_source: Literal["explicit", "fuzzy"]
-    confidence: float          # 1.0 for explicit
+    updated_at: str | None      # feeds the activity-check reasoning spoke
+    review_decision: str | None
 
 
 class Evidence(TypedDict):
