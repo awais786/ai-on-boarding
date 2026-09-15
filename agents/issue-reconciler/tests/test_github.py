@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from support import make_sequential_client
 
-from issue_reconciler.io.github import (
+from issue_reconciler.github import (
     fetch_board_items,
     fetch_linked_prs,
     fetch_open_issues,

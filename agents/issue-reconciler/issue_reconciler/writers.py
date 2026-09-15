@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from issue_reconciler.io.client import GitHubClient
+from issue_reconciler.client import GitHubClient
 from issue_reconciler.config import (
     NEEDS_TRIAGE_LABEL,
     PROJECT_ID,

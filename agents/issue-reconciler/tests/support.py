@@ -7,7 +7,7 @@ import json
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from issue_reconciler.io.client import GitHubClient
+from issue_reconciler.client import GitHubClient
 
 
 class FakeResponse:
