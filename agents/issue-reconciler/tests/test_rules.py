@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from issue_reconciler.rules import apply_verdicts, decide_action
+from issue_reconciler.rules import apply_verdicts, decide_action, human_override_active
 
 FIXTURES_PATH = Path(__file__).parent / "fixtures" / "issues_snapshot.json"
 SCENARIOS = json.loads(FIXTURES_PATH.read_text())
@@ -16,6 +16,20 @@ SCENARIOS = json.loads(FIXTURES_PATH.read_text())
 def test_policy_scenarios(scenario):
     decision = decide_action(scenario["evidence"], now=datetime.fromisoformat(scenario["now"]))
     assert decision == scenario["expected"]
+
+
+def test_human_override_active_reused_by_hashing_and_rules():
+    """This is the function hashing.py hashes instead of the raw
+    last_status_actor/last_status_at - exercised directly since it's now a
+    shared, public building block, not just decide_action's inline logic.
+    """
+    now = datetime.fromisoformat("2026-09-16T12:00:00+00:00")
+    base = {"last_status_actor": "alice", "last_status_at": "2026-09-16T00:00:00+00:00"}  # 12h before now
+
+    assert human_override_active(base, now) is True
+    assert human_override_active({**base, "last_status_actor": "issue-reconciler"}, now) is False  # the bot itself
+    assert human_override_active({**base, "last_status_actor": None}, now) is False
+    assert human_override_active({**base, "last_status_at": "2026-09-14T00:00:00+00:00"}, now) is False  # >24h ago
 
 
 def test_apply_verdicts_passes_through_when_no_verdict_disagrees():

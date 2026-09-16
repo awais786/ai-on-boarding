@@ -227,7 +227,7 @@ def run(
                 "transition_count": history["transition_count"],
             }
 
-            evidence_hash = hash_evidence(evidence)
+            evidence_hash = hash_evidence(evidence, now)
             if state.find_latest_evidence_hash(issue_number) == evidence_hash:
                 state.add_processed(_processed(issue_number, issue_node_id, {"action": "noop", "reason": "unchanged evidence"}, evidence, evidence_hash, skipped="unchanged-evidence"))
                 return

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
+from dotenv import load_dotenv
 
 from issue_reconciler import orchestrator
 from issue_reconciler.client import GitHubClient
@@ -25,6 +26,11 @@ from issue_reconciler.writers import (
     post_comment,
     should_comment,
 )
+
+# Local dev only: BOARD_TOKEN/ANTHROPIC_API_KEY/SLACK_WEBHOOK_URL come from
+# real GitHub Actions secrets in CI, so this is a no-op there (the file
+# doesn't exist) - existing env vars always win over anything in .env.
+load_dotenv(Path(__file__).parent / ".env")
 
 STATE_DIR = Path(os.environ.get("RECONCILER_STATE_DIR", "."))
 LEASES_PATH = STATE_DIR / "leases.json"
@@ -88,7 +94,12 @@ def main() -> int:
     save_json(LEASES_PATH, result["lease_state"])
     save_json(RUNLOG_PATH, run_log)
 
-    summary = build_summary(result["processed"])
+    # Same principle as the run log above: Slack must only report work that
+    # actually happened (or, for a dry run, was actually previewed) - a
+    # circuit-broken run reports nothing, and a per-issue write failure
+    # drops just that issue, not the whole summary.
+    reportable = [] if result["circuit_broken"] else [p for p in result["processed"] if p["issue_number"] not in failed_issue_numbers]
+    summary = build_summary(reportable, dry_run=dry_run)
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if summary and webhook_url:
         post_summary(webhook_url, summary)

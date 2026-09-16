@@ -74,7 +74,7 @@ def test_open_issues_normalize_labels():
 
 # ---- linked PRs (explicit) --------------------------------------------------
 
-MERGED_PR = {"__typename": "PullRequest", "number": 10, "title": "Fix issue 1", "state": "MERGED", "merged": True, "mergedAt": "2026-09-14T00:00:00+00:00", "isDraft": False, "headRefName": "fix-1"}
+MERGED_PR = {"__typename": "PullRequest", "number": 10, "title": "Fix issue 1", "state": "MERGED", "merged": True, "mergedAt": "2026-09-14T00:00:00+00:00", "isDraft": False, "headRefName": "fix-1", "repository": {"nameWithOwner": "awais786/ai-on-boarding"}}
 
 
 def test_linked_prs_includes_any_cross_reference_not_just_closing_keywords():
@@ -122,6 +122,24 @@ def test_linked_prs_deduplicates_and_batches_via_aliases():
     assert result[8][0]["number"] == 30
 
 
+def test_linked_prs_excludes_a_cross_repo_match():
+    """A PR in an unrelated repo (e.g. a fork) can still generate a
+    cross-reference event on this issue if it mentions "#1" - only a PR
+    that actually lives in this repo should count as linked, or Slack/GitHub
+    links built from its number point at the wrong repo's PR.
+    """
+    client, _ = make_sequential_client(
+        [{"repository": {"issue_0": {"timelineItems": {"nodes": [
+            {"__typename": "CrossReferencedEvent", "willCloseTarget": False, "source": MERGED_PR},
+            {"__typename": "CrossReferencedEvent", "willCloseTarget": False, "source": {**MERGED_PR, "number": 99, "repository": {"nameWithOwner": "someone-else/a-fork"}}},
+        ]}}}}]
+    )
+
+    result = fetch_linked_prs(client, [1])
+
+    assert [pr["number"] for pr in result[1]] == [10]
+
+
 # ---- OpenSpec proposals -----------------------------------------------------
 
 
@@ -138,6 +156,24 @@ def test_openspec_proposals_map_to_every_referenced_issue():
     assert result[9] == ["fix-9-and-10"]
     assert result[10] == ["fix-9-and-10"]
     assert 11 not in result
+
+
+def test_openspec_proposal_reference_past_500_chars_is_still_found():
+    """This text is only ever regex-matched locally, never sent to a model,
+    so it must not be truncated before searching - a "Closes #N" landing
+    after the old 500-char cutoff was previously missed entirely.
+    """
+    long_text = ("x" * 600) + "Closes #12"
+    client, _ = make_sequential_client(
+        [
+            {"repository": {"object": {"entries": [{"name": "a-change", "type": "tree"}]}}},
+            {"repository": {"proposal_0": {"text": long_text}}},
+        ]
+    )
+
+    result = gather_openspec_proposals(client)
+
+    assert result[12] == ["a-change"]
 
 
 def test_openspec_proposals_excludes_archive_and_skips_second_query_if_empty():
@@ -177,3 +213,21 @@ def test_history_human_comment_after_agent_write_overrides_actor():
 
     result = summarize_history(comments, NOW)
     assert result["last_status_actor"] == "bob"
+
+
+def test_history_dry_run_comment_attributed_to_agent_not_pat_owner():
+    """A dry-run comment carries no real fingerprint (deliberately, so it
+    never counts toward transition_count) but is still posted through the
+    human-owned PAT - it must not be misread as a genuine human status
+    change, or a real run within 24h wrongly treats a mere preview as a
+    human override.
+    """
+    dry_run_marker = "<!-- issue-reconciler: dry-run run=r1 decision=set_in_progress evidence=sha256:a -->"
+    comments = [{"author": "a-human-owned-pat", "body": f"would report in progress\n{dry_run_marker}", "created_at": "2026-09-14T09:00:00+00:00"}]
+
+    result = summarize_history(comments, NOW)
+
+    from issue_reconciler.rules import AGENT_ACTOR
+
+    assert result["last_status_actor"] == AGENT_ACTOR
+    assert result["transition_count"] == 0  # a preview, not a real transition

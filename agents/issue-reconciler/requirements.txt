@@ -2,5 +2,6 @@
 # Django project - sdd_django_demo/requirements.txt is unchanged by this.
 anthropic==1.5.0
 requests==2.34.2
+python-dotenv==1.0.1
 pytest==9.1.1
 ruff==0.16.7

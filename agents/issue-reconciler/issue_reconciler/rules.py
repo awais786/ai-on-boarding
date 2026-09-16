@@ -27,6 +27,19 @@ def _is_human_actor(actor: str | None) -> bool:
     return actor is not None and actor != AGENT_ACTOR
 
 
+def human_override_active(evidence: Evidence, now: datetime) -> bool:
+    """Shared with hashing.py: the evidence hash needs this exact boolean,
+    not the raw last_status_actor/last_status_at, so a run-log entry
+    correctly falls stale once the override window elapses (see hashing.py).
+    """
+    actor = evidence["last_status_actor"]
+    at = evidence["last_status_at"]
+    if not _is_human_actor(actor) or at is None:
+        return False
+    age = (now - datetime.fromisoformat(at)).total_seconds()
+    return 0 <= age < HUMAN_OVERRIDE_WINDOW_SECONDS
+
+
 def decide_action(evidence: Evidence, *, now: datetime | None = None) -> Decision:
     now = now or datetime.now(timezone.utc)
 
@@ -35,12 +48,8 @@ def decide_action(evidence: Evidence, *, now: datetime | None = None) -> Decisio
         return {"action": "noop", "reason": "ignore label"}
 
     # 2. A recent human status change is never overridden.
-    last_status_actor = evidence["last_status_actor"]
-    last_status_at = evidence["last_status_at"]
-    if _is_human_actor(last_status_actor) and last_status_at is not None:
-        age = (now - datetime.fromisoformat(last_status_at)).total_seconds()
-        if 0 <= age < HUMAN_OVERRIDE_WINDOW_SECONDS:
-            return {"action": "noop", "reason": "human override"}
+    if human_override_active(evidence, now):
+        return {"action": "noop", "reason": "human override"}
 
     # 3. Repeated agent flips indicate flapping; hand off to a human.
     if evidence["transition_count"] >= FLAPPING_TRANSITION_COUNT:

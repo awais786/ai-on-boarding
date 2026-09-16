@@ -80,6 +80,7 @@ MERGED_PR_FIELDS = {
     "mergedAt": "2026-09-14T00:00:00+00:00",
     "isDraft": False,
     "headRefName": "fix-bug",
+    "repository": {"nameWithOwner": "awais786/ai-on-boarding"},
 }
 
 

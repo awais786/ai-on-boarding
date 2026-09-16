@@ -11,7 +11,6 @@ from typing import TypedDict
 
 from issue_reconciler.client import GitHubClient
 from issue_reconciler.config import (
-    MAX_TEXT_LENGTH,
     OPENSPEC_ARCHIVE_DIR,
     OPENSPEC_CHANGES_PATH,
     PROJECT_ID,
@@ -19,7 +18,7 @@ from issue_reconciler.config import (
     REPO_OWNER,
     TRANSITION_LOOKBACK_DAYS,
 )
-from issue_reconciler.hashing import parse_fingerprint
+from issue_reconciler.hashing import is_agent_comment, parse_fingerprint
 from issue_reconciler.rules import AGENT_ACTOR
 from issue_reconciler.types import LinkedPR
 
@@ -124,7 +123,7 @@ def fetch_open_issues(client: GitHubClient) -> list[OpenIssue]:
 
 # ---- linked PRs (explicit references only) -----------------------------
 
-_PR_FIELDS = "__typename ... on PullRequest { number title state merged mergedAt isDraft headRefName updatedAt reviewDecision }"
+_PR_FIELDS = "__typename ... on PullRequest { number title state merged mergedAt isDraft headRefName updatedAt reviewDecision repository { nameWithOwner } }"
 
 
 def _prs_query(issue_numbers: list[int]) -> str:
@@ -160,6 +159,7 @@ def fetch_linked_prs(client: GitHubClient, issue_numbers: list[int]) -> dict[int
     no model call needed to guess at an unlinked PR.
     """
     result: dict[int, list[LinkedPR]] = {}
+    expected_repo = f"{REPO_OWNER}/{REPO_NAME}"
     for batch in _batches(issue_numbers):
         repository = client.query(_prs_query(batch), {"owner": REPO_OWNER, "name": REPO_NAME}).get("repository") or {}
         for i, issue_number in enumerate(batch):
@@ -174,7 +174,7 @@ def fetch_linked_prs(client: GitHubClient, issue_numbers: list[int]) -> dict[int
                         raw = source
                 elif item.get("__typename") == "ConnectedEvent" and (item.get("subject") or {}).get("__typename") == "PullRequest":
                     raw = item["subject"]
-                if raw is None:
+                if raw is None or (raw.get("repository") or {}).get("nameWithOwner") != expected_repo:
                     continue
                 pr = _to_linked_pr(raw)
                 if pr["number"] not in seen:
@@ -211,7 +211,11 @@ def gather_openspec_proposals(client: GitHubClient) -> dict[int, list[str]]:
     repository = client.query(_proposals_query(dirs), {"owner": REPO_OWNER, "name": REPO_NAME}).get("repository") or {}
     by_issue: dict[int, list[str]] = {}
     for i, name in enumerate(dirs):
-        text = ((repository.get(f"proposal_{i}") or {}).get("text") or "")[:MAX_TEXT_LENGTH]
+        # Not truncated: this text is only ever regex-matched locally for
+        # "#N", never sent to a model, so MAX_TEXT_LENGTH's cost-bounding
+        # purpose doesn't apply here - truncating it just risks missing a
+        # "Closes #N" that happens to land past the cutoff.
+        text = (repository.get(f"proposal_{i}") or {}).get("text") or ""
         for issue_number in {int(n) for n in _ISSUE_REF_RE.findall(text)}:
             by_issue.setdefault(issue_number, []).append(name)
     return by_issue
@@ -241,7 +245,13 @@ def summarize_history(comments: list[dict], now: datetime) -> BoardHistoryEntry:
     agent's own fingerprinted comments (hashing.py) plus ordinary human
     comments as a proxy for recent human attention. The PAT backing the
     agent's writes belongs to a human account, so author login alone can't
-    tell the two apart - the fingerprint is what does.
+    tell the two apart - the fingerprint (or, for a preview, the dry-run
+    marker) is what does. A dry-run comment must count as the bot's own
+    voice here too, even though it carries no real fingerprint (dry-run
+    comments are deliberately unparseable by parse_fingerprint, so they
+    never count toward transition_count) - otherwise the PAT's human
+    account gets misread as a human status change, and the next real run
+    within 24h wrongly treats a mere preview as a human override.
     """
     lookback = timedelta(days=TRANSITION_LOOKBACK_DAYS)
     transition_count = sum(
@@ -253,7 +263,7 @@ def summarize_history(comments: list[dict], now: datetime) -> BoardHistoryEntry:
         return {"last_status_actor": None, "last_status_at": None, "transition_count": transition_count}
 
     last = comments[-1]
-    actor = AGENT_ACTOR if parse_fingerprint(last["body"]) else last["author"]
+    actor = AGENT_ACTOR if is_agent_comment(last["body"]) else last["author"]
     return {"last_status_actor": actor, "last_status_at": last["created_at"], "transition_count": transition_count}
 
 

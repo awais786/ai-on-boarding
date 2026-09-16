@@ -9,6 +9,7 @@ import requests
 from issue_reconciler.config import REPO_NAME, REPO_OWNER
 
 _ACTION_LABELS = {"set_done": "Done", "set_in_progress": "In progress", "flag": "Needs review"}
+_DRY_RUN_ACTION_LABELS = {"set_done": "Would close", "set_in_progress": "Would mark in progress", "flag": "Would flag"}
 
 
 def _issue_link(issue_number: int) -> str:
@@ -38,7 +39,14 @@ def _relevant_pr_links(action: str, evidence: dict | None) -> list[str]:
     return []
 
 
-def build_summary(processed: list[dict]) -> str | None:
+def build_summary(processed: list[dict], *, dry_run: bool = False) -> str | None:
+    """`processed` must already be narrowed to issues whose write actually
+    happened (or, for a dry run, would have happened) this run - the caller
+    is responsible for excluding a circuit-broken run's untouched decisions
+    and any issue whose comment/mutation failed, or this reports work that
+    was never really done.
+    """
+    labels = _DRY_RUN_ACTION_LABELS if dry_run else _ACTION_LABELS
     lines = []
     for p in processed:
         action = p["decision"]["action"]
@@ -46,7 +54,7 @@ def build_summary(processed: list[dict]) -> str | None:
             continue
         pr_links = _relevant_pr_links(action, p.get("evidence"))
         pr_note = f" (PR {', '.join(pr_links)})" if pr_links else ""
-        lines.append(f"{_ACTION_LABELS[action]} — {_issue_link(p['issue_number'])}: {p['decision']['reason']}{pr_note}")
+        lines.append(f"{labels[action]} — {_issue_link(p['issue_number'])}: {p['decision']['reason']}{pr_note}")
 
     if not lines:
         return None
@@ -55,7 +63,8 @@ def build_summary(processed: list[dict]) -> str | None:
     # not an OpenSpec-proposal-driven set_in_progress with no PR yet) -
     # otherwise an issue could be counted as both changed and untouched.
     untouched = sum(1 for p in processed if p["decision"]["action"] == "noop" and p.get("evidence") and not p["evidence"]["linked_prs"])
-    header = f"Issue reconciler ran on {len(processed)} issue(s), {len(lines)} changed, {untouched} untouched (no linked PR):"
+    prefix = "[DRY RUN] " if dry_run else ""
+    header = f"{prefix}Issue reconciler ran on {len(processed)} issue(s), {len(lines)} changed, {untouched} untouched (no linked PR):"
     return f"{header}\n" + "\n".join(lines)
 
 
