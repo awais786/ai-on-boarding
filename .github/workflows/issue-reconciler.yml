@@ -1,0 +1,56 @@
+name: Issue Reconciler
+
+on:
+  schedule:
+    # 00:00 PKT daily (Pakistan is UTC+5, no DST -> 19:00 UTC)
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+
+# Distinct from the PR review agent's group so the two never queue behind
+# each other.
+concurrency:
+  group: issue-reconciler
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BOARD_TOKEN: ${{ secrets.BOARD_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      RECONCILER_LOGS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        working-directory: agents/issue-reconciler
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run
+        working-directory: agents/issue-reconciler
+        run: |
+          python -m issue_reconciler ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run == false) && '--no-dry-run' || '' }}
+
+      - name: Commit lease/run-log state
+        if: always()
+        working-directory: agents/issue-reconciler
+        run: |
+          git config user.name "issue-reconciler"
+          git config user.email "actions@github.com"
+          git add leases.json runlog.json
+          git diff --cached --quiet || (git commit -m "issue-reconciler: update state" && git push)

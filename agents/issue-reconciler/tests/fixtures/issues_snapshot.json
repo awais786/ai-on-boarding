@@ -1,0 +1,292 @@
+[
+  {
+    "name": "ignore label wins over everything else",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 1,
+      "item_id": "PVTI_1",
+      "current_status": "Todo",
+      "has_ignore_label": true,
+      "linked_prs": [
+        {
+          "number": 10,
+          "title": "Fix issue 1",
+          "state": "MERGED",
+          "merged": true,
+          "merged_at": "2026-09-13T00:00:00+00:00",
+          "is_draft": false,
+          "head_ref_name": "fix-1"
+        }
+      ],
+      "open_spec_proposals": [],
+      "last_status_actor": null,
+      "last_status_at": null,
+      "transition_count": 0
+    },
+    "expected": {
+      "action": "noop",
+      "reason": "ignore label"
+    }
+  },
+  {
+    "name": "human override within 24h blocks a transition",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 2,
+      "item_id": "PVTI_2",
+      "current_status": "Todo",
+      "has_ignore_label": false,
+      "linked_prs": [
+        {
+          "number": 20,
+          "title": "Fix issue 2",
+          "state": "MERGED",
+          "merged": true,
+          "merged_at": "2026-09-14T01:00:00+00:00",
+          "is_draft": false,
+          "head_ref_name": "fix-2"
+        }
+      ],
+      "open_spec_proposals": [],
+      "last_status_actor": "a-human",
+      "last_status_at": "2026-09-14T02:00:00+00:00",
+      "transition_count": 0
+    },
+    "expected": {
+      "action": "noop",
+      "reason": "human override"
+    }
+  },
+  {
+    "name": "human status change older than 24h no longer blocks",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 3,
+      "item_id": "PVTI_3",
+      "current_status": "Todo",
+      "has_ignore_label": false,
+      "linked_prs": [
+        {
+          "number": 30,
+          "title": "Fix issue 3",
+          "state": "MERGED",
+          "merged": true,
+          "merged_at": "2026-09-12T00:00:00+00:00",
+          "is_draft": false,
+          "head_ref_name": "fix-3"
+        }
+      ],
+      "open_spec_proposals": [],
+      "last_status_actor": "a-human",
+      "last_status_at": "2026-09-12T00:00:00+00:00",
+      "transition_count": 0
+    },
+    "expected": {
+      "action": "set_done",
+      "reason": "PR merged, none open"
+    }
+  },
+  {
+    "name": "the agent's own prior status change is never a human override",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 4,
+      "item_id": "PVTI_4",
+      "current_status": "In Progress",
+      "has_ignore_label": false,
+      "linked_prs": [
+        {
+          "number": 40,
+          "title": "Fix issue 4",
+          "state": "MERGED",
+          "merged": true,
+          "merged_at": "2026-09-14T11:00:00+00:00",
+          "is_draft": false,
+          "head_ref_name": "fix-4"
+        }
+      ],
+      "open_spec_proposals": [],
+      "last_status_actor": "issue-reconciler",
+      "last_status_at": "2026-09-14T11:30:00+00:00",
+      "transition_count": 1
+    },
+    "expected": {
+      "action": "set_done",
+      "reason": "PR merged, none open"
+    }
+  },
+  {
+    "name": "flapping halts automatic transitions",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 5,
+      "item_id": "PVTI_5",
+      "current_status": "In Progress",
+      "has_ignore_label": false,
+      "linked_prs": [
+        {
+          "number": 50,
+          "title": "Fix issue 5",
+          "state": "OPEN",
+          "merged": false,
+          "merged_at": null,
+          "is_draft": false,
+          "head_ref_name": "fix-5"
+        }
+      ],
+      "open_spec_proposals": [],
+      "last_status_actor": "issue-reconciler",
+      "last_status_at": "2026-09-10T00:00:00+00:00",
+      "transition_count": 3
+    },
+    "expected": {
+      "action": "flag",
+      "reason": "flapping"
+    }
+  },
+  {
+    "name": "merged with nothing open closes the issue",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 6,
+      "item_id": "PVTI_6",
+      "current_status": "In Progress",
+      "has_ignore_label": false,
+      "linked_prs": [
+        {
+          "number": 60,
+          "title": "Fix issue 6",
+          "state": "MERGED",
+          "merged": true,
+          "merged_at": "2026-09-14T00:00:00+00:00",
+          "is_draft": false,
+          "head_ref_name": "fix-6"
+        },
+        {
+          "number": 61,
+          "title": "Abandoned alternative for issue 6",
+          "state": "CLOSED",
+          "merged": false,
+          "merged_at": null,
+          "is_draft": false,
+          "head_ref_name": "alt-6"
+        }
+      ],
+      "open_spec_proposals": [],
+      "last_status_actor": null,
+      "last_status_at": null,
+      "transition_count": 1
+    },
+    "expected": {
+      "action": "set_done",
+      "reason": "PR merged, none open"
+    }
+  },
+  {
+    "name": "a merged PR alongside a still-open PR is flagged, not auto-closed",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 7,
+      "item_id": "PVTI_7",
+      "current_status": "In Progress",
+      "has_ignore_label": false,
+      "linked_prs": [
+        {
+          "number": 70,
+          "title": "First fix for issue 7",
+          "state": "MERGED",
+          "merged": true,
+          "merged_at": "2026-09-13T00:00:00+00:00",
+          "is_draft": false,
+          "head_ref_name": "fix-7a"
+        },
+        {
+          "number": 71,
+          "title": "Follow-up for issue 7",
+          "state": "OPEN",
+          "merged": false,
+          "merged_at": null,
+          "is_draft": false,
+          "head_ref_name": "fix-7b"
+        }
+      ],
+      "open_spec_proposals": [],
+      "last_status_actor": null,
+      "last_status_at": null,
+      "transition_count": 0
+    },
+    "expected": {
+      "action": "flag",
+      "reason": "mixed PR states"
+    }
+  },
+  {
+    "name": "an open draft PR marks the issue in progress",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 8,
+      "item_id": "PVTI_8",
+      "current_status": "Todo",
+      "has_ignore_label": false,
+      "linked_prs": [
+        {
+          "number": 80,
+          "title": "WIP for issue 8",
+          "state": "OPEN",
+          "merged": false,
+          "merged_at": null,
+          "is_draft": true,
+          "head_ref_name": "wip-8"
+        }
+      ],
+      "open_spec_proposals": [],
+      "last_status_actor": null,
+      "last_status_at": null,
+      "transition_count": 0
+    },
+    "expected": {
+      "action": "set_in_progress",
+      "reason": "PR open"
+    }
+  },
+  {
+    "name": "an OpenSpec proposal with no PR yet marks the issue in progress",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 9,
+      "item_id": "PVTI_9",
+      "current_status": "Todo",
+      "has_ignore_label": false,
+      "linked_prs": [],
+      "open_spec_proposals": [
+        "openspec/changes/add-issue-9-fix"
+      ],
+      "last_status_actor": null,
+      "last_status_at": null,
+      "transition_count": 0
+    },
+    "expected": {
+      "action": "set_in_progress",
+      "reason": "OpenSpec proposal in flight"
+    }
+  },
+  {
+    "name": "no evidence at all is a noop",
+    "now": "2026-09-14T12:00:00+00:00",
+    "evidence": {
+      "issue_number": 12,
+      "item_id": "PVTI_12",
+      "current_status": "Todo",
+      "has_ignore_label": false,
+      "linked_prs": [],
+      "open_spec_proposals": [],
+      "last_status_actor": null,
+      "last_status_at": null,
+      "transition_count": 0
+    },
+    "expected": {
+      "action": "noop",
+      "reason": "no evidence"
+    }
+  }
+]
