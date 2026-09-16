@@ -58,22 +58,8 @@ Other conventions worth knowing up front (also in `openspec/config.yaml`):
 - Tasks are tracked in each change's `tasks.md` (checkbox state), and the corresponding GitHub
   issue mirrors that checklist for human visibility — not a separate source of truth.
 
-## Creating pull requests
+## Workflow rules
 
-These rules apply to every PR opened for this repo, without needing to be separately invoked:
-
-- **Every PR must reference the GitHub issue it addresses.** Find it, in order, from: the branch
-  name, commit messages (`Closes #N`, `Fixes #N`, a plain `#N`), the linked OpenSpec change's
-  issue, or conversation context. If none of these give a confident match, stop and ask the user
-  which issue it is — never guess an issue number or open a PR with no issue link. Confirm with
-  the user whether to use `Closes #N` or `Relates to #N`, unless they've already stated it.
-- **`/code-review` must return `Ready to merge: yes` before the PR is opened** (the review contract
-  above). Ask the user whether review has already passed; don't run `/code-review` yourself
-  without asking first, since it has a real token cost the user controls. If they decline review
-  and still want to proceed, don't silently open it anyway — either an explicit `gh pr create
-  --draft` (openly unreviewed) or stop.
-- `pytest` should pass for the whole project before opening the PR, not just before archiving.
-- Keep PR descriptions lean: a short "what changed" summary plus the issue reference — no
-  exhaustive changelog.
-- This repo's upstream is `awais786/ai-on-boarding`; PRs are typically pushed to a fork first,
-  then opened against `awais786/ai-on-boarding:main`.
+`.claude/rules/` holds detailed, workflow-specific rule sets that apply automatically without
+being separately invoked — e.g. `.claude/rules/pull-requests.md` for PR creation. Read the
+relevant file before starting that workflow.
