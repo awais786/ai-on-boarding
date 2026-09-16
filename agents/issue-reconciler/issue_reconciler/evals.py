@@ -317,25 +317,32 @@ def _score(spoke: str, name: str, key: str, expected: object, verdict: dict | No
     }
 
 
+def _run_case(spoke: str, name: str, key: str, expected: object, fn, *args: object) -> dict:
+    """A transient anthropic.APIError (rate limit, overload) fails just this
+    case instead of losing every already-billed result collected so far.
+    """
+    try:
+        verdict = fn(*args)
+    except anthropic.APIError as exc:
+        return {"spoke": spoke, "case": name, "expected": expected, "actual": None, "ok": False, "reasoning": f"API error: {exc}"}
+    return _score(spoke, name, key, expected, verdict)
+
+
 def main() -> int:
     client = anthropic.Anthropic()
     rows: list[dict] = []
 
     for name, issue_title, linked_prs, expected in COMPLETION_CASES:
-        verdict = completion_check(client, issue_title, linked_prs)
-        rows.append(_score("completion_check", name, "fully_resolved", expected, verdict))
+        rows.append(_run_case("completion_check", name, "fully_resolved", expected, completion_check, client, issue_title, linked_prs))
 
     for name, issue_title, pr, expected in ACTIVITY_CASES:
-        verdict = activity_check(client, issue_title, pr, NOW)
-        rows.append(_score("activity_check", name, "status", expected, verdict))
+        rows.append(_run_case("activity_check", name, "status", expected, activity_check, client, issue_title, pr, NOW))
 
     for name, issue_title, pr, expected in REFERENCE_CASES:
-        verdict = reference_validation(client, issue_title, pr)
-        rows.append(_score("reference_validation", name, "matches", expected, verdict))
+        rows.append(_run_case("reference_validation", name, "matches", expected, reference_validation, client, issue_title, pr))
 
     for name, issue_title, linked_prs, expected in STALE_CASES:
-        verdict = stale_or_superseded_check(client, issue_title, linked_prs)
-        rows.append(_score("stale_or_superseded_check", name, "superseded", expected, verdict))
+        rows.append(_run_case("stale_or_superseded_check", name, "superseded", expected, stale_or_superseded_check, client, issue_title, linked_prs))
 
     print(f"Model: {MODEL}\n")
     print("| Spoke | Case | Expected | Actual | Result | Reasoning |")
