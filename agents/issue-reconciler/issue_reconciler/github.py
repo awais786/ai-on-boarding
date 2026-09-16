@@ -69,7 +69,7 @@ _BOARD_QUERY = """
             }
             content {
               __typename
-              ... on Issue { number repository { name } }
+              ... on Issue { number repository { nameWithOwner } }
             }
           }
         }
@@ -85,9 +85,10 @@ def fetch_board_items(client: GitHubClient) -> list[BoardItem]:
     """
     nodes = _paginate(client, _BOARD_QUERY, {"projectId": PROJECT_ID}, lambda data: (data.get("node") or {}).get("items"))
     items: list[BoardItem] = []
+    expected_repo = f"{REPO_OWNER}/{REPO_NAME}"
     for node in nodes:
         content = node.get("content") or {}
-        if content.get("__typename") != "Issue" or (content.get("repository") or {}).get("name") != REPO_NAME:
+        if content.get("__typename") != "Issue" or (content.get("repository") or {}).get("nameWithOwner") != expected_repo:
             continue
         status = node.get("status")
         items.append({"item_id": node["id"], "issue_number": content["number"], "status": status["name"] if status else None})

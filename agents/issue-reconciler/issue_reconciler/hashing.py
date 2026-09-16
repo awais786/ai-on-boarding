@@ -36,9 +36,22 @@ def parse_fingerprint(comment_body: str) -> Fingerprint | None:
     return {"run_id": run_id, "decision": decision, "evidence_hash": evidence_hash}
 
 
+_TRANSITION_HISTORY_FIELDS = ("last_status_actor", "last_status_at", "transition_count")
+
+
 def hash_evidence(evidence: Evidence) -> str:
     """json.dumps(sort_keys=True) recurses into nested lists-of-dicts too,
     so this stays stable regardless of key insertion order.
+
+    Excludes last_status_actor/last_status_at/transition_count: those are
+    derived from the bot's own prior comments (board_history), so they
+    change on every run that writes a comment - hashing them would make
+    "unchanged evidence" never match after the bot's first write, and a
+    steady, still-open PR would get a fresh in-progress comment every run
+    until it looked like flapping. current_status stays in the hash: it's
+    genuinely external state (and still forces a retry if a mutation
+    partially failed, e.g. status set but close failed).
     """
-    canonical = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+    hashed = {k: v for k, v in evidence.items() if k not in _TRANSITION_HISTORY_FIELDS}
+    canonical = json.dumps(hashed, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()

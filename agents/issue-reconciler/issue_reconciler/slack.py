@@ -51,7 +51,10 @@ def build_summary(processed: list[dict]) -> str | None:
     if not lines:
         return None
 
-    untouched = sum(1 for p in processed if p.get("evidence") and not p["evidence"]["linked_prs"])
+    # "Untouched" means no linked PR *and* nothing else happened either (e.g.
+    # not an OpenSpec-proposal-driven set_in_progress with no PR yet) -
+    # otherwise an issue could be counted as both changed and untouched.
+    untouched = sum(1 for p in processed if p["decision"]["action"] == "noop" and p.get("evidence") and not p["evidence"]["linked_prs"])
     header = f"Issue reconciler ran on {len(processed)} issue(s), {len(lines)} changed, {untouched} untouched (no linked PR):"
     return f"{header}\n" + "\n".join(lines)
 

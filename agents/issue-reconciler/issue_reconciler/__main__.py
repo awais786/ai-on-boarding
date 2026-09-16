@@ -51,25 +51,47 @@ def main() -> int:
         now=now,
     )
 
-    for issue in result["processed"]:
-        decision = issue["decision"]
-        if issue["skipped"] or not should_comment(decision):
-            continue
+    # A circuit-broken run stops writing entirely (plan: "stop writing"),
+    # not just its exit code - any decision reached before the breaker
+    # tripped still describes work that was never actually posted/mutated.
+    failed_issue_numbers: set[int] = set()
+    if not result["circuit_broken"]:
+        for issue in result["processed"]:
+            decision = issue["decision"]
+            if issue["skipped"] or not should_comment(decision):
+                continue
 
-        ctx = CommentContext(run_id=run_id, evidence_hash=issue["evidence_hash"], logs_url=logs_url, now=now, dry_run=dry_run)
-        body = build_comment_body(decision, issue["evidence"], ctx)
-        post_comment(github_client, issue["issue_node_id"], body)
+            try:
+                ctx = CommentContext(run_id=run_id, evidence_hash=issue["evidence_hash"], logs_url=logs_url, now=now, dry_run=dry_run)
+                body = build_comment_body(decision, issue["evidence"], ctx)
+                post_comment(github_client, issue["issue_node_id"], body)
 
-        if not dry_run:
-            mutate(github_client, issue["evidence"]["item_id"], issue["issue_node_id"], decision, issue["evidence"]["current_status"])
+                if not dry_run:
+                    mutate(github_client, issue["evidence"]["item_id"], issue["issue_node_id"], decision, issue["evidence"]["current_status"])
+            except Exception as error:  # one issue's write failure must not lose every other issue's already-persisted state
+                failed_issue_numbers.add(issue["issue_number"])
+                print(f"issue #{issue['issue_number']}: write failed: {error}", file=sys.stderr)
+
+    # The run log is the idempotency source of truth for "unchanged evidence"
+    # - an entry may only count as seen once its write actually happened. A
+    # dry run writes nothing for real; a circuit-broken run wrote nothing at
+    # all; a per-issue failure above means that one issue's write didn't
+    # happen either. In every one of those cases the entry must be dropped,
+    # or the next run silently skips work that was never actually done.
+    writes_are_real = not dry_run and not result["circuit_broken"]
+    run_log = [
+        entry
+        for entry in result["run_log"]
+        if entry["run_id"] != run_id or (writes_are_real and entry["issue_number"] not in failed_issue_numbers)
+    ]
+
+    save_json(LEASES_PATH, result["lease_state"])
+    save_json(RUNLOG_PATH, run_log)
 
     summary = build_summary(result["processed"])
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if summary and webhook_url:
         post_summary(webhook_url, summary)
-
-    save_json(LEASES_PATH, result["lease_state"])
-    save_json(RUNLOG_PATH, result["run_log"])
 
     print(f"run {run_id}: processed {len(result['processed'])}, failed {len(result['failed'])}, circuit_broken {result['circuit_broken']}")
     return 1 if result["circuit_broken"] else 0

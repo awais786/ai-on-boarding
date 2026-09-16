@@ -110,8 +110,11 @@ def mutate(client: GitHubClient, item_id: str | None, issue_node_id: str, decisi
     """The one status/close/label mutation `decision` calls for - skipped
     entirely if the board status moved since evidence was gathered
     (Projects v2 has no compare-and-set, so this is the read-then-write
-    check). set_done sets status before closing: if the close fails, the
-    board is already correct and the next run reconciles the issue.
+    check). set_done sets status before closing: if the close fails and
+    there's a board item, the board is already correct and current_status
+    (part of the evidence hash) forces a retry next run; without a board
+    item there's no such signal, so the close error must propagate instead
+    - otherwise the issue silently never gets a second chance to close.
 
     item_id is None for an issue that isn't on the project board - there's
     no board field to drift-check or set, so set_in_progress becomes a
@@ -124,10 +127,12 @@ def mutate(client: GitHubClient, item_id: str | None, issue_node_id: str, decisi
     if decision["action"] == "set_done":
         if item_id is not None:
             client.query(_SET_STATUS, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optionId": STATUS_OPTIONS["Done"]})
-        try:
+            try:
+                client.query(_CLOSE_ISSUE, {"issueId": issue_node_id})
+            except Exception:  # noqa: S110 - board is already correct; the next run reconciles the issue
+                pass
+        else:
             client.query(_CLOSE_ISSUE, {"issueId": issue_node_id})
-        except Exception:  # noqa: S110 - board is already correct; the next run reconciles the issue
-            pass
     elif decision["action"] == "set_in_progress":
         if item_id is not None:
             client.query(_SET_STATUS, {"projectId": PROJECT_ID, "itemId": item_id, "fieldId": STATUS_FIELD_ID, "optionId": STATUS_OPTIONS["In Progress"]})

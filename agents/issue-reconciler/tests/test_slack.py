@@ -44,6 +44,16 @@ def test_summary_counts_untouched_issues_with_no_linked_pr():
     assert "4 issue(s), 1 changed, 2 untouched (no linked PR)" in summary
 
 
+def test_an_issue_changed_via_openspec_with_no_pr_is_not_also_counted_as_untouched():
+    """A set_in_progress from an OpenSpec proposal has no linked PR, but it
+    was still a real, reported change - it must not double-count as
+    "untouched" in the same header that already lists it as changed.
+    """
+    processed = [_issue(issue_number=1, decision={"action": "set_in_progress", "reason": "OpenSpec proposal in flight"}, evidence={"linked_prs": []})]
+    summary = build_summary(processed)
+    assert "1 issue(s), 1 changed, 0 untouched (no linked PR)" in summary
+
+
 def test_flag_summary_links_every_linked_pr():
     prs = [{"number": 16, "merged": True, "state": "MERGED"}, {"number": 17, "merged": False, "state": "OPEN"}]
     processed = [_issue(issue_number=9, decision={"action": "flag", "reason": "mixed PR states"}, evidence={"linked_prs": prs})]

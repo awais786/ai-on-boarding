@@ -47,6 +47,7 @@ jobs:
           python -m issue_reconciler ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run == false) && '--no-dry-run' || '' }}
 
       - name: Commit lease/run-log state
+        if: always()
         working-directory: agents/issue-reconciler
         run: |
           git config user.name "issue-reconciler"

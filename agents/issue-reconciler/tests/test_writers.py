@@ -90,6 +90,41 @@ def test_set_done_off_board_skips_status_and_still_closes():
     assert calls[0]["query"].startswith("mutation CloseIssue")
 
 
+def test_set_done_off_board_propagates_a_close_failure():
+    """Off-board, current_status is always None, so a failed close has no
+    self-healing signal (unlike on-board, where the status field forces a
+    retry via the evidence hash) - the error must propagate so the caller
+    knows this issue's write didn't fully succeed.
+    """
+
+    def raise_error(_variables):
+        raise RuntimeError("close failed")
+
+    client, _ = make_routed_client([("CloseIssue", raise_error)])
+    with pytest.raises(RuntimeError, match="close failed"):
+        mutate(client, None, "I_1", {"action": "set_done", "reason": "x"}, expected_status=None)
+
+
+def test_set_done_on_board_still_swallows_a_close_failure():
+    """On-board, current_status flipping to Done is enough to force a retry
+    next run via the evidence hash, so a close failure here stays swallowed
+    - this is the one case where "the board is already correct" holds.
+    """
+
+    def raise_error(_variables):
+        raise RuntimeError("close failed")
+
+    client, calls = make_routed_client(
+        [
+            ("CurrentStatus", {"node": {"status": {"name": "In Progress"}}}),
+            ("SetStatus", {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "PVTI_1"}}}),
+            ("CloseIssue", raise_error),
+        ]
+    )
+    mutate(client, "PVTI_1", "I_1", {"action": "set_done", "reason": "x"}, expected_status="In Progress")
+    assert len(calls) >= 2  # CurrentStatus + SetStatus ran; close was attempted and swallowed
+
+
 def test_set_in_progress_off_board_is_a_complete_no_op():
     client, calls = make_routed_client([])
     mutate(client, None, "I_1", {"action": "set_in_progress", "reason": "x"}, expected_status=None)

@@ -46,6 +46,18 @@ def _is_retryable_graphql_error(errors: Any) -> bool:
     return any(isinstance(e, dict) and e.get("type") == "RATE_LIMITED" for e in errors)
 
 
+def _is_rate_limit_403(response: Any) -> bool:
+    """A 403 is only ever rate-limiting if the response carries actual
+    rate-limit evidence (a retry-after header, or GitHub's exhausted-quota
+    header). A plain 403 with neither is a permission problem (e.g. a
+    misscoped BOARD_TOKEN) - retrying that just burns four attempts and
+    reports a misleading "rate limited" error instead of the real cause.
+    """
+    if response.headers.get("retry-after"):
+        return True
+    return response.headers.get("x-ratelimit-remaining") == "0"
+
+
 class GitHubClient:
     def __init__(
         self,
@@ -77,11 +89,14 @@ class GitHubClient:
                     },
                 )
 
-                if response.status_code in (403, 429):
+                if response.status_code == 429 or (response.status_code == 403 and _is_rate_limit_403(response)):
                     retry_after = response.headers.get("retry-after")
                     last_error = RuntimeError(f"rate limited (status {response.status_code})")
                     self._backoff(attempt, floor=float(retry_after) if retry_after else None)
                     continue
+
+                if response.status_code == 403:
+                    raise FatalHTTPError(f"GitHub API request forbidden (status 403): {response.reason}")
 
                 if response.status_code >= 500:
                     last_error = RuntimeError(f"transient server error (status {response.status_code})")
