@@ -57,3 +57,9 @@ Other conventions worth knowing up front (also in `openspec/config.yaml`):
   removed one is marked `REMOVED` with a reason, never silently deleted or renumbered.
 - Tasks are tracked in each change's `tasks.md` (checkbox state), and the corresponding GitHub
   issue mirrors that checklist for human visibility — not a separate source of truth.
+
+## Workflow rules
+
+`.claude/rules/` holds detailed, workflow-specific rule sets that apply automatically without
+being separately invoked — e.g. `.claude/rules/pull-requests.md` for PR creation. Read the
+relevant file before starting that workflow.
