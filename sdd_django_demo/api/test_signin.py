@@ -2,11 +2,11 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
-from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
+from api.factories import create_member
 from api.models import SigninAttempt
 from embargo.models import BlockedCountry
 from embargo.rules import record_account_country
@@ -19,29 +19,33 @@ def client():
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(
-        username='ada', email='ada@example.com', password='lovelace1'
-    )
+    return create_member(username='ada', email='ada@example.com', password='lovelace1')
 
 
 def create_account(username='ada', email='ada@example.com', password='lovelace1', country=None):
-    account = User.objects.create_user(username=username, email=email, password=password)
+    account = create_member(username=username, email=email, password=password)
     if country is not None:
         record_account_country(account, country)
     return account
 
 
-def signin(client, email_or_username='ada@example.com', password='lovelace1'):
+def signin(client, email_or_username='ada@example.com', password='lovelace1', organization='acme'):
     return client.post(
         '/api/signin/',
-        {'email_or_username': email_or_username, 'password': password},
+        {
+            'organization': organization,
+            'email_or_username': email_or_username,
+            'password': password,
+        },
         format='json',
     )
 
 
 @pytest.mark.django_db
 def test_signin_requires_email_or_username(client):
-    response = client.post('/api/signin/', {'password': 'lovelace1'}, format='json')
+    response = client.post(
+        '/api/signin/', {'organization': 'acme', 'password': 'lovelace1'}, format='json'
+    )
 
     assert response.status_code == 401
     assert 'email_or_username' in response.data
@@ -50,7 +54,9 @@ def test_signin_requires_email_or_username(client):
 @pytest.mark.django_db
 def test_signin_requires_password(client, user):
     response = client.post(
-        '/api/signin/', {'email_or_username': 'ada@example.com'}, format='json'
+        '/api/signin/',
+        {'organization': 'acme', 'email_or_username': 'ada@example.com'},
+        format='json',
     )
 
     assert response.status_code == 401
@@ -164,7 +170,7 @@ def test_signin_lockout_expires_after_30_minutes(client, user):
     for _ in range(3):
         signin(client, 'ada@example.com', password='wrongpassword')
 
-    attempt = SigninAttempt.objects.get(email_or_username='ada@example.com')
+    attempt = SigninAttempt.objects.get(email_or_username='acme|ada@example.com')
     attempt.last_failed_at = timezone.now() - timedelta(minutes=31)
     attempt.save()
 
@@ -190,7 +196,7 @@ def test_signin_success_resets_failure_count(client, user):
     signin(client, 'ada@example.com', password='wrongpassword')
     signin(client, 'ada@example.com', password='lovelace1')
 
-    attempt = SigninAttempt.objects.get(email_or_username='ada@example.com')
+    attempt = SigninAttempt.objects.get(email_or_username='acme|ada@example.com')
     assert attempt.failed_count == 0
 
     # After a reset, two more failures should not trigger lockout yet.
@@ -280,4 +286,4 @@ def test_signin_embargo_rejection_does_not_increment_failure_count(client):
 
     signin(client)
 
-    assert not SigninAttempt.objects.filter(email_or_username='ada@example.com').exists()
+    assert not SigninAttempt.objects.filter(email_or_username='acme|ada@example.com').exists()

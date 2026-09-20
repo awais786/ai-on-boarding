@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from api import views
+from api.factories import create_member
 from api.models import PasswordResetCode, hash_reset_code
 
 EMAIL = 'ada@example.com'
@@ -37,11 +38,13 @@ def client():
 
 @pytest.fixture
 def account():
-    return User.objects.create_user(username=EMAIL, email=EMAIL, password=OLD_PASSWORD)
+    return create_member(username='ada', email=EMAIL, password=OLD_PASSWORD)
 
 
-def request_reset(client, email=EMAIL):
-    return client.post('/api/password-reset/', {'email': email}, format='json')
+def request_reset(client, email=EMAIL, organization='acme'):
+    return client.post(
+        '/api/password-reset/', {'organization': organization, 'email': email}, format='json'
+    )
 
 
 def confirm(client, code, password=NEW_PASSWORD):
@@ -80,7 +83,7 @@ def test_reset_request_with_an_email_is_accepted(client):
 
 @pytest.mark.django_db
 def test_reset_request_without_an_email_names_the_email_field(client):
-    response = client.post('/api/password-reset/', {}, format='json')
+    response = client.post('/api/password-reset/', {'organization': 'acme'}, format='json')
 
     assert response.status_code == 400
     assert 'email' in response.data
@@ -155,7 +158,10 @@ def test_the_link_host_comes_from_the_setting_not_the_request(
     settings.ALLOWED_HOSTS = ['*']
 
     client.post(
-        '/api/password-reset/', {'email': EMAIL}, format='json', HTTP_HOST='evil.example.com'
+        '/api/password-reset/',
+        {'organization': 'acme', 'email': EMAIL},
+        format='json',
+        HTTP_HOST='evil.example.com',
     )
 
     assert 'evil.example.com' not in link_from(mailoutbox)
@@ -197,10 +203,8 @@ def test_a_failure_issuing_the_code_does_not_make_addresses_distinguishable(
 
 @pytest.mark.django_db
 def test_an_account_stored_with_mixed_case_still_receives_a_link(client, mailoutbox):
-    """Regression: accounts made outside signup keep the case they were created with."""
-    User.objects.create_user(
-        username='mixed@example.com', email='Ada@Example.COM', password=OLD_PASSWORD
-    )
+    """Regression: an address stored in a different case is still found."""
+    create_member(username='mixed', email='Ada@Example.COM', password=OLD_PASSWORD)
 
     request_reset(client, 'ada@example.com')
 
@@ -796,7 +800,7 @@ def test_malformed_bodies_are_not_a_way_around_the_limit(client, account, mailou
 @pytest.mark.django_db
 def test_the_limit_is_per_address_not_global(client, account, mailoutbox):
     """One address being limited must not stop a different person resetting."""
-    User.objects.create_user(username='grace@example.com', email='grace@example.com')
+    create_member(username='grace', email='grace@example.com')
     for _ in range(8):
         request_reset(client, EMAIL)
     before = len(mailoutbox)

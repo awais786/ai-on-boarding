@@ -30,7 +30,7 @@ of what this suite protects lives inside that logic, not only in `GoogleAuthView
 """
 
 import pytest
-from django.contrib.auth.models import User
+from api.factories import create_member
 from rest_framework.test import APIClient
 
 from embargo.rules import record_account_country
@@ -93,7 +93,7 @@ def refusing(monkeypatch):
 
 
 def create_account(username='ada', email='ada@example.com', password='lovelace1'):
-    return User.objects.create_user(username=username, email=email, password=password)
+    return create_member(username=username, email=email, password=password)
 
 
 # --- Sign in with a verified Google access token ------------------------------
@@ -184,8 +184,8 @@ def test_no_matching_account_is_rejected(client, monkeypatch):
 
 @pytest.mark.django_db
 def test_more_than_one_matching_account_is_rejected(client, monkeypatch):
-    User.objects.create_user(username='ada1', email='ADA@example.com', password='lovelace1')
-    User.objects.create_user(username='ada2', email='ada@example.com', password='lovelace2')
+    create_member(username='ada1', email='ADA@example.com', organization='acme')
+    create_member(username='ada2', email='ada@example.com', organization='globex')
     accepting(monkeypatch, google_claims(email='ada@example.com'))
 
     response = sign_in_with_google(client)

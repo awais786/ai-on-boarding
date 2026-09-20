@@ -22,10 +22,10 @@ Each requirement and what a test needs to observe to protect it:
 """
 
 import pytest
-from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
+from api.factories import create_member
 from embargo.rules import record_account_country
 
 
@@ -35,7 +35,7 @@ def client():
 
 
 def create_account(username, email=None, password='lovelace1', country=None, is_staff=False):
-    account = User.objects.create_user(
+    account = create_member(
         username=username, email=email or f'{username}@example.com',
         password=password, is_staff=is_staff,
     )
@@ -203,7 +203,7 @@ def test_an_admin_resets_a_valid_password():
     account = create_account('ada')
     admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = change_password(admin_client, account.username, 'new-password-1')
+    response = change_password(admin_client, 'ada', 'new-password-1')
 
     assert response.status_code == 200
     account.refresh_from_db()
@@ -271,7 +271,7 @@ def test_a_successful_reset_response_never_contains_the_new_password():
     account = create_account('ada')
     admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = change_password(admin_client, account.username, 'new-password-1')
+    response = change_password(admin_client, 'ada', 'new-password-1')
 
     assert 'new-password-1' not in str(response.data)
 

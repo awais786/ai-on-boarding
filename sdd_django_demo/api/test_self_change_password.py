@@ -14,18 +14,17 @@ Each scenario and what a test needs to observe to protect it:
 """
 
 import pytest
-from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
+
+from api.factories import create_member
 
 CURRENT_PASSWORD = 'lovelace1'
 
 
 @pytest.fixture
 def account():
-    return User.objects.create_user(
-        username='ada', email='ada@example.com', password=CURRENT_PASSWORD
-    )
+    return create_member(username='ada', email='ada@example.com', password=CURRENT_PASSWORD)
 
 
 def authed_client(user):

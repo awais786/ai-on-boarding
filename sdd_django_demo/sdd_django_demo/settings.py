@@ -72,6 +72,10 @@ INSTALLED_APPS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Token only. DRF's default would also admit session and basic authentication, which
+    # know nothing about organizations - an operator's Django-admin session could then
+    # reach tenant endpoints.
+    'DEFAULT_AUTHENTICATION_CLASSES': ['api.authentication.TenantTokenAuthentication'],
     # Keyed on the submitted email address, not the caller: the harm this caps is
     # done to an account, and every request supersedes that account's previous
     # code. See the change's design.md.
