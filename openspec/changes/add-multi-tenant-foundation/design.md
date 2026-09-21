@@ -159,8 +159,9 @@ organization; the organization is that of the one matching account.
 *Traces to:* Create organizations only through an operator command; Issue a join code once; Let an
 operator deactivate an organization.
 
-`create_organization <name> <slug>` and `rotate_join_code <slug>` generate a code, store its
-digest and print the code once. Deactivating and reactivating an organization is done by
+`create_organization <name> <slug> <domain>` and `rotate_join_code <slug>` generate a code, store
+its digest and print the code once; the first also creates the organization's `Site` (D10) in the
+same transaction, and refuses a domain that carries a scheme or a path. Deactivating and reactivating an organization is done by
 toggling `is_active` in the Django admin, where `Organization` is registered without exposing the
 digest. No API endpoint touches organizations, so the "no public endpoint" requirement holds by
 absence.
@@ -169,13 +170,47 @@ absence.
 *Traces to:* Move existing users into a default organization.
 
 One schema migration adds `Organization` and `Membership`; a data migration creates the
-`default` organization (blank join digest) and one `Membership` per existing user with lowercased
+`default` organization (blank join digest; its `Site` is added by D10's migration) and one `Membership` per existing user with lowercased
 email and username. If two existing users would collide within the default organization (not expected while the old
 unique index held, but checked because it was only created by a hook) the
 migration stops with a message naming them, rather than choosing between them. The reverse
 migration deletes the memberships and the default organization. Both new unique constraints double as the
 composite indexes for tenant-scoped lookups; the slug unique index and the foreign-key index cover
 the rest.
+
+### D10. Each organization has a `Site`, used for its domain
+*Traces to:* Give every organization a unique domain; Deliver the reset link as an absolute address.
+
+Added after review: `django.contrib.sites` is Django's own model for "a website this deployment
+serves", so an organization's domain lives there rather than in a second bespoke column.
+`Organization.site` is a required one-to-one to `Site` (`PROTECT`, so a `Site` in use cannot be
+deleted from under an organization). `Site.domain` is already unique in the database, which is the
+uniqueness requirement; `Site.name` is set to the organization's name at creation and is not kept in
+sync afterwards, since nothing renames an organization.
+
+The reset link is built from the account's organization: the scheme and any path prefix still come
+from `RESET_LINK_BASE_URL`, and the host is replaced by `organization.site.domain`. The host is read
+from the database, never from the request, so the protection against a forged `Host` header is
+unchanged. `SITE_ID` is not set and `get_current_site` is never called: nothing here asks "which
+site is this request for".
+
+*Why a bare `Site` is not the tenant model:* the issue requires a slug, created/updated timestamps
+and an active/inactive status, and `Site` has none of them. Those would have to live in a second
+model anyway, so the tenant is `Organization` and `Site` is what it points at.
+
+*Why the tenant is not resolved from the request host:* that is what `Site` is classically used for
+(`acme.example.com` selects Acme). It was rejected in favour of the `organization` body slug
+because it needs wildcard DNS and host configuration, makes local development and tests harder, and
+would change every unauthenticated endpoint. Nothing here prevents adding it later.
+
+*Migration:* Django's sites app seeds an `example.com` row, which is left alone. A migration adds the
+column as nullable, gives the existing `default` organization a `Site` whose domain is the host of
+`RESET_LINK_BASE_URL` (reusing a row with that domain if one exists), then makes the column
+required. Any other organization still without one (only possible when re-applying after a
+rollback, which drops the link) gets a placeholder `<slug>.invalid` `Site` for an operator to fix in
+the admin, so the migration completes instead of failing on a NOT NULL. It depends on the sites
+app's migrations. Reverse removes the column and the `Site` it
+created.
 
 ## Risks / Trade-offs
 
@@ -193,13 +228,17 @@ the rest.
   transaction at creation and having no edit path; a future email-change feature must update both.
 - **Timing side-channel on unknown vs known account in signin** (no password hash is computed
   for an unknown account) → already true before this change and not widened by it; not addressed here.
+- **Two identities per organization (slug and domain)** → they only ever meet in the reset link, and
+  nothing derives one from the other, so they cannot contradict each other; the domain is the
+  operator's responsibility to point at a host that really serves the reset page.
 - **Unfinished sibling changes** (`add-self-service-password-change`,
   `harden-google-auth-endpoints`) touch the same files → apply against current `main`, and
   rebase if they land first.
 
 ## Migration Plan
 
-1. Deploy schema migration, then data migration (default organization, memberships).
+1. Deploy the migrations (organizations and memberships, default organization, then the `Site`
+   link). The default organization's domain comes from `RESET_LINK_BASE_URL`.
 2. Operator runs `rotate_join_code default` if signup into the default organization is wanted.
-3. Operator creates further organizations with `create_organization`.
+3. Operator creates further organizations with `create_organization <name> <slug> <domain>`.
 4. Roll back by reversing both migrations; accounts and tokens are untouched.

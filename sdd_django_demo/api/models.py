@@ -4,6 +4,7 @@ import secrets
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.contrib.sites.models import Site
 from django.core.validators import RegexValidator
 from django.db import IntegrityError, models, transaction
 from django.utils import timezone
@@ -30,6 +31,9 @@ class Organization(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
+    # The organization's domain lives on a Site (unique in the database). Used for the host of
+    # reset links; the tenant is still named by slug, never resolved from the request host.
+    site = models.OneToOneField(Site, on_delete=models.PROTECT, related_name='organization')
     # SHA-256 of the join code; blank means signup into this organization is closed.
     join_code_digest = models.CharField(max_length=64, blank=True, default='')
 

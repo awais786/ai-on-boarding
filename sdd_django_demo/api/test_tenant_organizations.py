@@ -24,6 +24,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
+from django.contrib.sites.models import Site
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, connection, transaction
@@ -32,6 +33,13 @@ from rest_framework.test import APIClient
 
 from api.factories import create_member, make_organization
 from api.models import Membership, Organization
+
+
+def new_organization(slug, domain=None, **fields):
+    """Create an Organization straight through the ORM, with a Site of its own."""
+    domain = domain or f'{slug or "blank"}-{Site.objects.count()}.test'
+    site = Site.objects.create(domain=domain, name=slug)
+    return Organization.objects.create(name='Other', slug=slug, site=site, **fields)
 
 
 def run(command, *args):
@@ -72,10 +80,11 @@ def signin(client, organization, identifier='ada', password='lovelace1'):
 
 @pytest.mark.django_db
 def test_a_new_organization_is_active_and_carries_name_slug_and_timestamps():
-    run('create_organization', 'Acme Inc', 'acme')
+    run('create_organization', 'Acme Inc', 'acme', 'acme.example.com')
 
     organization = Organization.objects.get(slug='acme')
     assert organization.name == 'Acme Inc'
+    assert organization.site.domain == 'acme.example.com'
     assert organization.is_active is True
     assert organization.created_at is not None
     assert organization.updated_at is not None
@@ -89,7 +98,7 @@ def test_a_duplicate_slug_is_refused_by_the_database():
     make_organization('acme')
 
     with pytest.raises(IntegrityError), transaction.atomic():
-        Organization.objects.create(name='Other', slug='acme')
+        new_organization('acme')
 
     assert Organization.objects.filter(slug='acme').count() == 1
 
@@ -99,7 +108,7 @@ def test_a_slug_differing_only_in_case_is_refused():
     make_organization('acme')
 
     with pytest.raises(IntegrityError), transaction.atomic():
-        Organization.objects.create(name='Other', slug='ACME')
+        new_organization('ACME')
 
     assert Organization.objects.exclude(slug='default').count() == 1
 
@@ -108,17 +117,17 @@ def test_a_slug_differing_only_in_case_is_refused():
 @pytest.mark.parametrize('slug', ['acme_inc', 'acme inc', 'acme.inc', 'Acme', ''])
 def test_a_slug_with_a_disallowed_character_is_refused(slug):
     with pytest.raises(IntegrityError), transaction.atomic():
-        Organization.objects.create(name='Other', slug=slug)
+        new_organization(slug)
 
 
 @pytest.mark.django_db
 def test_the_command_refuses_a_duplicate_or_malformed_slug():
-    run('create_organization', 'Acme', 'acme')
+    run('create_organization', 'Acme', 'acme', 'acme.example.com')
 
     with pytest.raises(CommandError):
-        run('create_organization', 'Other', 'acme')
+        run('create_organization', 'Other', 'acme', 'other.example.com')
     with pytest.raises(CommandError):
-        run('create_organization', 'Other', 'Not_Valid')
+        run('create_organization', 'Other', 'Not_Valid', 'other.example.com')
 
     assert Organization.objects.exclude(slug='default').count() == 1
 
@@ -146,14 +155,14 @@ def test_no_api_route_creates_edits_or_deletes_an_organization():
 
 @pytest.mark.django_db
 def test_the_join_code_is_printed_at_creation_and_opens_signup():
-    output = run('create_organization', 'Acme', 'acme')
+    output = run('create_organization', 'Acme', 'acme', 'acme.example.com')
 
     assert signup(APIClient(), 'acme', printed_code(output)).status_code == 200
 
 
 @pytest.mark.django_db
 def test_the_stored_join_credential_is_not_the_code():
-    code = printed_code(run('create_organization', 'Acme', 'acme'))
+    code = printed_code(run('create_organization', 'Acme', 'acme', 'acme.example.com'))
 
     digest = Organization.objects.get(slug='acme').join_code_digest
     assert digest and digest != code
@@ -162,7 +171,7 @@ def test_the_stored_join_credential_is_not_the_code():
 
 @pytest.mark.django_db
 def test_no_later_command_reveals_the_code_again():
-    code = printed_code(run('create_organization', 'Acme', 'acme'))
+    code = printed_code(run('create_organization', 'Acme', 'acme', 'acme.example.com'))
 
     listing = run('rotate_join_code', 'acme')
 
@@ -171,7 +180,7 @@ def test_no_later_command_reveals_the_code_again():
 
 @pytest.mark.django_db
 def test_rotating_replaces_the_previous_code():
-    old = printed_code(run('create_organization', 'Acme', 'acme'))
+    old = printed_code(run('create_organization', 'Acme', 'acme', 'acme.example.com'))
     new = printed_code(run('rotate_join_code', 'acme'))
 
     assert new != old
@@ -342,3 +351,91 @@ def test_the_default_organization_starts_with_no_join_code_at_all(before_tenancy
     migrate_to_latest()
 
     assert Organization.objects.get(slug='default').join_code_digest == ''
+
+
+# Requirement: Give every organization a unique domain
+
+
+@pytest.mark.django_db
+def test_a_domain_already_taken_by_another_organization_is_refused():
+    run('create_organization', 'Acme', 'acme', 'shared.example.com')
+
+    with pytest.raises(CommandError):
+        run('create_organization', 'Globex', 'globex', 'shared.example.com')
+
+    assert not Organization.objects.filter(slug='globex').exists()
+
+
+@pytest.mark.django_db
+def test_the_database_itself_refuses_two_organizations_on_one_site():
+    first = make_organization('acme')
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Organization.objects.create(name='Twin', slug='twin', site=first.site)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    'domain',
+    ['https://acme.example.com', 'acme.example.com/app', 'http://acme.example.com/app', ' '],
+)
+def test_a_domain_that_is_not_a_bare_host_is_refused(domain):
+    with pytest.raises(CommandError):
+        run('create_organization', 'Acme', 'acme', domain)
+
+    assert not Organization.objects.filter(slug='acme').exists()
+    assert not Site.objects.filter(name='Acme').exists()
+
+
+@pytest.mark.django_db
+def test_an_organization_cannot_be_created_without_a_domain():
+    with pytest.raises(CommandError):
+        run('create_organization', 'Acme', 'acme')
+
+    assert not Organization.objects.filter(slug='acme').exists()
+
+
+@pytest.mark.django_db
+def test_an_organization_row_cannot_exist_without_a_site():
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Organization.objects.create(name='Siteless', slug='siteless')
+
+
+@pytest.mark.django_db
+def test_the_domain_is_stored_lowercase_and_a_port_is_allowed():
+    run('create_organization', 'Acme', 'acme', 'ACME.Example.com:8443')
+
+    assert Organization.objects.get(slug='acme').site.domain == 'acme.example.com:8443'
+
+
+@pytest.mark.django_db
+def test_the_upgrade_gives_the_default_organization_the_reset_link_host(before_tenancy):
+    from urllib.parse import urlsplit
+
+    from django.conf import settings
+
+    migrate_to_latest()
+
+    default = Organization.objects.get(slug='default')
+    assert default.site.domain == urlsplit(settings.RESET_LINK_BASE_URL).netloc.lower()
+
+
+@pytest.fixture
+def before_sites(transactional_db):
+    """The database one migration before organizations got a Site, restored afterwards."""
+    apps = migrate_to(('api', '0007_drop_global_email_unique_index'))
+    yield apps
+    migrate_to_latest()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reapplying_after_a_rollback_gives_unlinked_organizations_a_placeholder_domain(
+    before_sites,
+):
+    """A rollback drops every organization's Site link; re-applying must still complete."""
+    old_org = before_sites.get_model('api', 'Organization')
+    old_org.objects.create(name='Globex', slug='globex')
+
+    migrate_to_latest()
+
+    assert Organization.objects.get(slug='globex').site.domain == 'globex.invalid'

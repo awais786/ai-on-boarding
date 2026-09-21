@@ -68,6 +68,29 @@ the account holder stays usable rather than being replaced indefinitely.
   for the same email in another organization
 - **THEN** the second request is acted on
 
+### Requirement: Deliver the reset link as an absolute address
+The delivered link SHALL be an absolute address including scheme and host, so that it is usable
+directly from a mail client without the recipient having to assemble it. The host SHALL be the
+domain of the organization the account belongs to, and SHALL NOT be derived from the request that
+asked for the reset.
+
+#### Scenario: Link is followable as sent
+- **WHEN** a reset link is delivered
+- **THEN** the link includes a scheme and a host rather than being a bare path
+
+#### Scenario: Link points at the account's organization
+- **WHEN** a reset is requested for an account in an organization whose domain is
+  `acme.example.com`
+- **THEN** the delivered link's host is `acme.example.com`
+
+#### Scenario: Two organizations, two hosts
+- **WHEN** resets are requested for accounts in two organizations that have different domains
+- **THEN** each delivered link carries its own organization's domain
+
+#### Scenario: A forged Host header does not steer the link
+- **WHEN** a reset is requested with a request whose Host header names an attacker's domain
+- **THEN** the delivered link's host is still the organization's domain
+
 ## ADDED Requirements
 
 ### Requirement: Reject a reset request with no organization

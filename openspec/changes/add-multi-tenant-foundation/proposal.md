@@ -12,6 +12,9 @@ on it and are out of scope here.
   status. Every user belongs to exactly one organization.
 - Organizations are created by an operator, not through the public API. Each has a **join code**
   that is shown once, at creation.
+- Each organization has a **domain** (held on a Django `Site`). Password-reset links point at the
+  domain of the organization the account belongs to, not at one global address. The tenant is still
+  named by the `organization` slug, not resolved from the request's host.
 - **Signup** names an organization (by slug) and presents its join code. A caller cannot join an
   organization without its join code, and a failed join does not reveal whether the organization
   exists.
@@ -49,16 +52,20 @@ on it and are out of scope here.
   username are judged within that organization.
 - `user-signin`: signin names an organization; lockout is per organization; inactive users and
   organizations are refused.
-- `user-password-reset`: a reset request names an organization, and the address is looked up
-  within it.
+- `user-password-reset`: a reset request names an organization, the address is looked up within
+  it, and the delivered link uses that organization's domain.
 
 ## Impact
 
 - `sdd_django_demo/api/`: models (organization, per-user membership), migrations (schema, plus a
   data migration for existing users), serializers, signin/signup/reset views, the token
   authentication used by protected endpoints, and the Google sign-in resolution.
-- Two operator management commands for creating an organization and rotating its join code.
+- Two operator management commands for creating an organization (now taking a domain) and rotating
+  its join code.
 - Existing tests for signup, signin, password reset, user list and admin change-password must be
   updated for the new required fields.
 - `mcp_server/` calls these endpoints and will break until updated; that work is a separate PR.
-- No new third-party dependency.
+- Adds Django's built-in `django.contrib.sites` app (no new third-party dependency); it seeds one
+  example `Site` row that this change leaves alone.
+- Reset links change host: `RESET_LINK_BASE_URL` keeps supplying the scheme, and the host comes
+  from the organization's domain.

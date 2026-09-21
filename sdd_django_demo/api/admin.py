@@ -9,7 +9,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     # is only ever shown by the management commands.
     exclude = ('join_code_digest',)
     readonly_fields = ('created_at', 'updated_at')
-    list_display = ('slug', 'name', 'is_active')
+    list_display = ('slug', 'name', 'site', 'is_active')
 
 
 admin.site.register(PasswordResetCode)

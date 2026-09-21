@@ -17,6 +17,10 @@
 - [x] 1.7 Remove the `post_migrate` hook in `sdd_django_demo/api/apps.py` and add a migration that
   drops the global unique index on `auth_user.email` (reverse recreates it), so the same email can
   exist in two organizations
+- [x] 1.8 Add `django.contrib.sites` to `INSTALLED_APPS`; add `Organization.site` (required
+  one-to-one to `Site`, `PROTECT`) with a migration that adds it nullable, gives the `default`
+  organization a `Site` whose domain is the host of `RESET_LINK_BASE_URL` (reusing a row with that
+  domain), then makes it required; include a reverse
 
 ## 2. Tenant resolution and authentication
 
@@ -57,6 +61,9 @@
   organization takes the same uniform 200 path as an unregistered address
 - [x] 5.3 Change `resolve_google_user` to query `Membership.email`, return nothing for an
   ambiguous match, an inactive user, or an inactive organization
+- [x] 5.4 Build the reset link from the account's organization: keep the scheme and path prefix of
+  `RESET_LINK_BASE_URL`, replace the host with `organization.site.domain`, and never read the host
+  from the request
 
 ## 6. Scoped endpoints
 
@@ -72,6 +79,9 @@
   under `sdd_django_demo/api/management/commands/`; each prints the join code once
 - [x] 7.2 Register `Organization` in `sdd_django_demo/api/admin.py` without exposing the digest, so an
   operator can toggle `is_active`
+- [x] 7.3 Change `create_organization` to `<name> <slug> <domain>`: validate the domain is a bare
+  host (no scheme, no path), create the `Site` and the `Organization` in one transaction, and show
+  the domain in `OrganizationAdmin`
 
 ## 8. Tests (after implementation, from the spec)
 
@@ -100,6 +110,12 @@
 - [x] 8.8 Run `pytest` in `sdd_django_demo/` and confirm the whole suite passes
 - [x] 8.9 Prove at least one new test can fail: temporarily remove the organization filter from
   `users_in`, confirm the cross-organization list test goes red, then restore it
+- [x] 8.10 Write tests from the revised specs: an organization has a unique domain, a domain with a
+  scheme or path or a missing domain is refused, the reset link carries the organization's own
+  domain, two organizations get two hosts, and a forged `Host` header does not change the link;
+  update the existing reset-link tests, the factories and the migration tests for the `Site` link
+- [x] 8.11 Re-run `pytest` for the whole project and confirm it passes; upgrade a scratch database
+  that holds the pre-`Site` migrations and confirm the default organization gets its `Site`
 
 ## 9. Traceability and review
 

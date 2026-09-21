@@ -147,7 +147,7 @@ def test_a_registered_address_is_sent_a_link_carrying_a_code(client, account, ma
 def test_the_delivered_link_is_absolute(client, account, mailoutbox):
     request_reset(client)
 
-    assert link_from(mailoutbox).startswith('http://localhost:8000/')
+    assert link_from(mailoutbox).startswith('http://acme.example.test/')
 
 
 @pytest.mark.django_db
@@ -165,7 +165,7 @@ def test_the_link_host_comes_from_the_setting_not_the_request(
     )
 
     assert 'evil.example.com' not in link_from(mailoutbox)
-    assert link_from(mailoutbox).startswith('http://localhost:8000/')
+    assert link_from(mailoutbox).startswith('http://acme.example.test/')
 
 
 @pytest.mark.django_db
@@ -596,7 +596,7 @@ def test_the_link_the_mail_carries_actually_resolves(client, account, mailoutbox
     request_reset(client)
     link = link_from(mailoutbox)
 
-    response = client.get(link.replace('http://localhost:8000', ''))
+    response = client.get(link.replace('http://acme.example.test', ''))
 
     assert response.status_code == 200
 

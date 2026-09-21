@@ -1,12 +1,29 @@
 ## ADDED Requirements
 
 ### Requirement: Describe an organization
-The system SHALL record, for each organization, a name, a slug, the time it was created, the time
-it was last changed, and whether it is active.
+The system SHALL record, for each organization, a name, a slug, a domain, the time it was created,
+the time it was last changed, and whether it is active.
 
 #### Scenario: A new organization is active
 - **WHEN** an operator creates an organization
-- **THEN** it has a name, a slug and creation and update timestamps, and is active
+- **THEN** it has a name, a slug, a domain and creation and update timestamps, and is active
+
+### Requirement: Give every organization a unique domain
+The system SHALL give every organization exactly one domain - a bare host name, optionally with a
+port, and no scheme or path - and SHALL NOT allow two organizations to share one.
+
+#### Scenario: Duplicate domain refused
+- **WHEN** an operator creates an organization whose domain another organization already has
+- **THEN** creation is refused and no second organization exists
+
+#### Scenario: Domain that is not a bare host refused
+- **WHEN** an operator creates an organization with a domain that carries a scheme or a path, such
+  as `https://acme.example.com/app`
+- **THEN** creation is refused
+
+#### Scenario: An organization cannot exist without a domain
+- **WHEN** an operator creates an organization and gives no domain
+- **THEN** creation is refused
 
 ### Requirement: Keep organization slugs unique
 The system SHALL NOT allow two organizations to share a slug, and SHALL compare slugs
@@ -27,8 +44,8 @@ The system SHALL let an operator create an organization from the command line, a
 expose any public API endpoint that creates, edits or deletes an organization.
 
 #### Scenario: Operator creates an organization
-- **WHEN** an operator runs the create-organization command with a name and a slug
-- **THEN** an active organization exists with that name and slug
+- **WHEN** an operator runs the create-organization command with a name, a slug and a domain
+- **THEN** an active organization exists with that name, slug and domain
 
 #### Scenario: No public endpoint creates an organization
 - **WHEN** an unauthenticated or authenticated API caller tries to create, edit or delete an
@@ -95,7 +112,8 @@ two accounts in one organization MUST NOT.
 
 ### Requirement: Move existing users into a default organization
 When the system is upgraded, every account that existed before it SHALL end up in one
-pre-existing default organization, and signup into that organization SHALL stay closed until an
+pre-existing default organization, whose domain is the host of the deployment's configured
+reset-link base address, and signup into that organization SHALL stay closed until an
 operator issues it a join code. No existing account SHALL lose its ability to sign in beyond
 the new requirement to name its organization.
 

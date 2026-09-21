@@ -407,3 +407,70 @@ def test_one_organizations_flood_does_not_throttle_the_same_address_in_another(
 
     assert response.status_code == 200
     assert len(mailoutbox) == before + 1
+
+
+# Deliver the reset link as an absolute address: the host is the organization's domain
+
+
+def link_host(mail):
+    from urllib.parse import urlsplit
+
+    return urlsplit(next(w for w in mail.body.split() if w.startswith('http'))).netloc
+
+
+@pytest.mark.django_db
+def test_the_reset_link_points_at_the_accounts_organization_domain(client, mailoutbox):
+    organization = make_organization('acme')
+    organization.site.domain = 'acme.example.com'
+    organization.site.save()
+    create_member('ada', 'ada@example.com', organization=organization)
+
+    request_reset(client)
+
+    assert link_host(mailoutbox[0]) == 'acme.example.com'
+
+
+@pytest.mark.django_db
+def test_two_organizations_get_links_with_their_own_hosts(client, mailoutbox):
+    for slug, domain in (('acme', 'acme.example.com'), ('globex', 'globex.example.org:8443')):
+        organization = make_organization(slug)
+        organization.site.domain = domain
+        organization.site.save()
+        create_member('ada', 'ada@example.com', organization=organization)
+
+    request_reset(client, organization='acme')
+    request_reset(client, organization='globex')
+
+    assert [link_host(m) for m in mailoutbox] == ['acme.example.com', 'globex.example.org:8443']
+
+
+@pytest.mark.django_db
+def test_a_forged_host_header_does_not_change_the_link_host(client, mailoutbox, settings):
+    settings.ALLOWED_HOSTS = ['*']
+    organization = make_organization('acme')
+    organization.site.domain = 'acme.example.com'
+    organization.site.save()
+    create_member('ada', 'ada@example.com', organization=organization)
+
+    client.post(
+        '/api/password-reset/',
+        {'organization': 'acme', 'email': 'ada@example.com'},
+        format='json',
+        HTTP_HOST='evil.example.net',
+    )
+
+    assert link_host(mailoutbox[0]) == 'acme.example.com'
+    assert 'evil.example.net' not in mailoutbox[0].body
+
+
+@pytest.mark.django_db
+def test_the_link_keeps_the_scheme_and_path_prefix_from_the_configured_base(
+    client, mailoutbox, settings
+):
+    settings.RESET_LINK_BASE_URL = 'https://ignored.example.com/app/'
+    create_member('ada', 'ada@example.com', organization='acme')
+
+    request_reset(client)
+
+    link = next(w for w in mailoutbox[0].body.split() if w.startswith('http'))
+    assert link.startswith('https://acme.example.test/app/reset-password/')

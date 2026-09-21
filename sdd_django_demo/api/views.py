@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Mapping
 from datetime import timedelta
+from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -118,12 +119,20 @@ def flatten_messages(detail):
     return str(detail)
 
 
-def build_reset_link(code):
-    return f"{settings.RESET_LINK_BASE_URL.rstrip('/')}/reset-password/{code}/"
+def build_reset_link(code, organization):
+    """The scheme and path prefix come from RESET_LINK_BASE_URL; the host is the organization's.
+
+    The host is read from the database, never from the request that asked for the reset: that
+    request is made by whoever wants it, so trusting its Host would let an attacker aim a
+    genuine reset mail at their own server.
+    """
+    base = urlsplit(settings.RESET_LINK_BASE_URL)
+    path = f"{base.path.rstrip('/')}/reset-password/{code}/"
+    return urlunsplit((base.scheme, organization.site.domain, path, '', ''))
 
 
 def send_reset_link(user, code):
-    link = build_reset_link(code)
+    link = build_reset_link(code, user.membership.organization)
     send_mail(
         subject='Reset your password',
         message=(
