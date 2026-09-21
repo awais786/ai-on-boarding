@@ -1,8 +1,8 @@
 import hashlib
-import hmac
 import secrets
 from datetime import timedelta
 
+from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import User
 from django.contrib.sites.models import Site
 from django.core.validators import RegexValidator
@@ -23,8 +23,7 @@ def hash_reset_code(code):
 
 class Organization(models.Model):
     name = models.CharField(max_length=200)
-    slug = models.CharField(
-        max_length=50,
+    slug = models.SlugField(
         unique=True,
         validators=[RegexValidator(SLUG_PATTERN, 'Use lowercase letters, digits and hyphens.')],
     )
@@ -34,8 +33,8 @@ class Organization(models.Model):
     # The organization's domain lives on a Site (unique in the database). Used for the host of
     # reset links; the tenant is still named by slug, never resolved from the request host.
     site = models.OneToOneField(Site, on_delete=models.PROTECT, related_name='organization')
-    # SHA-256 of the join code; blank means signup into this organization is closed.
-    join_code_digest = models.CharField(max_length=64, blank=True, default='')
+    # The join code, hashed by Django's password hashers; blank means signup is closed.
+    join_code_digest = models.CharField(max_length=128, blank=True, default='')
 
     class Meta:
         constraints = [
@@ -59,20 +58,13 @@ class Organization(models.Model):
     def issue_join_code(self):
         """Replace the join code, returning the new one. It is not recoverable afterwards."""
         code = secrets.token_urlsafe(JOIN_CODE_BYTES)
-        self.join_code_digest = hash_join_code(code)
+        self.join_code_digest = make_password(code)
         self.save(update_fields=['join_code_digest', 'updated_at'])
         return code
 
     def accepts_join_code(self, code):
-        if not self.join_code_digest or not code:
-            return False
-        return hmac.compare_digest(hash_join_code(code), self.join_code_digest)
-
-
-def hash_join_code(code):
-    # Unsalted and fast on purpose: the code is 192 random bits, so there is nothing to
-    # brute-force. The same reasoning as hash_reset_code above.
-    return hashlib.sha256(code.encode()).hexdigest()
+        # check_password is constant-time and returns False for a blank digest.
+        return bool(code) and check_password(code, self.join_code_digest)
 
 
 class Membership(models.Model):
@@ -86,7 +78,7 @@ class Membership(models.Model):
     organization = models.ForeignKey(
         Organization, on_delete=models.PROTECT, related_name='memberships'
     )
-    email = models.CharField(max_length=254, blank=True)
+    email = models.EmailField(blank=True)
     username = models.CharField(max_length=150)
 
     objects = TenantQuerySet.as_manager()

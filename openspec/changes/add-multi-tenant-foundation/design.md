@@ -60,8 +60,10 @@ users keep their current `User.username`, which stays unique and simply stops be
 edits an email today, so the copy cannot drift. Serializers that return a username
 (`AccountSerializer`, `UserAccountSerializer`) read it from `Membership`.
 
-Authentication stops calling `authenticate(username=...)`, which keys on `User.username`. Signin
-finds the `Membership` in the named organization and calls `check_password` on its user.
+Signin finds the `Membership` in the named organization, then hands its user's opaque
+`User.username` to Django's `authenticate()`. Because that value is still globally unique, the
+stock `ModelBackend` checks the password and refuses an inactive account; no custom backend is
+needed.
 
 ### D2a. Drop the global unique index on `auth_user.email`
 *Traces to:* Keep email and username unique within an organization only.
@@ -116,13 +118,12 @@ id endpoints today; if PR 2 adds one, it must go through the same entry point.
 *Traces to:* Admit a signup only with the organization's join code; Refuse an unknown, inactive or
 wrongly-coded organization identically; Never return the join code.
 
-The serializer's `validate()` resolves the organization and checks the code with
-`hmac.compare_digest` against the stored SHA-256 digest. Any failure - unknown slug, inactive
+The serializer's `validate()` resolves the organization and checks the code with Django's
+`check_password` against a digest made by `make_password` (the project's password hashers). Any failure - unknown slug, inactive
 organization, blank digest, wrong code - raises the same error keyed on `join_code`, and the
 duplicate email/username checks run only after it, so a duplicate can never confirm that an
-organization exists. Codes are 24 random bytes (`secrets.token_urlsafe`), so an unsalted fast hash is
-adequate for the same reason the repo already hashes reset codes that way; brute-forcing 192 bits
-is not a concern, which is why no rate limit is added here (login and reset limits are PR 3).
+organization exists. Codes are 24 random bytes (`secrets.token_urlsafe`). Using the password hashers costs one slow
+hash per signup, which signup already pays for the password itself.
 
 The account is created in a single `transaction.atomic()` (user, membership, the existing
 country record). A concurrent duplicate hits the per-organization unique constraint and is

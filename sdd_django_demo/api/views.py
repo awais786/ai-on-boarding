@@ -4,10 +4,12 @@ from datetime import timedelta
 from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
+from django.contrib.auth import authenticate
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Case, F, Q, Value, When
 from django.shortcuts import render
+from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 from drf_spectacular.utils import extend_schema, OpenApiResponse
@@ -127,7 +129,7 @@ def build_reset_link(code, organization):
     genuine reset mail at their own server.
     """
     base = urlsplit(settings.RESET_LINK_BASE_URL)
-    path = f"{base.path.rstrip('/')}/reset-password/{code}/"
+    path = base.path.rstrip('/') + reverse('password-reset-page', args=[code])
     return urlunsplit((base.scheme, organization.site.domain, path, '', ''))
 
 
@@ -423,10 +425,11 @@ class SigninView(generics.GenericAPIView):
         ):
             return Response(SIGNIN_REJECTION_BODY, status=401)
 
+        # User.username is the opaque, globally unique value (design.md D2), so Django's own
+        # backend can check the password and refuse an inactive account.
         user = None
-        if membership is not None and membership.user.is_active:
-            if membership.user.check_password(password):
-                user = membership.user
+        if membership is not None:
+            user = authenticate(request, username=membership.user.username, password=password)
 
         if user is None:
             self._record_failure(attempt_key, now)
