@@ -5,6 +5,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
 from django.contrib.auth import authenticate
+from django.contrib.auth.hashers import make_password
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Case, F, Q, Value, When
@@ -15,7 +16,8 @@ from django.views import View
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import generics
 from rest_framework.authtoken.models import Token
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
@@ -81,11 +83,16 @@ PAGE_MISMATCH = 'Those passwords do not match. Type the same one in both boxes.'
 
 
 @api_view(['GET'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def health(request):
     return Response({'status': 'ok'})
 
 
 class SignupView(generics.CreateAPIView):
+    # Public endpoints take no credential, so a stale token header must not affect them.
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = SignupSerializer
 
     @extend_schema(
@@ -298,6 +305,8 @@ class PasswordResetAddressThrottle(SimpleRateThrottle):
 
 
 class PasswordResetRequestView(generics.GenericAPIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = PasswordResetRequestSerializer
     throttle_classes = [PasswordResetAddressThrottle]
 
@@ -351,6 +360,8 @@ class PasswordResetRequestView(generics.GenericAPIView):
 
 
 class PasswordResetConfirmView(generics.GenericAPIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = PasswordResetConfirmSerializer
 
     @extend_schema(
@@ -374,6 +385,8 @@ class PasswordResetConfirmView(generics.GenericAPIView):
 
 
 class SigninView(generics.GenericAPIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = SigninSerializer
 
     @extend_schema(
@@ -423,6 +436,7 @@ class SigninView(generics.GenericAPIView):
             and attempt.last_failed_at is not None
             and now - attempt.last_failed_at < LOCKOUT_DURATION
         ):
+            self._equalise_timing(password)
             return Response(SIGNIN_REJECTION_BODY, status=401)
 
         # User.username is the opaque, globally unique value (design.md D2), so Django's own
@@ -430,6 +444,8 @@ class SigninView(generics.GenericAPIView):
         user = None
         if membership is not None:
             user = authenticate(request, username=membership.user.username, password=password)
+        else:
+            self._equalise_timing(password)
 
         if user is None:
             self._record_failure(attempt_key, now)
@@ -441,6 +457,17 @@ class SigninView(generics.GenericAPIView):
         SigninAttempt.objects.filter(email_or_username=attempt_key).update(failed_count=0)
         token, _ = Token.objects.get_or_create(user=user)
         return Response({'token': token.key}, status=200)
+
+    @staticmethod
+    def _equalise_timing(password):
+        """Pay for one password hash where no real check ran.
+
+        A failure for an unknown organization, an unknown identifier or a locked-out account
+        would otherwise return in about a millisecond, against ~200 ms for a real member with
+        a wrong password, so response time alone would reveal which organizations and members
+        exist. Django's own ModelBackend does the same for an unknown username.
+        """
+        make_password(password)
 
     @staticmethod
     def _record_failure(attempt_key, now):

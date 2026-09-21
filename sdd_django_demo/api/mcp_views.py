@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import generics, status
 from rest_framework.authtoken.models import Token
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from embargo.rules import is_user_embargoed
@@ -115,6 +115,8 @@ class GoogleAuthView(generics.GenericAPIView):
     exchanging a code for it, so it never holds the Google client secret.
     """
 
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = GoogleAuthSerializer
 
     @extend_schema(

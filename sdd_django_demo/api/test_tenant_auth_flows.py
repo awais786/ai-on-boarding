@@ -474,3 +474,172 @@ def test_the_link_keeps_the_scheme_and_path_prefix_from_the_configured_base(
 
     link = next(w for w in mailoutbox[0].body.split() if w.startswith('http'))
     assert link.startswith('https://acme.example.test/app/reset-password/')
+
+
+# Public endpoints take no credential: a stale token header must not change their answer
+
+
+STALE = {'HTTP_AUTHORIZATION': 'Token deadbeef-a-token-that-was-deleted'}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    'method, path, body',
+    [
+        ('get', '/api/health/', None),
+        ('post', '/api/signin/', {'organization': 'acme', 'email_or_username': 'ada',
+                                  'password': 'lovelace1'}),
+        ('post', '/api/password-reset/', {'organization': 'acme', 'email': 'ada@example.com'}),
+        ('post', '/api/password-reset/confirm/', {'code': 'nope', 'password': 'lovelace1'}),
+        ('post', '/api/auth/google/', {'access_token': 'x'}),
+    ],
+    ids=['health', 'signin', 'reset-request', 'reset-confirm', 'google'],
+)
+def test_a_stale_token_header_does_not_change_a_public_endpoints_answer(method, path, body):
+    create_member('ada', 'ada@example.com', 'lovelace1', organization='acme')
+
+    def call(**extra):
+        client = APIClient()
+        return getattr(client, method)(path, body, format='json', **extra)
+
+    plain, stale = call(), call(**STALE)
+
+    assert stale.status_code == plain.status_code
+    assert stale.data == plain.data
+
+
+@pytest.mark.django_db
+def test_signup_still_works_with_a_stale_token_header(client, acme_code):
+    client.credentials(**STALE)
+
+    assert signup(client, join_code=acme_code).status_code == 200
+
+
+@pytest.mark.django_db
+def test_signin_with_correct_credentials_succeeds_despite_a_stale_token_header(client):
+    """A client whose token was deleted (password change, deactivation) must be able to sign in."""
+    create_member('ada', 'ada@example.com', organization='acme')
+    client.credentials(**STALE)
+
+    response = signin(client)
+
+    assert response.status_code == 200
+    assert response.data['token']
+
+
+# The join-code check costs the same whether or not the organization is real
+
+
+@pytest.mark.django_db
+def test_an_unknown_organization_still_pays_for_a_hash(client, acme_code):
+    from unittest.mock import patch
+
+    with patch('api.serializers.make_password') as hashed:
+        signup(client, organization='nowhere', join_code='whatever')
+
+    hashed.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_a_closed_organization_still_pays_for_a_hash(client):
+    from unittest.mock import patch
+
+    make_organization('closed')  # no join code issued
+
+    with patch('api.models.make_password') as hashed:
+        signup(client, organization='closed', join_code='whatever')
+
+    hashed.assert_called_once()
+
+
+# Signin failures cost the same as a real check: response time must not reveal who exists
+
+
+def signin_hashes(client, **kwargs):
+    """How many times signin paid for a stand-in hash (a real member's check is Django's own)."""
+    from unittest.mock import patch
+
+    with patch('api.views.make_password') as hashed:
+        response = signin(client, **kwargs)
+    return response, hashed.call_count
+
+
+@pytest.mark.django_db
+def test_signin_for_an_unknown_organization_pays_for_a_hash(client):
+    response, hashes = signin_hashes(client, organization='nowhere')
+
+    assert response.status_code == 401
+    assert hashes == 1
+
+
+@pytest.mark.django_db
+def test_signin_for_an_unknown_user_pays_for_a_hash(client):
+    create_member('ada', 'ada@example.com', organization='acme')
+
+    response, hashes = signin_hashes(client, identifier='ghost@example.com')
+
+    assert response.status_code == 401
+    assert hashes == 1
+
+
+@pytest.mark.django_db
+def test_signin_for_an_inactive_organization_pays_for_a_hash(client):
+    dormant = make_organization('dormant', is_active=False)
+    create_member('eve', 'eve@example.com', organization=dormant)
+
+    response, hashes = signin_hashes(client, identifier='eve@example.com', organization='dormant')
+
+    assert response.status_code == 401
+    assert hashes == 1
+
+
+@pytest.mark.django_db
+def test_signin_for_a_locked_out_account_pays_for_a_hash(client):
+    create_member('ada', 'ada@example.com', organization='acme')
+    for _ in range(3):
+        signin(client, password='wrongpassword')
+
+    response, hashes = signin_hashes(client)
+
+    assert response.status_code == 401
+    assert hashes == 1
+
+
+@pytest.mark.django_db
+def test_a_real_members_check_is_not_hashed_twice(client):
+    create_member('ada', 'ada@example.com', organization='acme')
+
+    wrong, wrong_hashes = signin_hashes(client, password='wrongpassword')
+    right, right_hashes = signin_hashes(client)
+
+    assert (wrong.status_code, right.status_code) == (401, 200)
+    assert wrong_hashes == right_hashes == 0
+
+
+# Closed by default: an endpoint that declares no permissions refuses anonymous callers
+
+
+def test_a_view_that_declares_no_permissions_refuses_an_anonymous_caller():
+    from rest_framework.response import Response
+    from rest_framework.test import APIRequestFactory
+    from rest_framework.views import APIView
+
+    class Forgetful(APIView):
+        def get(self, request):
+            return Response({'secret': 'data'})
+
+    response = Forgetful.as_view()(APIRequestFactory().get('/anything/'))
+
+    assert response.status_code in (401, 403)
+    assert 'secret' not in getattr(response, 'data', {})
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('path', ['/api/schema/', '/api/docs/'])
+def test_the_public_api_docs_ignore_a_stale_token_header(path):
+    client = APIClient()
+
+    plain = client.get(path)
+    stale = client.get(path, **STALE)
+
+    assert plain.status_code == stale.status_code == 200

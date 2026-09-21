@@ -32,7 +32,8 @@ case-insensitively.
 A rejected signin SHALL return an identical response - same status, same body - whether the
 organization was unknown or inactive, the email or username was unregistered in that
 organization, the password was wrong, the account is inactive, or the account is currently locked
-out. A caller MUST NOT be able to distinguish any of these from the response alone.
+out. A caller MUST NOT be able to distinguish any of these from the response alone, including by
+how long the response takes.
 
 #### Scenario: Unregistered email or username and wrong password are indistinguishable
 - **WHEN** signin is attempted with an unregistered email or username, and separately with a
@@ -52,6 +53,12 @@ out. A caller MUST NOT be able to distinguish any of these from the response alo
 - **WHEN** signin is attempted with the correct credentials of an account in one organization but
   naming a different real organization
 - **THEN** the response is identical in status and body to a wrong-password rejection
+
+#### Scenario: Every failure path costs the same as a real password check
+- **WHEN** signin is rejected because the organization is unknown or inactive, the identifier is
+  unregistered, or the account is locked out
+- **THEN** the system has still paid for one password hash, so the response is not measurably
+  faster than a rejection for a wrong password
 
 #### Scenario: Inactive account or organization is indistinguishable
 - **WHEN** signin is attempted with correct credentials for an inactive account, and separately

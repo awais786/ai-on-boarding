@@ -117,11 +117,22 @@
 - [x] 8.11 Re-run `pytest` for the whole project and confirm it passes; upgrade a scratch database
   that holds the pre-`Site` migrations and confirm the default organization gets its `Site`
 
+## 8a. Review fixes (after implementation, from review findings)
+
+- [x] 8a.1 Public endpoints (signup, signin, both reset endpoints, Google sign-in, health, API docs)
+  take no credential: `authentication_classes = []`, so a stale token header cannot change their
+  answer
+- [x] 8a.2 Default permission is `IsAuthenticated`; the public views declare `AllowAny`
+- [x] 8a.3 Signin pays for a stand-in hash on the unknown-organization, unknown-identifier and
+  locked-out paths, so response time does not reveal who exists
+- [x] 8a.4 The join-code check pays for a hash for an unknown or closed organization
+
 ## 9. Traceability and review
 
 - [x] 9.1 Build `traceability.md` mapping every requirement in the five delta specs to its code and
   its test
 - [x] 9.2 Post the proposal and the full delta specs to GitHub issue #80 via `gh issue comment`
-- [ ] 9.3 Run `/code-review` and record the verdict
-- [ ] 9.4 Fix every blocking finding, then run `/code-review` once more (verify-only) for a final
-  `Ready to merge:` verdict
+- [x] 9.3 Run `/code-review` and record the verdict - first pass: 3 findings (stale token header on public
+  endpoints, Google shadowing, join-code timing); Google shadowing recorded as a known limitation
+- [x] 9.4 Fix every blocking finding, then run `/code-review` once more (verify-only) for a final
+  `Ready to merge:` verdict - follow-up pass: no findings (`Ready to merge: yes`)

@@ -1,6 +1,7 @@
 import re
 import uuid
 
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
@@ -72,6 +73,10 @@ class SignupSerializer(serializers.Serializer):
         # a duplicate-email error would otherwise be an oracle for "this organization
         # is real, and this address is in it".
         organization = Organization.active_by_slug(attrs['organization'])
+        if organization is None:
+            # Same cost as checking a real code, so timing cannot separate an unknown slug
+            # from a wrong code.
+            make_password(attrs['join_code'])
         if organization is None or not organization.accepts_join_code(attrs['join_code']):
             raise serializers.ValidationError({'join_code': [JOIN_REFUSED_MESSAGE]})
         members = Membership.objects.for_organization(organization)

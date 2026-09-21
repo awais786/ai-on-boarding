@@ -77,6 +77,9 @@ REST_FRAMEWORK = {
     # know nothing about organizations - an operator's Django-admin session could then
     # reach tenant endpoints.
     'DEFAULT_AUTHENTICATION_CLASSES': ['api.authentication.TenantTokenAuthentication'],
+    # Closed by default: an endpoint that forgets to declare its permissions is refused, not
+    # public. The public endpoints (signup, signin, reset, Google, health) opt in with AllowAny.
+    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
     # Keyed on the submitted email address, not the caller: the harm this caps is
     # done to an account, and every request supersedes that account's previous
     # code. See the change's design.md.
@@ -90,6 +93,8 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'Spec-driven development worked example.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    # The docs are public and take no credential, so a stale token header must not affect them.
+    'SERVE_AUTHENTICATION': [],
 }
 
 MIDDLEWARE = [

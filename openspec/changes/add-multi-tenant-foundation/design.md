@@ -91,6 +91,10 @@ organization is inactive.
   helper so views never touch client input for it.
 
 It is set as `DEFAULT_AUTHENTICATION_CLASSES` and replaces the per-view `TokenAuthentication`.
+`DEFAULT_PERMISSION_CLASSES` is `IsAuthenticated`, so an endpoint that forgets to declare its
+permissions is closed, not public; signup, signin, both reset endpoints, Google sign-in and health
+opt in with `AllowAny` and `authentication_classes = []`, so a stale token header cannot affect
+them. The public API docs get the same treatment through `SERVE_AUTHENTICATION`.
 That deliberately also removes DRF's default session and basic authentication from the API, so a
 Django-admin session held by an operator cannot be used to reach tenant endpoints. Sessions are not
 otherwise used by this API, so "deactivated tenant → existing session" reduces to the token case.
@@ -137,7 +141,10 @@ Issue a token bound to the account's organization.
 
 Every failure - unknown or inactive organization, unknown identifier, wrong password, inactive
 account, inactive organization, lockout, embargo - returns the existing `SIGNIN_REJECTION_BODY`
-with 401. The lockout key becomes `"<slug>|<identifier>"`, using the account's email once an
+with 401. Where no real password check runs (unknown organization or identifier, and a locked-out
+account) the view pays for one stand-in hash, as Django's own `ModelBackend` does for an unknown
+username. Found in review: without it those paths answered in ~1 ms against ~200 ms for a real
+member, so timing alone revealed which organizations and members exist. The lockout key becomes `"<slug>|<identifier>"`, using the account's email once an
 account is found, so an attacker in one organization cannot lock out a same-email account in
 another. `SigninAttempt.email_or_username` is widened to hold the longer key. Old rows keyed
 the old way are never matched again and age out; they are not migrated.

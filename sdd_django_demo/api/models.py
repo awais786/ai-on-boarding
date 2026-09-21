@@ -63,8 +63,12 @@ class Organization(models.Model):
         return code
 
     def accepts_join_code(self, code):
-        # check_password is constant-time and returns False for a blank digest.
-        return bool(code) and check_password(code, self.join_code_digest)
+        if not self.join_code_digest or not code:
+            # Pay for a hash anyway, so a closed organization takes as long to refuse as an
+            # open one and timing does not reveal which is which.
+            make_password(code or '')
+            return False
+        return check_password(code, self.join_code_digest)
 
 
 class Membership(models.Model):
