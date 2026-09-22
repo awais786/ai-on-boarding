@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+from claude_agent_sdk import AssistantMessage, TextBlock
+from support import make_sequential_client
+
+from mautic_sso_discovery.propose_issues import (
+    build_propose_prompt,
+    create_issues,
+    parse_issue_drafts,
+    run_propose_issues,
+)
+
+
+def test_build_propose_prompt_requires_json_only_response_and_embeds_report():
+    prompt = build_propose_prompt("some report text")
+    assert "ONLY a JSON array" in prompt
+    assert "some report text" in prompt
+
+
+def test_parse_issue_drafts_accepts_valid_array():
+    raw = json.dumps(
+        [
+            {"title": "A", "body": "body a", "depends_on": []},
+            {"title": "B", "body": "body b", "depends_on": ["A"]},
+        ]
+    )
+    drafts = parse_issue_drafts(raw)
+    assert [d["title"] for d in drafts] == ["A", "B"]
+
+
+def test_parse_issue_drafts_rejects_unknown_dependency():
+    raw = json.dumps([{"title": "A", "body": "x", "depends_on": ["Ghost"]}])
+    with pytest.raises(ValueError, match="Ghost"):
+        parse_issue_drafts(raw)
+
+
+def test_create_issues_creates_in_dependency_order_and_links_urls():
+    client, calls = make_sequential_client(
+        [
+            {"repository": {"id": "REPO_ID"}},
+            {"createIssue": {"issue": {"number": 1, "url": "https://github.com/x/y/issues/1"}}},
+            {"createIssue": {"issue": {"number": 2, "url": "https://github.com/x/y/issues/2"}}},
+        ]
+    )
+    drafts = [
+        {"title": "A", "body": "body a", "depends_on": []},
+        {"title": "B", "body": "body b", "depends_on": ["A"]},
+    ]
+
+    urls = create_issues(client, "x", "y", drafts)
+
+    assert urls == {"A": "https://github.com/x/y/issues/1", "B": "https://github.com/x/y/issues/2"}
+    assert "https://github.com/x/y/issues/1" in calls[2]["variables"]["body"]
+
+
+def test_create_issues_raises_on_circular_dependency():
+    client, _ = make_sequential_client([{"repository": {"id": "REPO_ID"}}])
+    drafts = [
+        {"title": "A", "body": "x", "depends_on": ["B"]},
+        {"title": "B", "body": "y", "depends_on": ["A"]},
+    ]
+    with pytest.raises(ValueError, match="circular"):
+        create_issues(client, "x", "y", drafts)
+
+
+def test_run_propose_issues_end_to_end(tmp_path):
+    report_path = tmp_path / "report.md"
+    report_path.write_text("# Report\n\n## Implementation and test plan\n...")
+
+    async def fake_query(*, prompt, options):
+        yield AssistantMessage(
+            content=[TextBlock(text=json.dumps([{"title": "A", "body": "b", "depends_on": []}]))],
+            model="test",
+        )
+
+    client, _ = make_sequential_client(
+        [
+            {"repository": {"id": "REPO_ID"}},
+            {"createIssue": {"issue": {"number": 1, "url": "https://github.com/x/y/issues/1"}}},
+        ]
+    )
+
+    urls = run_propose_issues(report_path, "x/y", client, query_impl=fake_query)
+
+    assert urls == {"A": "https://github.com/x/y/issues/1"}
