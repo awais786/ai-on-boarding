@@ -1,0 +1,109 @@
+# Execution policy the harness applies to the coding agent.
+#
+# Translated into the agent's own CLI flags — the agent enforces them, the
+# harness sets them. Re-implementing the checks here would only create a
+# second mechanism the real agent never consults.
+#
+# Note: no max_turns key. Claude Code 2.1.267 exposes no flag for it, and a
+# policy the harness silently fails to apply is worse than none.
+
+# Inherited by every phase that does not override them.
+allowed_tools:
+  - Read
+  - Glob
+  - Grep
+  - Edit
+  - Write
+  - Bash
+
+permission_mode: acceptEdits
+
+# Guardrail: how many times the harness hands failing checks back to the agent
+# before giving up. 0 disables recovery.
+max_repair_attempts: 1
+
+# Verification. Every check runs and all must pass. Multi-layered on purpose:
+# a green test suite does not catch a broken Django config or a spec that no
+# longer validates.
+#
+# Deliberately `--specs` rather than `--all`: `--all` also validates in-progress
+# changes under openspec/changes/, one of which is already failing for reasons
+# unrelated to anything the agent does, which would make every run report FAIL.
+checks:
+  - name: django
+    cwd: sdd_django_demo
+    command: [".venv/bin/python", "manage.py", "check"]
+  - name: specs
+    command: ["openspec", "validate", "--specs"]
+  - name: tests
+    cwd: sdd_django_demo
+    command: [".venv/bin/python", "-m", "pytest", "-q"]
+
+# Recovery: run when verification fails and attempts remain. {failures} is the
+# list of failing checks and their output.
+repair:
+  model: sonnet
+  prompt: |
+    Your changes for this task did not pass the project's checks.
+
+    The task was:
+
+    {task}
+
+    These checks failed:
+
+    {failures}
+
+    Fix them without changing the intent of the task. Do not disable, skip or
+    weaken a check to make it pass.
+
+# Each phase is one agent invocation. {task} is the developer's request;
+# {previous} is the preceding phase's output.
+phases:
+  - name: plan
+    model: opus
+    # Read-only on purpose: a planning phase that can edit is not a planning
+    # phase. Enforced by withholding the tools, not by asking nicely.
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+    prompt: |
+      Plan how to accomplish this task in this repository:
+
+      {task}
+
+      Read AGENTS.md, CLAUDE.md and the relevant specs under openspec/ first,
+      and follow the conventions they set. Produce a concise implementation
+      plan naming the files to change. Do not modify any files.
+
+  - name: code
+    model: haiku
+    prompt: |
+      Implement this task in this repository:
+
+      {task}
+
+      Follow this plan:
+
+      {previous}
+
+      Follow the conventions in AGENTS.md and CLAUDE.md. Do not write tests —
+      a later phase does that, per this repository's tests-after-implementation
+      convention.
+
+  - name: tests
+    model: sonnet
+    prompt: |
+      Write tests for the work just completed for this task:
+
+      {task}
+
+      What was implemented:
+
+      {previous}
+
+      Write the tests from the specification under openspec/, following this
+      repository's convention that tests are written after implementation
+      rather than TDD. Security-sensitive behaviour needs a test that asserts
+      it directly. Then run the suite and confirm it passes.

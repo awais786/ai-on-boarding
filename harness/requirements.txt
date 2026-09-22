@@ -1,0 +1,4 @@
+# Dependencies for the harness package. Pins match the versions already
+# resolved elsewhere in this repo. pytest is test-only, not needed at runtime.
+PyYAML==6.0.3
+pytest==9.1.1
