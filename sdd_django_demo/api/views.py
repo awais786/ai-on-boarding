@@ -1,27 +1,30 @@
 import logging
 from collections.abc import Mapping
 from datetime import timedelta
+from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
 from django.contrib.auth import authenticate
-from django.contrib.auth.models import User
+from django.contrib.auth.hashers import make_password
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Case, F, Q, Value, When
 from django.shortcuts import render
+from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import generics
 from rest_framework.authtoken.models import Token
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
 from embargo.rules import is_user_embargoed
 
-from .models import PasswordResetCode, SigninAttempt
+from .models import Membership, Organization, PasswordResetCode, SigninAttempt
 from .serializers import (
     AccountSerializer,
     PasswordResetConfirmSerializer,
@@ -80,11 +83,16 @@ PAGE_MISMATCH = 'Those passwords do not match. Type the same one in both boxes.'
 
 
 @api_view(['GET'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def health(request):
     return Response({'status': 'ok'})
 
 
 class SignupView(generics.CreateAPIView):
+    # Public endpoints take no credential, so a stale token header must not affect them.
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = SignupSerializer
 
     @extend_schema(
@@ -120,12 +128,20 @@ def flatten_messages(detail):
     return str(detail)
 
 
-def build_reset_link(code):
-    return f"{settings.RESET_LINK_BASE_URL.rstrip('/')}/reset-password/{code}/"
+def build_reset_link(code, organization):
+    """The scheme and path prefix come from RESET_LINK_BASE_URL; the host is the organization's.
+
+    The host is read from the database, never from the request that asked for the reset: that
+    request is made by whoever wants it, so trusting its Host would let an attacker aim a
+    genuine reset mail at their own server.
+    """
+    base = urlsplit(settings.RESET_LINK_BASE_URL)
+    path = base.path.rstrip('/') + reverse('password-reset-page', args=[code])
+    return urlunsplit((base.scheme, organization.site.domain, path, '', ''))
 
 
-def send_reset_link(user, code):
-    link = build_reset_link(code)
+def send_reset_link(membership, code):
+    link = build_reset_link(code, membership.organization)
     send_mail(
         subject='Reset your password',
         message=(
@@ -134,11 +150,14 @@ def send_reset_link(user, code):
             'If you did not ask for this, you can ignore this message.'
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
+        # The address that was actually matched, not User.email: the two are written together
+        # at signup and should never drift, but the recipient must be the address this request
+        # was found by, not a copy that some other path could have left stale.
+        recipient_list=[membership.email],
     )
 
 
-def try_deliver_reset_link(user):
+def try_deliver_reset_link(membership):
     """Issue a code and mail it, letting nothing escape to the caller.
 
     Everything here runs only for a registered address. If any of it could raise,
@@ -153,12 +172,12 @@ def try_deliver_reset_link(user):
         # destroyed the link already in someone's inbox and supplied no
         # replacement - "Leave earlier codes usable when delivery fails".
         with transaction.atomic():
-            send_reset_link(user, PasswordResetCode.issue_for(user))
+            send_reset_link(membership, PasswordResetCode.issue_for(membership.user))
     # Deliberately broad: the guarantee is that no failure of any kind on this
     # branch reaches the caller, so there is no exception type worth re-raising.
     except Exception:  # pylint: disable=broad-exception-caught
         logger.warning(
-            'Password reset could not be delivered to user %s.', user.pk, exc_info=True
+            'Password reset could not be delivered to user %s.', membership.user_id, exc_info=True
         )
 
 
@@ -259,8 +278,8 @@ class PasswordResetAddressThrottle(SimpleRateThrottle):
     on their behalf. A per-caller limit would miss that entirely, and a
     distributed caller would walk through it.
 
-    The key is the address as submitted, whether or not an account exists for it,
-    so being limited reveals nothing about who has an account.
+    The key is the organization and address as submitted, whether or not an account
+    exists for them, so being limited reveals nothing about who has an account.
     """
 
     scope = 'password-reset'
@@ -274,12 +293,23 @@ class PasswordResetAddressThrottle(SimpleRateThrottle):
         # body is supposed to be answered.
         data = request.data if isinstance(request.data, Mapping) else {}
         email = data.get('email')
-        if not isinstance(email, str) or not email.strip():
+        organization = data.get('organization')
+        if (
+            not isinstance(email, str)
+            or not email.strip()
+            or not isinstance(organization, str)
+            or not organization.strip()
+        ):
             return None  # nothing to key on; the serializer will reject it anyway
-        return self.cache_format % {'scope': self.scope, 'ident': email.strip().lower()}
+        # Per organization: one organization's flood must not throttle another's, and
+        # the key is the slug as submitted, real or not, so being limited reveals nothing.
+        ident = f'{organization.strip().lower()}|{email.strip().lower()}'
+        return self.cache_format % {'scope': self.scope, 'ident': ident}
 
 
 class PasswordResetRequestView(generics.GenericAPIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = PasswordResetRequestSerializer
     throttle_classes = [PasswordResetAddressThrottle]
 
@@ -311,23 +341,30 @@ class PasswordResetRequestView(generics.GenericAPIView):
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        # `iexact`, not `exact`: signup lowercases what it stores, but accounts made
-        # through createsuperuser, the admin, or a shell do not, and those holders
-        # are still entitled to a reset.
-        # Ordered, because `iexact` can match more than one account when they were
-        # created outside signup: an unordered `first()` would pick a different
-        # holder run to run, and the uniform response hides which one was chosen.
-        user = (
-            User.objects.filter(email__iexact=serializer.validated_data['email'])
-            .order_by('pk')
-            .first()
-        )
-        if user is not None:
-            try_deliver_reset_link(user)
+        # Looked up only among the named organization's accounts: the same address may
+        # exist in another organization, and that account must neither be mailed nor
+        # have its code superseded. An unknown or inactive organization simply finds
+        # nothing, which takes the same uniform response as an unregistered address.
+        # Membership.email is always stored lowercase, so an exact match is enough.
+        organization = Organization.active_by_slug(serializer.validated_data['organization'])
+        target = None
+        if organization is not None:
+            membership = (
+                Membership.objects.for_organization(organization)
+                .filter(email=serializer.validated_data['email'].strip().lower())
+                .select_related('user')
+                .first()
+            )
+            if membership is not None and membership.user.is_active:
+                target = membership
+        if target is not None:
+            try_deliver_reset_link(target)
         return Response(dict(RESET_REQUESTED_BODY), status=200)
 
 
 class PasswordResetConfirmView(generics.GenericAPIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = PasswordResetConfirmSerializer
 
     @extend_schema(
@@ -351,6 +388,8 @@ class PasswordResetConfirmView(generics.GenericAPIView):
 
 
 class SigninView(generics.GenericAPIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = SigninSerializer
 
     @extend_schema(
@@ -370,11 +409,23 @@ class SigninView(generics.GenericAPIView):
 
         email_or_username = serializer.validated_data['email_or_username'].lower()
         password = serializer.validated_data['password']
+        slug = serializer.validated_data['organization'].strip().lower()
 
-        candidate = User.objects.filter(
-            Q(email__iexact=email_or_username) | Q(username__iexact=email_or_username)
-        ).first()
-        attempt_key = candidate.email.lower() if candidate is not None else email_or_username
+        # Every failure below - unknown or inactive organization, unknown identifier, wrong
+        # password, inactive account, lockout, embargo - answers with the same rejection.
+        organization = Organization.active_by_slug(slug)
+        membership = None
+        if organization is not None:
+            membership = (
+                Membership.objects.for_organization(organization)
+                .filter(Q(email=email_or_username) | Q(username=email_or_username))
+                .select_related('user')
+                .first()
+            )
+        # Keyed on the organization too: the same address in another organization is a
+        # different account, and must be neither locked out nor lock this one out.
+        identifier = (membership.email or membership.username) if membership else email_or_username
+        attempt_key = f'{slug}|{identifier}'
         now = timezone.now()
 
         # Read-only lookup: a row is only ever written for a key that has actually
@@ -388,11 +439,16 @@ class SigninView(generics.GenericAPIView):
             and attempt.last_failed_at is not None
             and now - attempt.last_failed_at < LOCKOUT_DURATION
         ):
+            self._equalise_timing(password)
             return Response(SIGNIN_REJECTION_BODY, status=401)
 
+        # User.username is the opaque, globally unique value (design.md D2), so Django's own
+        # backend can check the password and refuse an inactive account.
         user = None
-        if candidate is not None:
-            user = authenticate(username=candidate.username, password=password)
+        if membership is not None:
+            user = authenticate(request, username=membership.user.username, password=password)
+        else:
+            self._equalise_timing(password)
 
         if user is None:
             self._record_failure(attempt_key, now)
@@ -404,6 +460,17 @@ class SigninView(generics.GenericAPIView):
         SigninAttempt.objects.filter(email_or_username=attempt_key).update(failed_count=0)
         token, _ = Token.objects.get_or_create(user=user)
         return Response({'token': token.key}, status=200)
+
+    @staticmethod
+    def _equalise_timing(password):
+        """Pay for one password hash where no real check ran.
+
+        A failure for an unknown organization, an unknown identifier or a locked-out account
+        would otherwise return in about a millisecond, against ~200 ms for a real member with
+        a wrong password, so response time alone would reveal which organizations and members
+        exist. Django's own ModelBackend does the same for an unknown username.
+        """
+        make_password(password)
 
     @staticmethod
     def _record_failure(attempt_key, now):

@@ -4,7 +4,18 @@ import pytest
 from django.contrib.auth.models import User
 from rest_framework.test import APIClient
 
+from api.factories import make_organization
+from api.models import Membership, Organization
+from api.serializers import SignupSerializer
 from embargo.models import AccountCountry
+
+JOIN = {}
+
+
+@pytest.fixture(autouse=True)
+def open_organization(db):
+    """An organization open for signup; its join code is what `signup` presents by default."""
+    JOIN['code'] = make_organization('acme').issue_join_code()
 
 
 @pytest.fixture
@@ -12,19 +23,39 @@ def client():
     return APIClient()
 
 
-def signup(client, email='ada@example.com', username='ada', password='lovelace1', country='France'):
+def signup(
+    client,
+    email='ada@example.com',
+    username='ada',
+    password='lovelace1',
+    country='France',
+    organization='acme',
+    join_code=None,
+):
     return client.post(
         '/api/signup/',
-        {'email': email, 'username': username, 'password': password, 'country': country},
+        {
+            'organization': organization,
+            'join_code': JOIN['code'] if join_code is None else join_code,
+            'email': email,
+            'username': username,
+            'password': password,
+            'country': country,
+        },
         format='json',
     )
+
+
+def credentials(**fields):
+    """A signup body carrying valid organization credentials plus only `fields`."""
+    return {'organization': 'acme', 'join_code': JOIN['code'], **fields}
 
 
 @pytest.mark.django_db
 def test_signup_requires_email(client):
     response = client.post(
         '/api/signup/',
-        {'username': 'ada', 'password': 'lovelace1', 'country': 'France'},
+        credentials(username='ada', password='lovelace1', country='France'),
         format='json',
     )
 
@@ -36,7 +67,7 @@ def test_signup_requires_email(client):
 def test_signup_requires_password(client):
     response = client.post(
         '/api/signup/',
-        {'email': 'ada@example.com', 'username': 'ada', 'country': 'France'},
+        credentials(email='ada@example.com', username='ada', country='France'),
         format='json',
     )
 
@@ -48,7 +79,7 @@ def test_signup_requires_password(client):
 def test_signup_requires_username(client):
     response = client.post(
         '/api/signup/',
-        {'email': 'ada@example.com', 'password': 'lovelace1', 'country': 'France'},
+        credentials(email='ada@example.com', password='lovelace1', country='France'),
         format='json',
     )
 
@@ -60,7 +91,7 @@ def test_signup_requires_username(client):
 def test_signup_requires_country(client):
     response = client.post(
         '/api/signup/',
-        {'email': 'ada@example.com', 'username': 'ada', 'password': 'lovelace1'},
+        credentials(email='ada@example.com', username='ada', password='lovelace1'),
         format='json',
     )
 
@@ -141,17 +172,22 @@ def test_signup_normalises_email_to_lowercase(client):
     assert User.objects.get().email == 'ada@example.com'
 
 
+def skip_duplicate_precheck(serializer, attrs):
+    """Stand in for `validate`, minus its duplicate checks: what a lost race looks like."""
+    attrs['organization'] = Organization.active_by_slug(attrs['organization'])
+    return attrs
+
+
 @pytest.mark.django_db
 def test_signup_duplicate_email_race_returns_400_not_500(client):
-    User.objects.create_user(username='someoneelse', email='ada@example.com', password='lovelace1')
+    signup(client, email='ada@example.com', username='someoneelse')
 
-    with patch('api.serializers.User.objects.filter') as mock_filter:
-        mock_filter.return_value.exists.return_value = False
+    with patch.object(SignupSerializer, 'validate', skip_duplicate_precheck):
         response = signup(client, email='ada@example.com', username='newada', password='lovelace2')
 
     assert response.status_code == 400
     assert 'email' in response.data
-    assert User.objects.filter(email='ada@example.com').count() == 1
+    assert Membership.objects.filter(email='ada@example.com').count() == 1
 
 
 @pytest.mark.django_db
@@ -242,7 +278,7 @@ def test_signup_rejects_duplicate_username(client):
 
     assert response.status_code == 400
     assert 'username' in response.data
-    assert User.objects.filter(username='ada').count() == 1
+    assert Membership.objects.filter(username='ada').count() == 1
 
 
 @pytest.mark.django_db
@@ -252,7 +288,7 @@ def test_signup_duplicate_username_is_case_insensitive(client):
     response = signup(client, email='ada2@example.com', username='ADA', password='lovelace2')
 
     assert response.status_code == 400
-    assert User.objects.filter(username='ada').count() == 1
+    assert Membership.objects.filter(username='ada').count() == 1
 
 
 @pytest.mark.django_db
@@ -260,17 +296,16 @@ def test_signup_normalises_username_to_lowercase(client):
     response = signup(client, username='Ada')
 
     assert response.data['username'] == 'ada'
-    assert User.objects.get().username == 'ada'
+    assert Membership.objects.get().username == 'ada'
 
 
 @pytest.mark.django_db
 def test_signup_duplicate_username_race_returns_400_not_500(client):
-    User.objects.create_user(username='ada', email='someoneelse@example.com', password='lovelace1')
+    signup(client, email='someoneelse@example.com', username='ada')
 
-    with patch('api.serializers.User.objects.filter') as mock_filter:
-        mock_filter.return_value.exists.return_value = False
+    with patch.object(SignupSerializer, 'validate', skip_duplicate_precheck):
         response = signup(client, email='newada@example.com', username='ada', password='lovelace2')
 
     assert response.status_code == 400
     assert 'username' in response.data
-    assert User.objects.filter(username='ada').count() == 1
+    assert Membership.objects.filter(username='ada').count() == 1

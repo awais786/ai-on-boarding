@@ -6,13 +6,11 @@ a Google OAuth client and calls these. Keeping them apart from views.py keeps th
 file to the account lifecycle (signup, signin, password reset) every caller uses.
 """
 
-from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import generics, status
-from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from embargo.rules import is_user_embargoed
@@ -25,6 +23,7 @@ from .serializers import (
     TokenSerializer,
     UserAccountSerializer,
 )
+from .tenancy import organization_of, users_in
 
 # One body for every way a Google token can be refused, so the response cannot be
 # used to tell them apart.
@@ -37,23 +36,25 @@ GOOGLE_NO_ACCOUNT_BODY = {'detail': 'That Google account cannot sign in here.'}
 
 
 class UserListView(generics.ListAPIView):
-    authentication_classes = [TokenAuthentication]
     permission_classes = [IsAdminUser]
     serializer_class = UserAccountSerializer
 
     def get_queryset(self):
-        queryset = User.objects.select_related('accountcountry').order_by('pk')
+        queryset = (
+            users_in(organization_of(self.request))
+            .select_related('membership', 'accountcountry')
+            .order_by('pk')
+        )
         country = self.request.query_params.get('country')
         if country:
             queryset = queryset.filter(accountcountry__country__iexact=country)
         username = self.request.query_params.get('username')
         if username:
-            queryset = queryset.filter(username__iexact=username)
+            queryset = queryset.filter(membership__username__iexact=username)
         return queryset
 
 
 class AdminChangePasswordView(generics.GenericAPIView):
-    authentication_classes = [TokenAuthentication]
     permission_classes = [IsAdminUser]
     serializer_class = AdminChangePasswordSerializer
 
@@ -69,7 +70,10 @@ class AdminChangePasswordView(generics.GenericAPIView):
     def post(self, request, username, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = get_object_or_404(User, username=username)
+        # Another organization's username is a 404, exactly like one that exists nowhere.
+        user = get_object_or_404(
+            users_in(organization_of(request)), membership__username=username.lower()
+        )
         user.set_password(serializer.validated_data['password'])
         user.save(update_fields=['password'])
         Token.objects.filter(user=user).delete()
@@ -77,7 +81,6 @@ class AdminChangePasswordView(generics.GenericAPIView):
 
 
 class SelfChangePasswordView(generics.GenericAPIView):
-    authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = SelfChangePasswordSerializer
 
@@ -112,6 +115,8 @@ class GoogleAuthView(generics.GenericAPIView):
     exchanging a code for it, so it never holds the Google client secret.
     """
 
+    authentication_classes = []
+    permission_classes = [AllowAny]
     serializer_class = GoogleAuthSerializer
 
     @extend_schema(

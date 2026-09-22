@@ -6,7 +6,8 @@ the resulting access token here. This project never holds the Google client secr
 
 import requests
 from django.conf import settings
-from django.contrib.auth.models import User
+
+from .models import Membership
 
 TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo'
 TOKENINFO_TIMEOUT = 5
@@ -54,14 +55,21 @@ def verify_access_token(access_token):
 def resolve_google_user(email):
     """The single Django account a verified Google address signs in as, or None.
 
-    Refuses an ambiguous match: User.email carries no uniqueness constraint here, so
-    picking one of several candidates could hand the caller a token for an account
-    that is not theirs.
+    Refuses an ambiguous match: an address can now exist in several organizations, and
+    picking one could hand the caller a token for an account that is not theirs. Only
+    accounts that could sign in (active user, active organization) are counted, so a
+    dormant duplicate elsewhere does not block a live account.
     """
-    matches = list(User.objects.filter(email__iexact=email).order_by('pk')[:2])
+    matches = list(
+        Membership.objects.filter(
+            email=email.lower(), user__is_active=True, organization__is_active=True
+        )
+        .select_related('user')
+        .order_by('pk')[:2]
+    )
     if len(matches) != 1:
         return None
-    return matches[0]
+    return matches[0].user
 
 
 def _matches_hosted_domain(claims, required_domain):
