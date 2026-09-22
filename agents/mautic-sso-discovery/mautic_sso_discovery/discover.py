@@ -89,6 +89,8 @@ def run_discover(
     clone_impl=clone_repo,
     lock_down_impl=lock_down,
 ) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
     clone_dir = workdir / "target-repo"
     clone_impl(target_repo_url, clone_dir)
     lock_down_impl(clone_dir)
@@ -97,7 +99,13 @@ def run_discover(
         system_prompt=build_system_prompt(),
         cwd=clone_dir,
         allowed_tools=["Read", "Grep", "Glob"],
-        disallowed_tools=["Bash", "Write", "Edit", "NotebookEdit"],
+        # allowed_tools is only an auto-approve list, not a restriction - the
+        # actual guarantee is this denylist. Static and hand-maintained;
+        # revisit if the SDK ever adds a true allowlist-restriction mode.
+        disallowed_tools=["Bash", "Write", "Edit", "NotebookEdit", "MultiEdit", "Task"],
+        # Don't inherit MCP servers or other config from the operator's own
+        # user/project/local Claude settings.
+        setting_sources=[],
         permission_mode="bypassPermissions",
         max_turns=60,
         model="claude-sonnet-5",

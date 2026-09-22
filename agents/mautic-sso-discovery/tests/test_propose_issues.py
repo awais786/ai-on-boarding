@@ -86,3 +86,30 @@ def test_run_propose_issues_end_to_end(tmp_path):
     urls = run_propose_issues(report_path, "x/y", client, query_impl=fake_query)
 
     assert urls == {"A": "https://github.com/x/y/issues/1"}
+
+
+def test_run_propose_issues_builds_options_with_hardened_tool_and_settings_restrictions(tmp_path):
+    report_path = tmp_path / "report.md"
+    report_path.write_text("# Report\n\n## Implementation and test plan\n...")
+    captured = {}
+
+    async def capturing_query(*, prompt, options):
+        captured["options"] = options
+        yield AssistantMessage(
+            content=[TextBlock(text=json.dumps([{"title": "A", "body": "b", "depends_on": []}]))],
+            model="test",
+        )
+
+    client, _ = make_sequential_client(
+        [
+            {"repository": {"id": "REPO_ID"}},
+            {"createIssue": {"issue": {"number": 1, "url": "https://github.com/x/y/issues/1"}}},
+        ]
+    )
+
+    run_propose_issues(report_path, "x/y", client, query_impl=capturing_query)
+
+    options = captured["options"]
+    for blocked in ["Bash", "Write", "Edit", "NotebookEdit", "Read", "Grep", "Glob", "MultiEdit", "Task"]:
+        assert blocked in options.disallowed_tools
+    assert options.setting_sources == []

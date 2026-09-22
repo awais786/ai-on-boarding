@@ -42,3 +42,26 @@ def test_lock_down_blocks_new_file_creation(tmp_path):
 
     with pytest.raises(PermissionError):
         (target / "new.txt").write_text("nope")
+
+
+def test_lock_down_does_not_raise_on_dangling_symlink(tmp_path):
+    target = tmp_path / "cloned"
+    target.mkdir()
+    (target / "dangling").symlink_to(tmp_path / "does-not-exist")
+
+    lock_down(target)  # must not raise FileNotFoundError
+
+
+def test_lock_down_does_not_chmod_through_symlink_outside_tree(tmp_path):
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("outside")
+    original_mode = outside_file.stat().st_mode
+
+    target = tmp_path / "cloned"
+    target.mkdir()
+    (target / "link").symlink_to(outside_file)
+
+    lock_down(target)
+
+    assert outside_file.stat().st_mode == original_mode
+    outside_file.write_text("still writable")  # would raise if permissions were stripped

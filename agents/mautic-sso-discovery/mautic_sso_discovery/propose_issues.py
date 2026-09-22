@@ -111,7 +111,15 @@ def run_propose_issues(
 
     options = ClaudeAgentOptions(
         allowed_tools=[],
-        disallowed_tools=["Bash", "Write", "Edit", "NotebookEdit", "Read", "Grep", "Glob"],
+        # allowed_tools is only an auto-approve list, not a restriction - the
+        # actual guarantee is this denylist. Static and hand-maintained;
+        # revisit if the SDK ever adds a true allowlist-restriction mode.
+        disallowed_tools=[
+            "Bash", "Write", "Edit", "NotebookEdit", "Read", "Grep", "Glob", "MultiEdit", "Task",
+        ],
+        # Don't inherit MCP servers or other config from the operator's own
+        # user/project/local Claude settings.
+        setting_sources=[],
         permission_mode="bypassPermissions",
         max_turns=5,
         model="claude-sonnet-5",

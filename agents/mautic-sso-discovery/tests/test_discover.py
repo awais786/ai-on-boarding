@@ -63,6 +63,43 @@ def test_run_discover_clones_locks_down_and_writes_final_report_text(tmp_path):
     assert calls["locked"] == tmp_path / "target-repo"
 
 
+def test_run_discover_creates_missing_out_dir(tmp_path):
+    out_path = tmp_path / "missing" / "nested" / "report.md"
+
+    run_discover(
+        "https://example.com/repo",
+        out_path,
+        tmp_path,
+        query_impl=_fake_query,
+        clone_impl=lambda url, dest: dest.mkdir(parents=True),
+        lock_down_impl=lambda path: None,
+    )
+
+    assert out_path.read_text() == "# Discovery Report\n\nfinal content"
+
+
+def test_run_discover_builds_options_with_hardened_tool_and_settings_restrictions(tmp_path):
+    captured = {}
+
+    async def capturing_query(*, prompt, options):
+        captured["options"] = options
+        yield AssistantMessage(content=[TextBlock(text="report")], model="test")
+
+    run_discover(
+        "https://example.com/repo",
+        tmp_path / "report.md",
+        tmp_path,
+        query_impl=capturing_query,
+        clone_impl=lambda url, dest: dest.mkdir(parents=True),
+        lock_down_impl=lambda path: None,
+    )
+
+    options = captured["options"]
+    for blocked in ["Bash", "Write", "Edit", "NotebookEdit", "MultiEdit", "Task"]:
+        assert blocked in options.disallowed_tools
+    assert options.setting_sources == []
+
+
 def test_run_discover_raises_on_empty_final_report(tmp_path):
     async def empty_query(*, prompt, options):
         yield AssistantMessage(content=[TextBlock(text="")], model="test")

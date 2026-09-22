@@ -39,5 +39,7 @@ def lock_down(path: Path) -> None:
 
 
 def _strip_write(target: Path) -> None:
+    if target.is_symlink():
+        return  # chmod/stat would follow the link; never touch anything outside the walked tree
     current_mode = target.stat().st_mode
     target.chmod(current_mode & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH)
