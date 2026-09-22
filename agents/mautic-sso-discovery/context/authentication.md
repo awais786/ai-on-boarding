@@ -5,6 +5,8 @@ apply, and how to verify each layer is healthy without log access.
 
 For the formal contract each app must implement, see [`proxy-auth-contract.md`](./proxy-auth-contract.md) and the specs under [`openspec/specs/`](./openspec/specs/).
 
+---
+
 ## The auth chain
 
 ```
@@ -19,6 +21,8 @@ Each layer holds its own session/cookie/token with its own TTL. The chain
 silently refreshes upstream tokens every hour so the user never sees a
 prompt — until either a layer expires past its absolute lifetime, or
 something breaks.
+
+---
 
 ## Timings & TTLs
 
@@ -47,7 +51,7 @@ refresh tokens have their own longer lifetime.
 | App | Session mechanism | Wiring | Actual deployed lifetime |
 |---|---|---|---|
 | Plane | Django session cookie (`sessionid`) | `SESSION_COOKIE_AGE` ← `SESSION_COOKIE_MAX_AGE_SECONDS` (7d). `SESSION_SAVE_EVERY_REQUEST` unset → absolute, not sliding | **7d absolute** |
-| Outline | JWT in `accessToken` cookie | Expiry **hardcoded to 7 days** in `server/middlewares/authentication.ts:60`, `server/routes/auth/index.ts:47`, `server/utils/authentication.ts:94` (`addDays(new Date(), 7)`). Patched by [Pressingly/outline pr #8](https://github.com/Pressingly/outline/pull/8) — was `addMonths(3)` upstream. `OAUTH_PROVIDER_ACCESS_TOKEN_LIFETIME` / `OAUTH_PROVIDER_REFRESH_TOKEN_LIFETIME` apply only when Outline acts as OAuth provider for *other* services, not user sessions | **7d absolute** (user-facing accessToken cookie) |
+| Outline | JWT in `accessToken` cookie | Expiry **hardcoded to 7 days** in `server/middlewares/authentication.ts:60`, `server/routes/auth/index.ts:47`, `server/utils/authentication.ts:94` (`addDays(new Date(), 7)`). Patched by [Pressingly/outline PR #8](https://github.com/Pressingly/outline/pull/8) — was `addMonths(3)` upstream. `OAUTH_PROVIDER_ACCESS_TOKEN_LIFETIME` / `OAUTH_PROVIDER_REFRESH_TOKEN_LIFETIME` apply only when Outline acts as OAuth provider for *other* services, not user sessions | **7d absolute** (user-facing accessToken cookie) |
 | Penpot | `auth-token` cookie (sliding) | `PENPOT_AUTH_TOKEN_COOKIE_MAX_AGE` ← `SESSION_COOKIE_MAX_AGE_SECONDS` (7d); `PENPOT_AUTH_TOKEN_COOKIE_RENEWAL_MAX_AGE` ← `SESSION_COOKIE_REFRESH_SECONDS` (1h) | **7d idle / unlimited if active** — every 1h of activity resets the cookie to now+7d |
 | SurfSense | JWT (access + refresh) | `ACCESS_TOKEN_LIFETIME_SECONDS` ← `SESSION_COOKIE_MAX_AGE_SECONDS` (7d); `REFRESH_TOKEN_LIFETIME_SECONDS` ← `SESSION_REFRESH_TOKEN_MAX_AGE_SECONDS` (14d) | **7d access / 14d refresh** (both absolute, JWT) |
 | Twenty | JWT (access + refresh) | `ACCESS_TOKEN_EXPIRES_IN` ← `SESSION_COOKIE_MAX_AGE_SECONDS` (7d); `REFRESH_TOKEN_EXPIRES_IN` ← `SESSION_REFRESH_TOKEN_MAX_AGE_SECONDS` (14d) | **7d access / 14d refresh** (both absolute, JWT) |
@@ -72,6 +76,8 @@ notices nothing.
 - **1 hour** — security boundary. A user disabled in Cognito is kicked out within roughly this window.
 - **7 days** — UX boundary. After this, the user is redirected through Cognito (usually silent, sometimes prompted — see below).
 - **5 days** — replay-window boundary. A leaked refresh token is replayable for up to this long.
+
+---
 
 ## What happens at each boundary
 
@@ -100,6 +106,8 @@ The exact "no password prompt" window is controlled by Cognito's
 A real Cognito login is required, regardless of any local cookies.
 Only affects users who have been idle this long.
 
+---
+
 ## Decoupling reminders
 
 These are independent — don't confuse them:
@@ -109,6 +117,8 @@ These are independent — don't confuse them:
 - The **1-hour refresh interval** is controlled by `OAUTH2_PROXY_COOKIE_REFRESH` and is the **only** thing protecting against revoked users hanging on with stale sessions.
 
 If anyone changes any of these, the others don't automatically follow.
+
+---
 
 ## Stale session on user switch
 
@@ -149,6 +159,8 @@ The flush mechanism varies per app (Django `logout()`, throw 401 + cookie clear,
 ### Reference
 
 The formal contract is in [`openspec/specs/proxy-auth-middleware/spec.md`](./openspec/specs/proxy-auth-middleware/spec.md) (Rule 2 "Identity mismatch SHALL flush the existing session immediately"). The per-app implementations are documented in each app's `{app}-security.md` "Post-audit finding — stale session" section.
+
+---
 
 ## Where the TTLs are set
 
