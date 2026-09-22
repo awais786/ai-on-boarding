@@ -643,3 +643,20 @@ def test_the_public_api_docs_ignore_a_stale_token_header(path):
     stale = client.get(path, **STALE)
 
     assert plain.status_code == stale.status_code == 200
+
+
+# The reset mail goes to the address that was actually matched, never a stale copy
+
+
+@pytest.mark.django_db
+def test_the_reset_mail_goes_to_the_membership_email_not_a_diverged_user_email(client, mailoutbox):
+    """Membership.email is what the request matched on; that must be who receives the mail,
+    even if User.email has since drifted from it (an admin edit, a migrated account, ...)."""
+    member = create_member('ada', 'ada@example.com', organization='acme')
+    member.email = 'stale-address@example.com'
+    member.save(update_fields=['email'])
+
+    request_reset(client, email='ada@example.com')
+
+    assert len(mailoutbox) == 1
+    assert mailoutbox[0].to == ['ada@example.com']

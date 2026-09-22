@@ -7,6 +7,7 @@ from django.contrib.auth.models import User
 from django.contrib.sites.models import Site
 from django.core.validators import RegexValidator
 from django.db import IntegrityError, models, transaction
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from .tenancy import TenantQuerySet
@@ -90,14 +91,17 @@ class Membership(models.Model):
     class Meta:
         constraints = [
             # Constraint names contain "email"/"username" so a violation can be told apart.
-            # Blank emails (accounts made outside signup) are exempt from uniqueness.
+            # Blank emails (accounts made outside signup) are exempt from uniqueness. Compared
+            # case-insensitively (Lower) rather than on the raw column: the app layer already
+            # stores both fields lowercase, but this is the boundary a write that skips the
+            # serializer - the admin, a shell, a future admin API - cannot cross.
             models.UniqueConstraint(
-                fields=['organization', 'email'],
+                Lower('email'), 'organization',
                 condition=~models.Q(email=''),
                 name='membership_unique_org_email',
             ),
             models.UniqueConstraint(
-                fields=['organization', 'username'], name='membership_unique_org_username'
+                Lower('username'), 'organization', name='membership_unique_org_username'
             ),
         ]
 

@@ -19,6 +19,7 @@ Each requirement and what a test needs to observe to protect it:
   again once it is reactivated.
 """
 
+import uuid
 from io import StringIO
 from unittest.mock import patch
 
@@ -353,6 +354,71 @@ def test_the_default_organization_starts_with_no_join_code_at_all(before_tenancy
     assert Organization.objects.get(slug='default').join_code_digest == ''
 
 
+@pytest.mark.django_db(transaction=True)
+def test_rolling_back_the_default_organization_migration_only_touches_default(before_tenancy):
+    """0006's reverse must delete only the memberships it created - an organization made after
+    the upgrade (and its memberships) must survive a rollback of this migration untouched."""
+    migrate_to_latest()
+    globex = make_organization('globex')
+    survivor = create_member('bob', 'bob@globex.com', organization=globex)
+
+    apps = migrate_to(('api', '0005_organization_membership'))
+    HistoricOrganization = apps.get_model('api', 'Organization')
+    HistoricMembership = apps.get_model('api', 'Membership')
+
+    assert HistoricOrganization.objects.filter(slug='globex').exists()
+    assert HistoricMembership.objects.filter(user_id=survivor.pk).exists()
+    assert not HistoricOrganization.objects.filter(slug='default').exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_rolling_back_never_deletes_the_default_organizations_site_row(before_tenancy):
+    """The reverse migration only detaches the Site, so it can never destroy one this
+    migration reused rather than created (design.md D10) - such as the sites app's own
+    seeded example.com row, or one an operator made by hand."""
+    migrate_to_latest()
+    site_pk = Organization.objects.get(slug='default').site_id
+
+    migrate_to(('api', '0007_drop_global_email_unique_index'))
+
+    assert Site.objects.filter(pk=site_pk).exists()
+
+
+# Requirement: Keep email and username unique within an organization only (database boundary)
+
+
+@pytest.mark.django_db
+def test_a_case_only_duplicate_email_is_refused_by_the_database_directly():
+    """A write that skips the serializer (the admin, a shell, a future admin API) must still
+    be caught: the constraint compares on the lowercased value, not the raw column."""
+    organization = make_organization('acme')
+    Membership.objects.create(
+        user=User.objects.create_user(username=uuid.uuid4().hex, password='x'),
+        organization=organization, email='ada@example.com', username='ada',
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Membership.objects.create(
+            user=User.objects.create_user(username=uuid.uuid4().hex, password='x'),
+            organization=organization, email='Ada@Example.com', username='grace',
+        )
+
+
+@pytest.mark.django_db
+def test_a_case_only_duplicate_username_is_refused_by_the_database_directly():
+    organization = make_organization('acme')
+    Membership.objects.create(
+        user=User.objects.create_user(username=uuid.uuid4().hex, password='x'),
+        organization=organization, email='ada@example.com', username='ada',
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Membership.objects.create(
+            user=User.objects.create_user(username=uuid.uuid4().hex, password='x'),
+            organization=organization, email='other@example.com', username='ADA',
+        )
+
+
 # Requirement: Give every organization a unique domain
 
 
@@ -377,7 +443,20 @@ def test_the_database_itself_refuses_two_organizations_on_one_site():
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     'domain',
-    ['https://acme.example.com', 'acme.example.com/app', 'http://acme.example.com/app', ' '],
+    [
+        'https://acme.example.com',
+        'acme.example.com/app',
+        'http://acme.example.com/app',
+        ' ',
+        'acme.example.com?x=1',
+        'acme.example.com#fragment',
+        'user@acme.example.com',
+        'acme.example.com:not-a-port',
+    ],
+    ids=[
+        'scheme', 'path', 'scheme-and-path', 'blank',
+        'query-string', 'fragment', 'userinfo', 'invalid-port',
+    ],
 )
 def test_a_domain_that_is_not_a_bare_host_is_refused(domain):
     with pytest.raises(CommandError):

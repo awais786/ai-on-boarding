@@ -49,6 +49,18 @@ reviewable.
 *Consequence:* the credential row (`User`) and the identity row (`Membership`) are joined, and
 `Membership` is the only place email/username are looked up.
 
+### D1a. The uniqueness constraint compares the lowercased value, not the raw column
+*Traces to:* Keep email and username unique within an organization only.
+
+Found in PR review: `UniqueConstraint(fields=['organization', 'email'])` compares the raw stored
+string. Every write path that exists today (signup, the data migration, the test factories)
+already lowercases before writing, so this held in practice - but a write that skips them (the
+Django admin, a shell, a future admin API) could still create `Ada@Example.com` and
+`ada@example.com` as two distinct rows in one organization. The constraints now use
+`Lower('email')` / `Lower('username')` instead of the bare field, so the database itself
+compares case-insensitively and the app-layer normalisation is defense in depth, not the only
+defense.
+
 ### D2. `User.username` becomes an opaque internal value
 *Traces to:* Keep email and username unique within an organization only.
 
@@ -159,6 +171,11 @@ address up in that organization's active accounts only. Its throttle key becomes
 `"<slug>|<email>"`. Everything after the account is found (codes, expiry, one-use, completion) is
 untouched; that is PR 3.
 
+The mail is sent to the `Membership.email` that was actually matched, not `User.email` - found in
+PR review, the two are written together at signup and should never drift, but the recipient must
+be the address this request was verified against, not a copy some other path could have left
+stale.
+
 `resolve_google_user` queries `Membership.email`, still returns nothing for an ambiguous address,
 and now also returns nothing for an inactive account or organization. Google sign-in carries no
 organization; the organization is that of the one matching account.
@@ -169,7 +186,11 @@ operator deactivate an organization.
 
 `create_organization <name> <slug> <domain>` and `rotate_join_code <slug>` generate a code, store
 its digest and print the code once; the first also creates the organization's `Site` (D10) in the
-same transaction, and refuses a domain that carries a scheme or a path. Deactivating and reactivating an organization is done by
+same transaction, and refuses a domain that carries a scheme or a path. The check parses the
+domain as a URL authority (`urlsplit`) rather than pattern-matching it, so it also refuses a query
+string, a fragment, embedded userinfo (`user@host`), and a non-numeric port - found in PR review,
+the original check only rejected a scheme or a slash and let those through to `Site.full_clean()`,
+which does not validate `domain` as a hostname either. Deactivating and reactivating an organization is done by
 toggling `is_active` in the Django admin, where `Organization` is registered without exposing the
 digest. No API endpoint touches organizations, so the "no public endpoint" requirement holds by
 absence.
@@ -185,6 +206,21 @@ migration stops with a message naming them, rather than choosing between them. T
 migration deletes the memberships and the default organization. Both new unique constraints double as the
 composite indexes for tenant-scoped lookups; the slug unique index and the foreign-key index cover
 the rest.
+
+### D9a. The reverse only touches what the forward created; the forward is safe to re-run
+*Traces to:* Move existing users into a default organization.
+
+Found in PR review: the reverse migration originally deleted every `Membership` row outright, not
+only the ones this migration created. An organization made after the upgrade (through
+`create_organization`, unrelated to this migration) would lose its memberships if this migration
+were ever rolled back. The reverse now deletes only memberships belonging to the `default`
+organization it is about to remove.
+
+That in turn means the forward function must tolerate being run again on a database that already
+has some memberships (from before the rollback): it now selects only users with no membership
+anywhere (`User.objects.filter(membership__isnull=True)`), so re-applying after a rollback does
+not try to re-insert a membership for a user who already has one and collide with `Membership.user`'s
+own uniqueness.
 
 ### D10. Each organization has a `Site`, used for its domain
 *Traces to:* Give every organization a unique domain; Deliver the reset link as an absolute address.
@@ -217,8 +253,16 @@ column as nullable, gives the existing `default` organization a `Site` whose dom
 required. Any other organization still without one (only possible when re-applying after a
 rollback, which drops the link) gets a placeholder `<slug>.invalid` `Site` for an operator to fix in
 the admin, so the migration completes instead of failing on a NOT NULL. It depends on the sites
-app's migrations. Reverse removes the column and the `Site` it
-created.
+app's migrations.
+
+*Reverse only detaches the Site; it never deletes it.* Found in PR review: `get_or_create` above
+may return a pre-existing row - the sites app's own seeded `example.com` row, or one an operator
+made by hand - rather than creating one, and there is nothing durable to record "this migration
+created it" between the forward and reverse halves of a data migration. Deleting unconditionally,
+as the reverse first did, risked destroying a row this migration never owned. The reverse now only
+clears `default.site`, leaving the `Site` row itself in place; nothing in this project sets
+`SITE_ID` or otherwise depends on the exact set of `Site` rows, so one small unreferenced row
+surviving a rollback is harmless.
 
 ## Risks / Trade-offs
 

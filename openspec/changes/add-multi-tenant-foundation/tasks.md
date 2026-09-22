@@ -127,6 +127,28 @@
   locked-out paths, so response time does not reveal who exists
 - [x] 8a.4 The join-code check pays for a hash for an unknown or closed organization
 
+## 8b. GitHub PR review fixes (Copilot review on PR #81)
+
+- [x] 8b.1 `migrations/0006_default_organization.py`'s reverse deletes only the `default`
+  organization's own memberships, not every organization's; its forward is idempotent (skips
+  users who already have a membership anywhere), so it is safe to re-run after a rollback that
+  left some users already assigned
+- [x] 8b.2 `migrations/0008_organization_site.py`'s reverse only detaches the default
+  organization's `Site`, never deletes it - `get_or_create` may have reused a pre-existing row
+  (the sites app's own seeded `example.com`, or one an operator made by hand), which this
+  migration does not own
+- [x] 8b.3 `Membership`'s per-organization uniqueness on email and username is enforced by the
+  database on the lowercased value (`Lower()` in the constraint), not only by the serializer, so
+  a write that bypasses it (the admin, a shell, a future admin API) cannot create a case-only
+  duplicate
+- [x] 8b.4 The reset mail is sent to the `Membership.email` that was actually matched, not
+  `User.email`, so the two can never diverge and misdeliver a reset link
+- [x] 8b.5 `create_organization`'s domain check parses the authority properly and rejects a
+  query string, a fragment, userinfo (`user@host`), or an invalid port - not just a scheme or a
+  path
+- [x] 8b.6 `test_user_management.py`'s admin-password-change tests use the real membership
+  handle, not the opaque `User.username`, so they exercise the actual scoped lookup
+
 ## 9. Traceability and review
 
 - [x] 9.1 Build `traceability.md` mapping every requirement in the five delta specs to its code and

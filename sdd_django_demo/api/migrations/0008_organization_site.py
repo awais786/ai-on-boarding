@@ -25,14 +25,22 @@ def give_organizations_a_site(apps, schema_editor):
 
 
 def remove_default_organizations_site(apps, schema_editor):
+    """Detach the default organization's Site, but never delete it.
+
+    `get_or_create` above may have created a fresh row, or reused a pre-existing one (the sites
+    app's own seeded example.com row, or one an operator made by hand) - and there is nothing
+    durable to record "we created this" between the forward and reverse halves of a data
+    migration, so the two cases cannot be told apart here. Deleting in the "reused" case would
+    destroy a row this migration does not own, which is worse than leaving one small, harmless,
+    unreferenced Site row behind: nothing in this project sets SITE_ID or reads Site.objects
+    other than through Organization, so an orphaned row changes nothing.
+    """
     Organization = apps.get_model('api', 'Organization')
     default = Organization.objects.filter(slug='default').first()
     if default is None or default.site_id is None:
         return
-    site = default.site
     default.site = None
     default.save(update_fields=['site'])
-    site.delete()
 
 
 class Migration(migrations.Migration):

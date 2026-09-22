@@ -140,8 +140,8 @@ def build_reset_link(code, organization):
     return urlunsplit((base.scheme, organization.site.domain, path, '', ''))
 
 
-def send_reset_link(user, code):
-    link = build_reset_link(code, user.membership.organization)
+def send_reset_link(membership, code):
+    link = build_reset_link(code, membership.organization)
     send_mail(
         subject='Reset your password',
         message=(
@@ -150,11 +150,14 @@ def send_reset_link(user, code):
             'If you did not ask for this, you can ignore this message.'
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
+        # The address that was actually matched, not User.email: the two are written together
+        # at signup and should never drift, but the recipient must be the address this request
+        # was found by, not a copy that some other path could have left stale.
+        recipient_list=[membership.email],
     )
 
 
-def try_deliver_reset_link(user):
+def try_deliver_reset_link(membership):
     """Issue a code and mail it, letting nothing escape to the caller.
 
     Everything here runs only for a registered address. If any of it could raise,
@@ -169,12 +172,12 @@ def try_deliver_reset_link(user):
         # destroyed the link already in someone's inbox and supplied no
         # replacement - "Leave earlier codes usable when delivery fails".
         with transaction.atomic():
-            send_reset_link(user, PasswordResetCode.issue_for(user))
+            send_reset_link(membership, PasswordResetCode.issue_for(membership.user))
     # Deliberately broad: the guarantee is that no failure of any kind on this
     # branch reaches the caller, so there is no exception type worth re-raising.
     except Exception:  # pylint: disable=broad-exception-caught
         logger.warning(
-            'Password reset could not be delivered to user %s.', user.pk, exc_info=True
+            'Password reset could not be delivered to user %s.', membership.user_id, exc_info=True
         )
 
 
@@ -344,7 +347,7 @@ class PasswordResetRequestView(generics.GenericAPIView):
         # nothing, which takes the same uniform response as an unregistered address.
         # Membership.email is always stored lowercase, so an exact match is enough.
         organization = Organization.active_by_slug(serializer.validated_data['organization'])
-        user = None
+        target = None
         if organization is not None:
             membership = (
                 Membership.objects.for_organization(organization)
@@ -353,9 +356,9 @@ class PasswordResetRequestView(generics.GenericAPIView):
                 .first()
             )
             if membership is not None and membership.user.is_active:
-                user = membership.user
-        if user is not None:
-            try_deliver_reset_link(user)
+                target = membership
+        if target is not None:
+            try_deliver_reset_link(target)
         return Response(dict(RESET_REQUESTED_BODY), status=200)
 
 

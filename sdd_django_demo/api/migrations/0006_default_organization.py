@@ -8,7 +8,11 @@ def assign_existing_users(apps, schema_editor):
     Organization = apps.get_model('api', 'Organization')
     Membership = apps.get_model('api', 'Membership')
 
-    users = list(User.objects.order_by('pk'))
+    # Only users with no membership anywhere: makes this safe to re-run after a rollback
+    # that left some users already assigned (to 'default', or - via direct ORM use outside
+    # this migration - to some other organization). Re-inserting a membership for one of
+    # those would collide with Membership.user's own uniqueness.
+    users = list(User.objects.filter(membership__isnull=True).order_by('pk'))
 
     # Refuse rather than choose between two accounts that would collide (the old email
     # index normally prevents this, but it was only ever created by a hook).
@@ -45,8 +49,14 @@ def assign_existing_users(apps, schema_editor):
 
 
 def remove_default_organization(apps, schema_editor):
-    apps.get_model('api', 'Membership').objects.all().delete()
-    apps.get_model('api', 'Organization').objects.filter(slug='default').delete()
+    Organization = apps.get_model('api', 'Organization')
+    default = Organization.objects.filter(slug='default').first()
+    if default is None:
+        return
+    # Only this migration's own memberships: an organization created after the upgrade (and
+    # its memberships) must survive a rollback of this migration untouched.
+    apps.get_model('api', 'Membership').objects.filter(organization=default).delete()
+    default.delete()
 
 
 class Migration(migrations.Migration):

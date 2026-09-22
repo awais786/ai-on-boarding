@@ -218,7 +218,7 @@ def test_a_non_admin_cannot_reset_a_password():
     account = create_account('ada')
     non_admin_client = authed_client(create_account('regular', is_staff=False))
 
-    response = change_password(non_admin_client, account.username, 'new-password-1')
+    response = change_password(non_admin_client, account.membership.username, 'new-password-1')
 
     assert response.status_code == 403
     account.refresh_from_db()
@@ -229,7 +229,7 @@ def test_a_non_admin_cannot_reset_a_password():
 def test_an_unauthenticated_caller_cannot_reset_a_password():
     account = create_account('ada')
 
-    response = change_password(APIClient(), account.username, 'new-password-1')
+    response = change_password(APIClient(), account.membership.username, 'new-password-1')
 
     assert response.status_code in (401, 403)
     account.refresh_from_db()
@@ -256,7 +256,7 @@ def test_a_weak_new_password_is_rejected():
     account = create_account('ada')
     admin_client = authed_client(create_account('admin', is_staff=True))
 
-    response = change_password(admin_client, account.username, 'weak')
+    response = change_password(admin_client, account.membership.username, 'weak')
 
     assert response.status_code == 400
     account.refresh_from_db()
@@ -281,6 +281,6 @@ def test_a_rejected_resets_response_never_contains_the_submitted_password():
     account = create_account('ada')
     non_admin_client = authed_client(create_account('regular', is_staff=False))
 
-    response = change_password(non_admin_client, account.username, 'attempted-password-1')
+    response = change_password(non_admin_client, account.membership.username, 'attempted-password-1')
 
     assert 'attempted-password-1' not in str(response.data)
