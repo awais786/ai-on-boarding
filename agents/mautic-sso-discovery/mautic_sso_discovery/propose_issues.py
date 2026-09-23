@@ -1,10 +1,10 @@
 """Phase 2 (`propose-issues`): a separate, human-gated invocation. Drafting
 (what issues to create) is the model's job; creating them is plain code
-that reuses GitHubClient from agents/issue-reconciler/, so a bad draft is a
-JSON value to review, not a live API call to debug. The report text is
-pasted directly into the prompt rather than read via a tool, so this
-session needs zero tools at all - simpler and strictly safer than granting
-a scoped Read tool for one file.
+that uses this package's own GitHubClient, so a bad draft is a JSON value
+to review, not a live API call to debug. The report text is pasted
+directly into the prompt rather than read via a tool, so this session
+needs zero tools at all - simpler and strictly safer than granting a
+scoped Read tool for one file.
 """
 from __future__ import annotations
 
@@ -15,7 +15,8 @@ from typing import TypedDict
 
 import anyio
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
-from issue_reconciler.client import GitHubClient
+
+from mautic_sso_discovery.github_client import GitHubClient
 
 _REPO_ID_QUERY = "query RepoId($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id } }"
 _CREATE_ISSUE = (

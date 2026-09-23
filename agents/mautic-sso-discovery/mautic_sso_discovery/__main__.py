@@ -14,9 +14,9 @@ import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
-from issue_reconciler.client import GitHubClient
 
 from mautic_sso_discovery.discover import run_discover
+from mautic_sso_discovery.github_client import GitHubClient
 from mautic_sso_discovery.propose_issues import run_propose_issues
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")

@@ -1,13 +1,9 @@
-"""Test-only fake GitHub transport, following the same pattern as
-agents/issue-reconciler/tests/support.py - kept as a separate, smaller copy
-here since these two agent packages are independently installable and
-don't share a test-only module.
-"""
+"""Test-only fake GitHub transport for this package's own GitHubClient."""
 from __future__ import annotations
 
 from typing import Any
 
-from issue_reconciler.client import GitHubClient
+from mautic_sso_discovery.github_client import GitHubClient
 
 
 class FakeResponse:
