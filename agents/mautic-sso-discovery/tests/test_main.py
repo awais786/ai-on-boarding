@@ -94,8 +94,8 @@ def test_propose_issues_dispatches_to_run_propose_issues(monkeypatch, tmp_path):
     monkeypatch.delenv("MAUTIC_DISCOVERY_MODEL", raising=False)
     called = {}
 
-    def fake_run_propose_issues(report_path, github_repo, client, *, model):
-        called["args"] = (report_path, github_repo, model)
+    def fake_run_propose_issues(report_path, github_repo, client, *, model, title_prefix):
+        called["args"] = (report_path, github_repo, model, title_prefix)
         return {"A": "https://github.com/x/y/issues/1"}
 
     monkeypatch.setattr("mautic_sso_discovery.__main__.run_propose_issues", fake_run_propose_issues)
@@ -108,7 +108,27 @@ def test_propose_issues_dispatches_to_run_propose_issues(monkeypatch, tmp_path):
     )
 
     assert main() == 0
-    assert called["args"] == (report_path, "x/y", "claude-sonnet-5")
+    assert called["args"] == (report_path, "x/y", "claude-sonnet-5", "")
+
+
+def test_propose_issues_passes_through_title_prefix(monkeypatch, tmp_path):
+    called = {}
+
+    def fake_run_propose_issues(report_path, github_repo, client, *, model, title_prefix):
+        called["title_prefix"] = title_prefix
+        return {}
+
+    monkeypatch.setattr("mautic_sso_discovery.__main__.run_propose_issues", fake_run_propose_issues)
+    monkeypatch.setattr("mautic_sso_discovery.__main__.GitHubClient", lambda token: "fake-client")
+    monkeypatch.setenv("BOARD_TOKEN", "t")
+    report_path = tmp_path / "report.md"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prog", "propose-issues", "--report", str(report_path), "--github-repo", "x/y", "--title-prefix", "[TEST] "],
+    )
+
+    assert main() == 0
+    assert called["title_prefix"] == "[TEST] "
 
 
 def test_propose_issues_dry_run_drafts_without_creating_or_needing_a_token(monkeypatch, tmp_path, capsys):

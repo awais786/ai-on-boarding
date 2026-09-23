@@ -84,6 +84,21 @@ def test_create_issues_creates_in_dependency_order_and_links_urls():
     assert "https://github.com/x/y/issues/1" in calls[2]["variables"]["body"]
 
 
+def test_create_issues_applies_title_prefix_but_keeps_original_titles_as_dict_keys():
+    client, calls = make_sequential_client(
+        [
+            {"repository": {"id": "REPO_ID"}},
+            {"createIssue": {"issue": {"number": 1, "url": "https://github.com/x/y/issues/1"}}},
+        ]
+    )
+    drafts = [{"title": "A", "body": "body a", "depends_on": []}]
+
+    urls = create_issues(client, "x", "y", drafts, title_prefix="[TEST] ")
+
+    assert calls[1]["variables"]["title"] == "[TEST] A"
+    assert urls == {"A": "https://github.com/x/y/issues/1"}
+
+
 def test_create_issues_raises_on_circular_dependency():
     client, _ = make_sequential_client([{"repository": {"id": "REPO_ID"}}])
     drafts = [

@@ -42,11 +42,11 @@ def _propose_issues(args: argparse.Namespace) -> int:
         drafts = draft_issues(Path(args.report), model=args.model)
         for draft in drafts:
             deps = f" (depends on: {', '.join(draft['depends_on'])})" if draft.get("depends_on") else ""
-            print(f"[dry run] {draft['title']}{deps}\n{draft['body']}\n")
+            print(f"[dry run] {args.title_prefix}{draft['title']}{deps}\n{draft['body']}\n")
         return 0
 
     client = GitHubClient(os.environ["BOARD_TOKEN"])
-    urls = run_propose_issues(Path(args.report), args.github_repo, client, model=args.model)
+    urls = run_propose_issues(Path(args.report), args.github_repo, client, model=args.model, title_prefix=args.title_prefix)
     for title, url in urls.items():
         print(f"{title}: {url}")
     return 0
@@ -78,6 +78,11 @@ def main() -> int:
         "--dry-run",
         action="store_true",
         help="draft issues and print them without creating anything on GitHub (no BOARD_TOKEN needed)",
+    )
+    propose_parser.add_argument(
+        "--title-prefix",
+        default="",
+        help="prepend this to every created issue's title (e.g. '[TEST] '), so a test run is clearly marked",
     )
     propose_parser.set_defaults(func=_propose_issues)
 

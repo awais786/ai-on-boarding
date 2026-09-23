@@ -74,11 +74,23 @@ def parse_issue_drafts(raw_json: str) -> list[IssueDraft]:
     return drafts
 
 
-def create_issues(client: GitHubClient, owner: str, name: str, drafts: list[IssueDraft]) -> dict[str, str]:
+def create_issues(
+    client: GitHubClient,
+    owner: str,
+    name: str,
+    drafts: list[IssueDraft],
+    *,
+    title_prefix: str = "",
+) -> dict[str, str]:
     """Creates each issue in dependency order (a draft with no unmet
     dependency first), appending a note of already-created dependency URLs
     into the body, since GitHub issues can't cross-link to a dependency
     that doesn't exist yet at draft time. Returns {title: issue_url}.
+
+    `title_prefix` (e.g. "[TEST] ") is applied only to the title actually
+    sent to GitHub - dependency resolution and the returned dict's keys
+    still use each draft's original, unprefixed title, so a caller doesn't
+    need to know the prefix to look up a created issue's URL.
     """
     repository_id = client.query(_REPO_ID_QUERY, {"owner": owner, "name": name})["repository"]["id"]
 
@@ -95,7 +107,7 @@ def create_issues(client: GitHubClient, owner: str, name: str, drafts: list[Issu
                 body = f"{body}\n\n---\nDepends on: {deps_line}"
             result = client.query(
                 _CREATE_ISSUE,
-                {"repositoryId": repository_id, "title": draft["title"], "body": body},
+                {"repositoryId": repository_id, "title": f"{title_prefix}{draft['title']}", "body": body},
             )
             created_urls[draft["title"]] = result["createIssue"]["issue"]["url"]
             remaining.remove(draft)
@@ -148,6 +160,7 @@ def run_propose_issues(
     client: GitHubClient,
     *,
     model: str = "claude-sonnet-5",
+    title_prefix: str = "",
     query_impl=query,
 ) -> dict[str, str]:
     if github_repo.count("/") != 1:
@@ -155,4 +168,4 @@ def run_propose_issues(
     owner, name = github_repo.split("/", 1)
 
     drafts = draft_issues(report_path, model=model, query_impl=query_impl)
-    return create_issues(client, owner, name, drafts)
+    return create_issues(client, owner, name, drafts, title_prefix=title_prefix)
