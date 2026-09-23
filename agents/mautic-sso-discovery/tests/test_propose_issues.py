@@ -65,6 +65,17 @@ def test_parse_issue_drafts_rejects_unknown_dependency():
         parse_issue_drafts(raw)
 
 
+def test_parse_issue_drafts_rejects_duplicate_titles():
+    raw = json.dumps(
+        [
+            {"title": "A", "body": "first", "depends_on": []},
+            {"title": "A", "body": "second", "depends_on": []},
+        ]
+    )
+    with pytest.raises(ValueError, match="duplicate"):
+        parse_issue_drafts(raw)
+
+
 def test_create_issues_creates_in_dependency_order_and_links_urls():
     client, calls = make_sequential_client(
         [

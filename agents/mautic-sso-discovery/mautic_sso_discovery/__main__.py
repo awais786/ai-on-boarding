@@ -45,7 +45,10 @@ def _propose_issues(args: argparse.Namespace) -> int:
             print(f"[dry run] {args.title_prefix}{draft['title']}{deps}\n{draft['body']}\n")
         return 0
 
-    client = GitHubClient(os.environ["BOARD_TOKEN"])
+    board_token = os.environ.get("BOARD_TOKEN")
+    if not board_token:
+        sys.exit("set BOARD_TOKEN (a GitHub PAT with repo write access) to create issues, or pass --dry-run to preview without one")
+    client = GitHubClient(board_token)
     urls = run_propose_issues(Path(args.report), args.github_repo, client, model=args.model, title_prefix=args.title_prefix)
     for title, url in urls.items():
         print(f"{title}: {url}")

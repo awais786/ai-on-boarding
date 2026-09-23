@@ -153,3 +153,15 @@ def test_propose_issues_dry_run_drafts_without_creating_or_needing_a_token(monke
     assert main() == 0
     assert called["args"] == (report_path, "claude-sonnet-5")
     assert "[dry run] A" in capsys.readouterr().out
+
+
+def test_propose_issues_without_dry_run_requires_board_token(monkeypatch, tmp_path):
+    monkeypatch.delenv("BOARD_TOKEN", raising=False)
+    report_path = tmp_path / "report.md"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prog", "propose-issues", "--report", str(report_path), "--github-repo", "x/y"],
+    )
+
+    with pytest.raises(SystemExit, match="BOARD_TOKEN"):
+        main()

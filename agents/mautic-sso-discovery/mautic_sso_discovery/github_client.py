@@ -97,7 +97,8 @@ class GitHubClient:
                 if response.status_code == 429 or (response.status_code == 403 and _is_rate_limit_403(response)):
                     retry_after = response.headers.get("retry-after")
                     last_error = RuntimeError(f"rate limited (status {response.status_code})")
-                    self._backoff(attempt, floor=float(retry_after) if retry_after else None)
+                    if attempt < self._max_attempts:
+                        self._backoff(attempt, floor=float(retry_after) if retry_after else None)
                     continue
 
                 if response.status_code == 403:
@@ -105,7 +106,8 @@ class GitHubClient:
 
                 if response.status_code >= 500:
                     last_error = RuntimeError(f"transient server error (status {response.status_code})")
-                    self._backoff(attempt)
+                    if attempt < self._max_attempts:
+                        self._backoff(attempt)
                     continue
 
                 if not response.ok:
@@ -115,7 +117,8 @@ class GitHubClient:
                 if body.get("errors"):
                     if _is_retryable_graphql_error(body["errors"]):
                         last_error = GraphQLError("retryable GraphQL error", body["errors"])
-                        self._backoff(attempt)
+                        if attempt < self._max_attempts:
+                            self._backoff(attempt)
                         continue
                     raise GraphQLError("GraphQL request returned errors", body["errors"])
 

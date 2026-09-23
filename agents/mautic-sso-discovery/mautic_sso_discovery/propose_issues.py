@@ -66,7 +66,15 @@ def parse_issue_drafts(raw_json: str) -> list[IssueDraft]:
     drafts = json.loads(raw_json)
     if not isinstance(drafts, list):
         raise ValueError("expected a JSON array of issue drafts")
-    titles = {d["title"] for d in drafts}
+    all_titles = [d["title"] for d in drafts]
+    titles = set(all_titles)
+    if len(titles) != len(all_titles):
+        duplicates = {t for t in all_titles if all_titles.count(t) > 1}
+        # create_issues keys its {title: url} return value by title, so a
+        # duplicate would create both issues on GitHub for real but silently
+        # drop one's URL from the result - reject it here instead, before
+        # anything is created.
+        raise ValueError(f"duplicate issue title(s), each title must be unique: {duplicates}")
     for draft in drafts:
         unknown = set(draft.get("depends_on", [])) - titles
         if unknown:

@@ -51,6 +51,33 @@ def test_gives_up_after_max_attempts_and_surfaces_the_last_error():
         client.query("query { ok }")
 
 
+def test_does_not_sleep_on_the_final_attempt_before_giving_up():
+    """The call is already going to fail once the last attempt is spent -
+    sleeping first just delays the inevitable raise for no benefit.
+    """
+    sleeps = []
+    client = GitHubClient(
+        "t", max_attempts=3, sleep=lambda s: sleeps.append(s),
+        transport=lambda *_: FakeResponse(status_code=500, reason="Internal Server Error"),
+    )
+    with pytest.raises(RuntimeError, match="transient server error"):
+        client.query("query { ok }")
+
+    assert len(sleeps) == 2  # backs off after attempts 1 and 2, not after attempt 3
+
+
+def test_does_not_sleep_on_the_final_rate_limited_attempt():
+    sleeps = []
+    client = GitHubClient(
+        "t", max_attempts=2, sleep=lambda s: sleeps.append(s),
+        transport=lambda *_: FakeResponse(status_code=429),
+    )
+    with pytest.raises(RuntimeError, match="rate limited"):
+        client.query("query { ok }")
+
+    assert len(sleeps) == 1
+
+
 def test_does_not_retry_a_non_retryable_graphql_error():
     calls = {"n": 0}
 
