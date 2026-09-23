@@ -91,15 +91,18 @@ def create_issues(client: GitHubClient, owner: str, name: str, drafts: list[Issu
     return created_urls
 
 
-def run_propose_issues(
+def draft_issues(
     report_path: Path,
-    github_repo: str,
-    client: GitHubClient,
     *,
     model: str = "claude-sonnet-5",
     query_impl=query,
-) -> dict[str, str]:
-    owner, name = github_repo.split("/", 1)
+) -> list[IssueDraft]:
+    """Just the drafting half: asks the model to break the report into
+    issues and parses its answer. Doesn't touch GitHub at all - split out
+    so a --dry-run can preview drafts without needing a GitHubClient or
+    BOARD_TOKEN, and without any risk of a bad draft actually creating
+    anything.
+    """
     report_text = report_path.read_text()
 
     options = ClaudeAgentOptions(
@@ -125,5 +128,20 @@ def run_propose_issues(
             query_impl=query_impl,
         )
     )
-    drafts = parse_issue_drafts(raw)
+    return parse_issue_drafts(raw)
+
+
+def run_propose_issues(
+    report_path: Path,
+    github_repo: str,
+    client: GitHubClient,
+    *,
+    model: str = "claude-sonnet-5",
+    query_impl=query,
+) -> dict[str, str]:
+    if github_repo.count("/") != 1:
+        raise ValueError(f"--github-repo must be 'owner/name', got {github_repo!r}")
+    owner, name = github_repo.split("/", 1)
+
+    drafts = draft_issues(report_path, model=model, query_impl=query_impl)
     return create_issues(client, owner, name, drafts)

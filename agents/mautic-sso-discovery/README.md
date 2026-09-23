@@ -3,9 +3,19 @@
 Claude Agent SDK program for [issue #82](https://github.com/awais786/ai-on-boarding/issues/82):
 investigates a target codebase's current authentication against the fixed
 Moneta SSO contract (bundled in `context/`), and writes a Markdown discovery
-report + integration plan. Never modifies the target repo — the clone is
-made unwritable before the agent session starts, and the session is never
-granted a Write/Edit/Bash tool.
+report + integration plan.
+
+Safety properties of the `discover` session:
+- The clone is made unwritable (`chmod`) before the session starts.
+- Its tool availability is restricted to `Read`/`Grep`/`Glob` via
+  `ClaudeAgentOptions.tools` — a real capability restriction, not just an
+  auto-approve list — so it has no way to reach `Bash`/`Write`/`Edit` or
+  anything else.
+- `setting_sources=[]` means it never inherits the operator's own Claude
+  settings (e.g. any MCP servers configured on the machine running it).
+- A `PreToolUse` hook denies `Read` until at least one `Grep`/`Glob` has
+  actually succeeded in that session — enforcing "search before you read"
+  in code, not just as a prompt instruction.
 
 ## Setup
 
@@ -30,8 +40,17 @@ python -m mautic_sso_discovery discover \
 
 Read the report. Only once you're satisfied with it, run phase 2.
 
-**Phase 2 — propose issues (requires `BOARD_TOKEN`, a GitHub PAT with repo
-write access; creates real issues):**
+**Preview the draft first — no `BOARD_TOKEN` needed, creates nothing:**
+
+```bash
+python -m mautic_sso_discovery propose-issues \
+  --report ./mautic-discovery-report.md \
+  --github-repo awais786/ai-on-boarding \
+  --dry-run
+```
+
+**Phase 2 — propose issues for real (requires `BOARD_TOKEN`, a GitHub PAT
+with repo write access; creates real issues):**
 
 ```bash
 python -m mautic_sso_discovery propose-issues \
@@ -43,22 +62,10 @@ python -m mautic_sso_discovery propose-issues \
 
 Both subcommands default to `claude-sonnet-5`. Override it per-run with
 `--model`, or set a persistent default via `MAUTIC_DISCOVERY_MODEL` (env
-var, or in `.env`) — `--model` always wins if both are set. Valid values
-as of this writing:
-
-```
-claude-opus-5
-claude-sonnet-5              (default)
-claude-fable-5-1
-claude-haiku-4-5-20251001    (cheapest — good for a low-cost trial run)
-```
-
-```bash
-python -m mautic_sso_discovery discover \
-  --target-repo https://github.com/pressingly/mautic \
-  --out ./mautic-discovery-report.md \
-  --model claude-haiku-4-5-20251001
-```
+var, or in `.env`) — `--model` always wins if both are set. See
+`python -m mautic_sso_discovery discover --help` for the current list of
+valid values (kept there, not duplicated here, so there's one place to
+update as models change).
 
 ## Tests
 

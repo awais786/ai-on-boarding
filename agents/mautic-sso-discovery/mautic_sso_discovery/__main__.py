@@ -17,9 +17,17 @@ from dotenv import load_dotenv
 
 from mautic_sso_discovery.discover import run_discover
 from mautic_sso_discovery.github_client import GitHubClient
-from mautic_sso_discovery.propose_issues import run_propose_issues
+from mautic_sso_discovery.propose_issues import draft_issues, run_propose_issues
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# The single source of truth for valid model values - referenced by the
+# --model help text below (run `--help` to see it) rather than duplicated
+# in the README, so there's exactly one place to keep this list current.
+_VALID_MODELS_HELP = (
+    "model to use (default: %(default)s). Valid values: claude-opus-5, "
+    "claude-sonnet-5, claude-fable-5-1, claude-haiku-4-5-20251001 (cheapest)."
+)
 
 
 def _discover(args: argparse.Namespace) -> int:
@@ -30,6 +38,13 @@ def _discover(args: argparse.Namespace) -> int:
 
 
 def _propose_issues(args: argparse.Namespace) -> int:
+    if args.dry_run:
+        drafts = draft_issues(Path(args.report), model=args.model)
+        for draft in drafts:
+            deps = f" (depends on: {', '.join(draft['depends_on'])})" if draft.get("depends_on") else ""
+            print(f"[dry run] {draft['title']}{deps}\n{draft['body']}\n")
+        return 0
+
     client = GitHubClient(os.environ["BOARD_TOKEN"])
     urls = run_propose_issues(Path(args.report), args.github_repo, client, model=args.model)
     for title, url in urls.items():
@@ -44,12 +59,6 @@ def main() -> int:
     # main() is called, but discover.py/propose_issues.py were already
     # imported (and any module-level env read would have already happened)
     # before that point.
-    #
-    # Valid values as of this writing:
-    #   claude-opus-5
-    #   claude-sonnet-5              (default)
-    #   claude-fable-5-1
-    #   claude-haiku-4-5-20251001    (cheapest - good for a low-cost trial run)
     default_model = os.environ.get("MAUTIC_DISCOVERY_MODEL", "claude-sonnet-5")
 
     parser = argparse.ArgumentParser(prog="mautic_sso_discovery")
@@ -58,13 +67,18 @@ def main() -> int:
     discover_parser = subparsers.add_parser("discover")
     discover_parser.add_argument("--target-repo", required=True)
     discover_parser.add_argument("--out", required=True)
-    discover_parser.add_argument("--model", default=default_model)
+    discover_parser.add_argument("--model", default=default_model, help=_VALID_MODELS_HELP)
     discover_parser.set_defaults(func=_discover)
 
     propose_parser = subparsers.add_parser("propose-issues")
     propose_parser.add_argument("--report", required=True)
     propose_parser.add_argument("--github-repo", required=True)
-    propose_parser.add_argument("--model", default=default_model)
+    propose_parser.add_argument("--model", default=default_model, help=_VALID_MODELS_HELP)
+    propose_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="draft issues and print them without creating anything on GitHub (no BOARD_TOKEN needed)",
+    )
     propose_parser.set_defaults(func=_propose_issues)
 
     args = parser.parse_args()

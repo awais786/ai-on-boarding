@@ -69,10 +69,14 @@ python -m mautic_sso_discovery propose-issues \
 ### `discover`
 
 1. Uses the Claude Agent SDK (`claude-agent-sdk`, Python) to run a session
-   with tool access limited to `Bash` (used only for `git clone
-   --depth 1 <target-repo>` into a fresh temp directory and read-only shell
-   commands), `Read`, `Grep`, `Glob`. **No `Write`/`Edit` tool is granted** —
-   the model has no tool capable of modifying any file it can see.
+   with tool access limited to `Read`, `Grep`, `Glob` — **no `Bash`,
+   `Write`, or `Edit` tool is granted**, the model has no tool capable of
+   modifying any file it can see. The clone itself is done by the
+   orchestrating Python code (a plain `git clone --depth 1`) before the
+   agent session even starts, not by the model calling a tool — cloning a
+   repo has exactly one correct way to do it, so there's no judgment for
+   the model to add, and it means step 2 below can run with zero window
+   during which the model could act on a writable checkout.
 2. Immediately after the clone, the orchestrating Python code runs
    `chmod -R a-w` on the cloned directory. This is the actual enforcement of
    "Agent must not modify the target repository" — a filesystem-level

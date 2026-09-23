@@ -94,11 +94,18 @@ def build_task_prompt(target_repo_url: str) -> str:
 
 def _search_before_read_hooks() -> dict:
     """Enforces "search before read" in code, not just in the prompt: a
-    fresh Read is denied until at least one Grep or Glob call has happened
-    in this session. The system prompt already asks for this, but a prompt
-    is a request the model can ignore under pressure; this hook makes it
-    the actual rule. State is a plain dict closed over by both callbacks -
-    fresh per call, so two discovery runs never share it.
+    fresh Read is denied until at least one Grep or Glob call has actually
+    succeeded in this session. The system prompt already asks for this,
+    but a prompt is a request the model can ignore under pressure; this
+    hook makes it the actual rule. State is a plain dict closed over by
+    both callbacks - fresh per call, so two discovery runs never share it.
+
+    _mark_searched is registered on PostToolUse, not PreToolUse: a
+    PreToolUse hook fires before the tool call runs, so it would flip
+    `searched` even if that Grep/Glob was itself denied or errored.
+    PostToolUse only fires once the call actually succeeded (a distinct
+    PostToolUseFailure event covers the failure case) - so a Read can
+    only unlock once a search has genuinely completed.
     """
     state = {"searched": False}
 
@@ -118,9 +125,11 @@ def _search_before_read_hooks() -> dict:
         }
 
     return {
-        "PreToolUse": [
+        "PostToolUse": [
             HookMatcher(matcher="Grep", hooks=[_mark_searched]),
             HookMatcher(matcher="Glob", hooks=[_mark_searched]),
+        ],
+        "PreToolUse": [
             HookMatcher(matcher="Read", hooks=[_require_search_first]),
         ]
     }

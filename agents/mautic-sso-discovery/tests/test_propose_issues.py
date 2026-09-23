@@ -27,6 +27,14 @@ def _result(**overrides) -> ResultMessage:
     return ResultMessage(**{**defaults, **overrides})
 
 
+def test_run_propose_issues_rejects_malformed_github_repo(tmp_path):
+    report_path = tmp_path / "report.md"
+    report_path.write_text("# Report")
+
+    with pytest.raises(ValueError, match="owner/name"):
+        run_propose_issues(report_path, "not-a-valid-repo", client=None)
+
+
 def test_build_propose_prompt_requires_json_only_response_and_embeds_report():
     prompt = build_propose_prompt("some report text")
     assert "ONLY a JSON array" in prompt

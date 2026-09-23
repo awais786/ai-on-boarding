@@ -104,12 +104,14 @@ def test_run_discover_creates_missing_out_dir(tmp_path):
 
 def _hook(hooks: dict, tool_name: str):
     """Pulls the single callback registered for `tool_name` out of the
-    PreToolUse hooks dict returned by _search_before_read_hooks(), so the
-    tests below can invoke it directly without a real SDK session.
+    hooks dict returned by _search_before_read_hooks() (Grep/Glob are
+    under PostToolUse, Read is under PreToolUse), so the tests below can
+    invoke it directly without a real SDK session.
     """
-    for matcher in hooks["PreToolUse"]:
-        if matcher.matcher == tool_name:
-            return matcher.hooks[0]
+    for matchers in hooks.values():
+        for matcher in matchers:
+            if matcher.matcher == tool_name:
+                return matcher.hooks[0]
     raise AssertionError(f"no hook registered for {tool_name!r}")
 
 
@@ -174,8 +176,8 @@ def test_run_discover_builds_options_with_hardened_tool_and_settings_restriction
     options = captured["options"]
     assert options.tools == ["Read", "Grep", "Glob"]
     assert options.setting_sources == []
-    hooked_tools = {matcher.matcher for matcher in options.hooks["PreToolUse"]}
-    assert hooked_tools == {"Grep", "Glob", "Read"}
+    assert {matcher.matcher for matcher in options.hooks["PreToolUse"]} == {"Read"}
+    assert {matcher.matcher for matcher in options.hooks["PostToolUse"]} == {"Grep", "Glob"}
 
 
 def test_run_discover_raises_on_empty_final_report(tmp_path):

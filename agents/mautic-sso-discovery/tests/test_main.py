@@ -109,3 +109,27 @@ def test_propose_issues_dispatches_to_run_propose_issues(monkeypatch, tmp_path):
 
     assert main() == 0
     assert called["args"] == (report_path, "x/y", "claude-sonnet-5")
+
+
+def test_propose_issues_dry_run_drafts_without_creating_or_needing_a_token(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("BOARD_TOKEN", raising=False)
+    called = {}
+
+    def fake_draft_issues(report_path, *, model):
+        called["args"] = (report_path, model)
+        return [{"title": "A", "body": "body a", "depends_on": []}]
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("run_propose_issues must not be called in --dry-run mode")
+
+    monkeypatch.setattr("mautic_sso_discovery.__main__.draft_issues", fake_draft_issues)
+    monkeypatch.setattr("mautic_sso_discovery.__main__.run_propose_issues", fail_if_called)
+    report_path = tmp_path / "report.md"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prog", "propose-issues", "--report", str(report_path), "--github-repo", "x/y", "--dry-run"],
+    )
+
+    assert main() == 0
+    assert called["args"] == (report_path, "claude-sonnet-5")
+    assert "[dry run] A" in capsys.readouterr().out
