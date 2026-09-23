@@ -1,6 +1,6 @@
 # Runtime + test tooling for the discovery agent. Not a dependency of the
 # Django project - sdd_django_demo/requirements.txt is unchanged by this.
-claude-agent-sdk==0.1.0
+claude-agent-sdk==0.2.158
 anyio==4.7.0
 requests==2.34.2
 python-dotenv==1.0.1
