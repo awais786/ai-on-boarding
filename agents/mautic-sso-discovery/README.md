@@ -39,6 +39,27 @@ python -m mautic_sso_discovery propose-issues \
   --github-repo awais786/ai-on-boarding
 ```
 
+## Choosing a model
+
+Both subcommands default to `claude-sonnet-5`. Override it per-run with
+`--model`, or set a persistent default via `MAUTIC_DISCOVERY_MODEL` (env
+var, or in `.env`) — `--model` always wins if both are set. Valid values
+as of this writing:
+
+```
+claude-opus-5
+claude-sonnet-5              (default)
+claude-fable-5-1
+claude-haiku-4-5-20251001    (cheapest — good for a low-cost trial run)
+```
+
+```bash
+python -m mautic_sso_discovery discover \
+  --target-repo https://github.com/pressingly/mautic \
+  --out ./mautic-discovery-report.md \
+  --model claude-haiku-4-5-20251001
+```
+
 ## Tests
 
 ```bash

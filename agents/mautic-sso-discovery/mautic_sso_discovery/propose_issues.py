@@ -105,6 +105,7 @@ def run_propose_issues(
     github_repo: str,
     client: GitHubClient,
     *,
+    model: str = "claude-sonnet-5",
     query_impl=query,
 ) -> dict[str, str]:
     owner, name = github_repo.split("/", 1)
@@ -123,7 +124,7 @@ def run_propose_issues(
         setting_sources=[],
         permission_mode="bypassPermissions",
         max_turns=5,
-        model="claude-sonnet-5",
+        model=model,
     )
 
     raw = anyio.run(
