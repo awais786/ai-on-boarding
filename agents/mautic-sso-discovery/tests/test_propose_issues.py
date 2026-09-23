@@ -41,6 +41,13 @@ def test_build_propose_prompt_requires_json_only_response_and_embeds_report():
     assert "some report text" in prompt
 
 
+def test_build_propose_prompt_constrains_granularity():
+    prompt = build_propose_prompt("some report text")
+    assert "One issue per core code change" in prompt
+    assert "Fold that change's own tests into its own issue" in prompt
+    assert "Do NOT create separate issues for documentation" in prompt
+
+
 def test_parse_issue_drafts_accepts_valid_array():
     raw = json.dumps(
         [
