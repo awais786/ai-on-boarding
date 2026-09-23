@@ -22,8 +22,8 @@ def test_propose_issues_requires_report_and_github_repo(monkeypatch):
 def test_discover_dispatches_to_run_discover(monkeypatch, tmp_path):
     called = {}
 
-    def fake_run_discover(target_repo, out_path, workdir):
-        called["args"] = (target_repo, out_path)
+    def fake_run_discover(target_repo, out_path, workdir, *, model):
+        called["args"] = (target_repo, out_path, model)
 
     monkeypatch.setattr("mautic_sso_discovery.__main__.run_discover", fake_run_discover)
     out_path = tmp_path / "r.md"
@@ -33,7 +33,24 @@ def test_discover_dispatches_to_run_discover(monkeypatch, tmp_path):
     )
 
     assert main() == 0
-    assert called["args"] == ("https://x", out_path)
+    assert called["args"] == ("https://x", out_path, "claude-sonnet-5")
+
+
+def test_discover_passes_through_custom_model(monkeypatch, tmp_path):
+    called = {}
+
+    def fake_run_discover(target_repo, out_path, workdir, *, model):
+        called["model"] = model
+
+    monkeypatch.setattr("mautic_sso_discovery.__main__.run_discover", fake_run_discover)
+    out_path = tmp_path / "r.md"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prog", "discover", "--target-repo", "https://x", "--out", str(out_path), "--model", "claude-haiku-4-5-20251001"],
+    )
+
+    assert main() == 0
+    assert called["model"] == "claude-haiku-4-5-20251001"
 
 
 def test_propose_issues_dispatches_to_run_propose_issues(monkeypatch, tmp_path):

@@ -24,7 +24,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 def _discover(args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory() as workdir:
-        run_discover(args.target_repo, Path(args.out), Path(workdir))
+        run_discover(args.target_repo, Path(args.out), Path(workdir), model=args.model)
     print(f"discovery report written to {args.out}")
     return 0
 
@@ -44,6 +44,7 @@ def main() -> int:
     discover_parser = subparsers.add_parser("discover")
     discover_parser.add_argument("--target-repo", required=True)
     discover_parser.add_argument("--out", required=True)
+    discover_parser.add_argument("--model", default="claude-sonnet-5")
     discover_parser.set_defaults(func=_discover)
 
     propose_parser = subparsers.add_parser("propose-issues")

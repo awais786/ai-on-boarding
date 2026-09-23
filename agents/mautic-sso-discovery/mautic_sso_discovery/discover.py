@@ -140,6 +140,7 @@ def run_discover(
     out_path: Path,
     workdir: Path,
     *,
+    model: str = "claude-sonnet-5",
     query_impl=query,
     clone_impl=clone_repo,
     lock_down_impl=lock_down,
@@ -163,7 +164,7 @@ def run_discover(
         setting_sources=[],
         permission_mode="bypassPermissions",
         max_turns=60,
-        model="claude-sonnet-5",
+        model=model,
         # Code-enforced version of the system prompt's "search before you
         # read" instruction - a Read call is denied until Grep/Glob has
         # run at least once in this session.
