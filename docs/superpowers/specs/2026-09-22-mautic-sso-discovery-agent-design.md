@@ -3,6 +3,20 @@
 Date: 2026-09-22
 Source: [awais786/ai-on-boarding#82](https://github.com/awais786/ai-on-boarding/issues/82)
 
+> **Post-implementation amendment (2026-09-23):** two decisions below were
+> revised after this design was written, per direct instruction — this
+> document is left as the historical record of the original design, not
+> rewritten:
+> - Every reference to reusing `GitHubClient` from `agents/issue-reconciler/`
+>   (e.g. "Consumes: `GitHubClient` from `issue_reconciler.client`") is
+>   superseded — this package now has its own self-contained
+>   `mautic_sso_discovery/github_client.py`, with no cross-package
+>   dependency, so its own SDD-generated pyproject/requirements never need
+>   `agents/issue-reconciler` installed.
+> - `claude-agent-sdk==0.1.0` (used throughout this doc's code) is stale —
+>   the real current package is `claude-agent-sdk==0.2.158`, pinned in
+>   `agents/mautic-sso-discovery/requirements.txt`.
+
 ## Goal
 
 Build a Claude Agent SDK program that investigates a target codebase's current

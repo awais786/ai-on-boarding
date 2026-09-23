@@ -2,6 +2,30 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Post-implementation amendment (2026-09-23):** this plan (including Task
+> 4's `requirements.txt`/code blocks below) reflects the state as originally
+> executed. Two things changed after all 5 tasks completed, per direct
+> instruction, and are NOT reflected below — this document stays as the
+> historical record rather than being rewritten:
+> - `GitHubClient` is no longer reused from `agents/issue-reconciler/` — it
+>   was copied into this package's own `mautic_sso_discovery/github_client.py`
+>   (see git history: "Give mautic-sso-discovery its own GitHubClient
+>   instead of depending on issue-reconciler"), removing the
+>   `-e ../issue-reconciler` line from `requirements.txt` and the
+>   `from issue_reconciler.client import GitHubClient` imports shown in
+>   Tasks 4 and 5's code below.
+> - `claude-agent-sdk==0.1.0` (pinned in Task 1's `requirements.txt` below)
+>   was upgraded to the real current release, `claude-agent-sdk==0.2.158` —
+>   0.1.0 predates a message type (`rate_limit_event`) the current `claude`
+>   CLI sends, which crashed a real `discover` run.
+> - `discover.py`'s `ClaudeAgentOptions` in Task 3's code below also predates
+>   later hardening: a `hooks=` PreToolUse gate enforcing "search before
+>   read", a `--model`/`MAUTIC_DISCOVERY_MODEL`-driven `model` parameter, and
+>   `tools=[...]` (a real capability restriction) in place of the
+>   `allowed_tools`/`disallowed_tools` pair shown below, once 0.2.158 made
+>   that possible. The current source is the source of truth for all of
+>   these; this document is not.
+
 **Goal:** Build a Claude Agent SDK program that clones a target repo, traces its
 current authentication implementation against a fixed, bundled Moneta SSO
 contract, writes a Markdown discovery report + integration plan, and — as a
