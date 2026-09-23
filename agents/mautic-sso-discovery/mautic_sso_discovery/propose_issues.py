@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import TypedDict
 
 import anyio
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
+from claude_agent_sdk import ClaudeAgentOptions, query
 
 from mautic_sso_discovery.github_client import GitHubClient
+from mautic_sso_discovery.sdk_session import collect_final_text
 
 _REPO_ID_QUERY = "query RepoId($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id } }"
 _CREATE_ISSUE = (
@@ -48,16 +49,6 @@ def build_propose_prompt(report_text: str) -> str:
         "in this same array that must land first, or an empty list\n\n"
         f"--- REPORT ---\n{report_text}"
     )
-
-
-async def _collect_final_report_text(prompt: str, options: ClaudeAgentOptions, *, query_impl) -> str:
-    last_text = ""
-    async for message in query_impl(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            text = "".join(block.text for block in message.content if isinstance(block, TextBlock))
-            if text:
-                last_text = text
-    return last_text
 
 
 def parse_issue_drafts(raw_json: str) -> list[IssueDraft]:
@@ -112,13 +103,12 @@ def run_propose_issues(
     report_text = report_path.read_text()
 
     options = ClaudeAgentOptions(
-        allowed_tools=[],
-        # allowed_tools is only an auto-approve list, not a restriction - the
-        # actual guarantee is this denylist. Static and hand-maintained;
-        # revisit if the SDK ever adds a true allowlist-restriction mode.
-        disallowed_tools=[
-            "Bash", "Write", "Edit", "NotebookEdit", "Read", "Grep", "Glob", "MultiEdit", "Task",
-        ],
+        # No tools at all - the report text is pasted directly into the
+        # prompt, so this session has nothing on disk or on GitHub it
+        # needs to reach. `tools=[]` is a real restriction (confirmed
+        # against claude_agent_sdk>=0.2.x's own docstring: "[] (empty
+        # list) - Disable all built-in tools"), not an advisory list.
+        tools=[],
         # Don't inherit MCP servers or other config from the operator's own
         # user/project/local Claude settings.
         setting_sources=[],
@@ -129,7 +119,7 @@ def run_propose_issues(
 
     raw = anyio.run(
         functools.partial(
-            _collect_final_report_text,
+            collect_final_text,
             build_propose_prompt(report_text),
             options,
             query_impl=query_impl,

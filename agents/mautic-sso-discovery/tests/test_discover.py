@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import anyio
 import pytest
-from claude_agent_sdk import AssistantMessage, TextBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
 from mautic_sso_discovery.discover import (
     _search_before_read_hooks,
@@ -10,6 +10,23 @@ from mautic_sso_discovery.discover import (
     build_task_prompt,
     run_discover,
 )
+
+
+def _result(**overrides) -> ResultMessage:
+    """A ResultMessage for a normally-completed session, with the
+    required fields filled in and everything else defaulted - override
+    only what a given test cares about (e.g. is_error, terminal_reason).
+    """
+    defaults = dict(
+        subtype="success",
+        duration_ms=1,
+        duration_api_ms=1,
+        is_error=False,
+        num_turns=1,
+        session_id="test-session",
+        terminal_reason="completed",
+    )
+    return ResultMessage(**{**defaults, **overrides})
 
 
 def test_build_system_prompt_includes_contract_and_tool_rules():
@@ -41,6 +58,7 @@ def test_build_task_prompt_lists_all_required_sections():
 async def _fake_query(*, prompt, options):
     yield AssistantMessage(content=[TextBlock(text="exploring the repo...")], model="test")
     yield AssistantMessage(content=[TextBlock(text="# Discovery Report\n\nfinal content")], model="test")
+    yield _result()
 
 
 def test_run_discover_clones_locks_down_and_writes_final_report_text(tmp_path):
@@ -142,6 +160,7 @@ def test_run_discover_builds_options_with_hardened_tool_and_settings_restriction
     async def capturing_query(*, prompt, options):
         captured["options"] = options
         yield AssistantMessage(content=[TextBlock(text="report")], model="test")
+        yield _result()
 
     run_discover(
         "https://example.com/repo",
@@ -153,8 +172,7 @@ def test_run_discover_builds_options_with_hardened_tool_and_settings_restriction
     )
 
     options = captured["options"]
-    for blocked in ["Bash", "Write", "Edit", "NotebookEdit", "MultiEdit", "Task"]:
-        assert blocked in options.disallowed_tools
+    assert options.tools == ["Read", "Grep", "Glob"]
     assert options.setting_sources == []
     hooked_tools = {matcher.matcher for matcher in options.hooks["PreToolUse"]}
     assert hooked_tools == {"Grep", "Glob", "Read"}
@@ -163,6 +181,7 @@ def test_run_discover_builds_options_with_hardened_tool_and_settings_restriction
 def test_run_discover_raises_on_empty_final_report(tmp_path):
     async def empty_query(*, prompt, options):
         yield AssistantMessage(content=[TextBlock(text="")], model="test")
+        yield _result()
 
     with pytest.raises(RuntimeError, match="no final report"):
         run_discover(
@@ -170,6 +189,38 @@ def test_run_discover_raises_on_empty_final_report(tmp_path):
             tmp_path / "report.md",
             tmp_path,
             query_impl=empty_query,
+            clone_impl=lambda url, dest: dest.mkdir(parents=True),
+            lock_down_impl=lambda path: None,
+        )
+
+
+def test_run_discover_raises_on_max_turns_truncation(tmp_path):
+    async def truncated_query(*, prompt, options):
+        yield AssistantMessage(content=[TextBlock(text="still exploring, ran out of turns")], model="test")
+        yield _result(is_error=False, terminal_reason="max_turns")
+
+    with pytest.raises(RuntimeError, match="max_turns"):
+        run_discover(
+            "https://example.com/repo",
+            tmp_path / "report.md",
+            tmp_path,
+            query_impl=truncated_query,
+            clone_impl=lambda url, dest: dest.mkdir(parents=True),
+            lock_down_impl=lambda path: None,
+        )
+
+
+def test_run_discover_raises_on_session_error(tmp_path):
+    async def erroring_query(*, prompt, options):
+        yield AssistantMessage(content=[TextBlock(text="# Discovery Report\n\nlooks done but isn't")], model="test")
+        yield _result(is_error=True, subtype="error_during_execution")
+
+    with pytest.raises(RuntimeError, match="error"):
+        run_discover(
+            "https://example.com/repo",
+            tmp_path / "report.md",
+            tmp_path,
+            query_impl=erroring_query,
             clone_impl=lambda url, dest: dest.mkdir(parents=True),
             lock_down_impl=lambda path: None,
         )

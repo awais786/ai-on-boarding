@@ -12,10 +12,11 @@ import functools
 from pathlib import Path
 
 import anyio
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, HookMatcher, TextBlock, query
+from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, query
 
 from mautic_sso_discovery.cloning import clone_repo, lock_down
 from mautic_sso_discovery.context import load_moneta_contract
+from mautic_sso_discovery.sdk_session import collect_final_text
 
 _REQUIRED_TASK_SECTIONS = [
     "Authentication today",
@@ -125,16 +126,6 @@ def _search_before_read_hooks() -> dict:
     }
 
 
-async def _collect_final_report_text(prompt: str, options: ClaudeAgentOptions, *, query_impl) -> str:
-    last_text = ""
-    async for message in query_impl(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            text = "".join(block.text for block in message.content if isinstance(block, TextBlock))
-            if text:
-                last_text = text
-    return last_text
-
-
 def run_discover(
     target_repo_url: str,
     out_path: Path,
@@ -154,11 +145,13 @@ def run_discover(
     options = ClaudeAgentOptions(
         system_prompt=build_system_prompt(),
         cwd=clone_dir,
-        allowed_tools=["Read", "Grep", "Glob"],
-        # allowed_tools is only an auto-approve list, not a restriction - the
-        # actual guarantee is this denylist. Static and hand-maintained;
-        # revisit if the SDK ever adds a true allowlist-restriction mode.
-        disallowed_tools=["Bash", "Write", "Edit", "NotebookEdit", "MultiEdit", "Task"],
+        # `tools` is a real restriction on which built-in tools even exist
+        # for this session (confirmed against claude_agent_sdk>=0.2.x's own
+        # docstring: "Specify the base set of available built-in tools").
+        # This closes everything not named here - Bash, Write, Edit,
+        # WebFetch, WebSearch, etc - rather than a hand-maintained denylist
+        # that has to be kept in sync with every tool the SDK ever adds.
+        tools=["Read", "Grep", "Glob"],
         # Don't inherit MCP servers or other config from the operator's own
         # user/project/local Claude settings.
         setting_sources=[],
@@ -173,7 +166,7 @@ def run_discover(
 
     report = anyio.run(
         functools.partial(
-            _collect_final_report_text,
+            collect_final_text,
             build_task_prompt(target_repo_url),
             options,
             query_impl=query_impl,

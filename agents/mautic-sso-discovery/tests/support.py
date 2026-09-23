@@ -7,12 +7,16 @@ from mautic_sso_discovery.github_client import GitHubClient
 
 
 class FakeResponse:
-    def __init__(self, data: Any = None):
-        self.status_code = 200
-        self.ok = True
-        self.reason = ""
-        self.headers: dict = {}
-        self._body = {"data": data}
+    def __init__(self, status_code: int = 200, data: Any = None, errors: Any = None, headers: dict | None = None, reason: str = ""):
+        self.status_code = status_code
+        self.ok = 200 <= status_code < 300
+        self.reason = reason
+        self.headers = headers or {}
+        self._body = {}
+        if data is not None:
+            self._body["data"] = data
+        if errors is not None:
+            self._body["errors"] = errors
 
     def json(self) -> dict:
         return self._body
