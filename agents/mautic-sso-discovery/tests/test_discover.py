@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import anyio
 import pytest
 from claude_agent_sdk import AssistantMessage, TextBlock
 
-from mautic_sso_discovery.discover import build_system_prompt, build_task_prompt, run_discover
+from mautic_sso_discovery.discover import (
+    _search_before_read_hooks,
+    build_system_prompt,
+    build_task_prompt,
+    run_discover,
+)
 
 
 def test_build_system_prompt_includes_contract_and_tool_rules():
@@ -78,6 +84,58 @@ def test_run_discover_creates_missing_out_dir(tmp_path):
     assert out_path.read_text() == "# Discovery Report\n\nfinal content"
 
 
+def _hook(hooks: dict, tool_name: str):
+    """Pulls the single callback registered for `tool_name` out of the
+    PreToolUse hooks dict returned by _search_before_read_hooks(), so the
+    tests below can invoke it directly without a real SDK session.
+    """
+    for matcher in hooks["PreToolUse"]:
+        if matcher.matcher == tool_name:
+            return matcher.hooks[0]
+    raise AssertionError(f"no hook registered for {tool_name!r}")
+
+
+def test_search_before_read_hooks_denies_read_before_any_search():
+    hooks = _search_before_read_hooks()
+    read_hook = _hook(hooks, "Read")
+
+    result = anyio.run(read_hook, {}, "tool-use-id", {})
+
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_search_before_read_hooks_allows_read_after_a_grep():
+    hooks = _search_before_read_hooks()
+    grep_hook = _hook(hooks, "Grep")
+    read_hook = _hook(hooks, "Read")
+
+    anyio.run(grep_hook, {}, "tool-use-id", {})
+    result = anyio.run(read_hook, {}, "tool-use-id", {})
+
+    assert result == {}
+
+
+def test_search_before_read_hooks_allows_read_after_a_glob():
+    hooks = _search_before_read_hooks()
+    glob_hook = _hook(hooks, "Glob")
+    read_hook = _hook(hooks, "Read")
+
+    anyio.run(glob_hook, {}, "tool-use-id", {})
+    result = anyio.run(read_hook, {}, "tool-use-id", {})
+
+    assert result == {}
+
+
+def test_search_before_read_hooks_state_is_independent_per_call():
+    first_run_hooks = _search_before_read_hooks()
+    anyio.run(_hook(first_run_hooks, "Grep"), {}, "tool-use-id", {})
+
+    second_run_hooks = _search_before_read_hooks()
+    result = anyio.run(_hook(second_run_hooks, "Read"), {}, "tool-use-id", {})
+
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
 def test_run_discover_builds_options_with_hardened_tool_and_settings_restrictions(tmp_path):
     captured = {}
 
@@ -98,6 +156,8 @@ def test_run_discover_builds_options_with_hardened_tool_and_settings_restriction
     for blocked in ["Bash", "Write", "Edit", "NotebookEdit", "MultiEdit", "Task"]:
         assert blocked in options.disallowed_tools
     assert options.setting_sources == []
+    hooked_tools = {matcher.matcher for matcher in options.hooks["PreToolUse"]}
+    assert hooked_tools == {"Grep", "Glob", "Read"}
 
 
 def test_run_discover_raises_on_empty_final_report(tmp_path):

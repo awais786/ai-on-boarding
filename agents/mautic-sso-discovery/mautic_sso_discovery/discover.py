@@ -12,7 +12,7 @@ import functools
 from pathlib import Path
 
 import anyio
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, HookMatcher, TextBlock, query
 
 from mautic_sso_discovery.cloning import clone_repo, lock_down
 from mautic_sso_discovery.context import load_moneta_contract
@@ -91,6 +91,40 @@ def build_task_prompt(target_repo_url: str) -> str:
     )
 
 
+def _search_before_read_hooks() -> dict:
+    """Enforces "search before read" in code, not just in the prompt: a
+    fresh Read is denied until at least one Grep or Glob call has happened
+    in this session. The system prompt already asks for this, but a prompt
+    is a request the model can ignore under pressure; this hook makes it
+    the actual rule. State is a plain dict closed over by both callbacks -
+    fresh per call, so two discovery runs never share it.
+    """
+    state = {"searched": False}
+
+    async def _mark_searched(input_data, tool_use_id, context):
+        state["searched"] = True
+        return {}
+
+    async def _require_search_first(input_data, tool_use_id, context):
+        if state["searched"]:
+            return {}
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "Use Grep or Glob to locate a candidate file before reading it.",
+            }
+        }
+
+    return {
+        "PreToolUse": [
+            HookMatcher(matcher="Grep", hooks=[_mark_searched]),
+            HookMatcher(matcher="Glob", hooks=[_mark_searched]),
+            HookMatcher(matcher="Read", hooks=[_require_search_first]),
+        ]
+    }
+
+
 async def _collect_final_report_text(prompt: str, options: ClaudeAgentOptions, *, query_impl) -> str:
     last_text = ""
     async for message in query_impl(prompt=prompt, options=options):
@@ -130,6 +164,10 @@ def run_discover(
         permission_mode="bypassPermissions",
         max_turns=60,
         model="claude-sonnet-5",
+        # Code-enforced version of the system prompt's "search before you
+        # read" instruction - a Read call is denied until Grep/Glob has
+        # run at least once in this session.
+        hooks=_search_before_read_hooks(),
     )
 
     report = anyio.run(
